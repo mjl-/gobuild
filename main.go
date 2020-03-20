@@ -39,6 +39,16 @@ var (
 		sync.Mutex
 		paths []string
 	}
+
+	// We keep a map of available builds, so we can show in links in UI that navigating
+	// won't trigger a build but will return quickly.
+	availableBuilds = struct {
+		sync.Mutex
+		index map[string]struct{} // keys are: goos-goarch-goversion/mod@version/dir
+	}{
+		sync.Mutex{},
+		map[string]struct{}{},
+	}
 )
 
 var (
@@ -282,6 +292,9 @@ func serve(w http.ResponseWriter, r *http.Request) {
 			recentBuilds.paths = recentBuilds.paths[len(recentBuilds.paths)-10:]
 		}
 		recentBuilds.Unlock()
+		availableBuilds.Lock()
+		availableBuilds.index[p] = struct{}{}
+		availableBuilds.Unlock()
 	}
 
 	switch req.Page {
@@ -353,7 +366,7 @@ func serve(w http.ResponseWriter, r *http.Request) {
 {{ $req := .Req }}
 <div style="width: 32%; display: inline-block; vertical-align: top">
 	<h2>Go versions</h2>
-{{ range .Goversions }}	<div><a href="/x/{{ $req.Goos }}-{{ $req.Goarch }}-{{ . }}/{{ $req.Mod }}@{{ $req.Version }}/ {{ $req.Dir }}">{{ . }}</a></div>{{ end }}
+{{ range .GoversionLinks }}	<div><a href="/x/{{ .Path }}">{{ .Goversion }}</a>{{ if .Available }} ✓{{ end }}</div>{{ end }}
 </div>
 
 <div style="width: 32%; display: inline-block; vertical-align: top">
@@ -363,18 +376,52 @@ func serve(w http.ResponseWriter, r *http.Request) {
 
 <div style="width: 32%; display: inline-block; vertical-align: top">
 	<h2>Targets</h2>
-{{ range .Targets }}	<div><a href="/x/{{ .Goos }}-{{ .Goarch }}-{{ $req.Goversion }}/{{ $req.Mod }}@{{ $req.Version }}/{{ $req.Dir }}">{{ .Goos }}/{{ .Goarch }}</a></div>{{ end }}
+{{ range .TargetLinks }}	<div><a href="/x/{{ .Path }}">{{ .Goos }}/{{ .Goarch }}</a>{{ if .Available }} ✓{{ end }}</div>{{ end }}
 </div>
 `)
 		if err != nil {
 			failf(w, "parsing html template: %v", err)
 			return
 		}
+		type goversionLink struct {
+			Goversion string
+			Path      string
+			Available bool
+		}
+		goversionLinks := []goversionLink{}
+		for _, goversion := range installedSDK() {
+			p := fmt.Sprintf("%s-%s-%s/%s@%s/%s", req.Goos, req.Goarch, goversion, req.Mod, req.Version, req.Dir)
+			goversionLinks = append(goversionLinks, goversionLink{goversion, p, false})
+		}
+
+		type targetLink struct {
+			Goos      string
+			Goarch    string
+			Path      string
+			Available bool
+		}
+		targetLinks := []targetLink{}
+		for _, target := range targets {
+			p := fmt.Sprintf("%s-%s-%s/%s@%s/%s", target.Goos, target.Goarch, req.Goversion, req.Mod, req.Version, req.Dir)
+			targetLinks = append(targetLinks, targetLink{target.Goos, target.Goarch, p, false})
+		}
+
+		availableBuilds.Lock()
+		for i, link := range goversionLinks {
+			_, ok := availableBuilds.index[link.Path]
+			goversionLinks[i].Available = ok
+		}
+		for i, link := range targetLinks {
+			_, ok := availableBuilds.index[link.Path]
+			targetLinks[i].Available = ok
+		}
+		availableBuilds.Unlock()
+
 		args := map[string]interface{}{
-			"Req":        req,
-			"Sum":        sum,
-			"Goversions": installedSDK(),
-			"Targets":    targets,
+			"Req":            req,
+			"Sum":            sum,
+			"GoversionLinks": goversionLinks,
+			"TargetLinks":    targetLinks,
 		}
 		err = tmpl.Execute(b, args)
 		if err != nil {
