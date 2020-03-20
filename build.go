@@ -56,8 +56,13 @@ func build(w http.ResponseWriter, r *http.Request, req request) bool {
 	}
 	getOutput, err := cmd.CombinedOutput()
 	if err != nil {
-		log.Printf("output: %s", string(getOutput))
-		failf(w, "fetching module: %v", err)
+		// Fetching the code failed. We report it back to the user immediately. We don't
+		// store these results. Perhaps the user is trying to build something that was
+		// uploaded just now, and not yet available in the go module proxy.
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(400)
+		fmt.Fprintf(w, "400 - error fetching module from goproxy: %v\n\n# output:\n", err)
+		w.Write(getOutput)
 		return false
 	}
 
