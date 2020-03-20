@@ -45,7 +45,7 @@ func build(w http.ResponseWriter, r *http.Request, req request) (ok bool, tmpFai
 	if !path.IsAbs(homedir) {
 		homedir = path.Join(workdir, config.HomeDir)
 	}
-	os.Mkdir(homedir, 0777)
+	os.Mkdir(homedir, 0775) // failures will be caught later
 
 	cmd := exec.CommandContext(r.Context(), gobin, "get", req.Mod[:len(req.Mod)-1]+"@"+req.Version)
 	cmd.Dir = dir
@@ -62,12 +62,12 @@ func build(w http.ResponseWriter, r *http.Request, req request) (ok bool, tmpFai
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.WriteHeader(400)
 		fmt.Fprintf(w, "400 - error fetching module from goproxy: %v\n\n# output:\n", err)
-		w.Write(getOutput)
+		w.Write(getOutput) // nothing to do for errors
 		return false, true
 	}
 
 	lname := dir + "/bin/" + req.filename()
-	os.Mkdir(filepath.Dir(lname), 0777)
+	os.Mkdir(filepath.Dir(lname), 0775) // failures will be caught later
 	cmd = exec.CommandContext(r.Context(), gobin, "build", "-o", lname, "-x", "-trimpath", "-ldflags", "-buildid=00000000000000000000/00000000000000000000/00000000000000000000/00000000000000000000")
 	cmd.Env = []string{
 		"CGO_ENABLED=0",
@@ -114,7 +114,7 @@ func saveFailure(req request, output []byte, start time.Time, systemTime, userTi
 	}
 
 	finalDir := path.Join(config.DataDir, req.destdir())
-	os.MkdirAll(path.Dir(finalDir), 0755)
+	os.MkdirAll(path.Dir(finalDir), 0775) // failures will be caught later
 	err = os.Rename(tmpdir, finalDir)
 	if err != nil {
 		return err
@@ -178,7 +178,7 @@ func saveFiles(req request, output []byte, lname string, start time.Time, system
 	}
 
 	finalDir := path.Join(config.DataDir, req.destdir())
-	os.MkdirAll(path.Dir(finalDir), 0755)
+	os.MkdirAll(path.Dir(finalDir), 0775) // failures will be caught later
 	err = os.Rename(tmpdir, finalDir)
 	if err != nil {
 		return err

@@ -272,7 +272,7 @@ func serveBuilds(w http.ResponseWriter, r *http.Request) {
 		}
 		defer f.Close()
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		io.Copy(w, f)
+		io.Copy(w, f) // nothing to do for errors
 	case pageDownloadRedirect:
 		buf, err := ioutil.ReadFile(lpath + "/sha256")
 		if err != nil {

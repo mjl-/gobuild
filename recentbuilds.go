@@ -53,16 +53,16 @@ func readRecentBuilds() {
 			switch t[0] {
 			case "v1":
 				if len(t) != 13 {
-					log.Println("bad line with v1, got %d tokens, expected 13", len(t))
+					log.Printf("bad line with v1, got %d tokens, expected 13", len(t))
 					return
 				}
 
 				p := fmt.Sprintf("%s-%s-%s/%s@%s/%s", t[7], t[8], t[9], t[10], t[11], t[12])
 				l = append(l, p)
 				availableBuilds.index[p] = t[1] != "x"
-				targetUse[t[7]+"/"+t[8]] += 1
+				targetUse[t[7]+"/"+t[8]]++
 			default:
-				log.Println("bad line, starts with %q", t[0])
+				log.Printf("bad line, starts with %q", t[0])
 				return
 			}
 		}

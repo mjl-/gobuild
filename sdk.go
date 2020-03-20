@@ -16,8 +16,6 @@ import (
 	"github.com/mjl-/goreleases"
 )
 
-var status error
-
 type target struct {
 	Goos   string
 	Goarch string
