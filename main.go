@@ -24,6 +24,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -387,6 +388,8 @@ func serve(w http.ResponseWriter, r *http.Request) {
 }
 
 func build(w http.ResponseWriter, r *http.Request, req request) bool {
+	start := time.Now()
+
 	err := ensureSDK(req.Goversion)
 	if err != nil {
 		failf(w, "missing toolchain %q: %v", req.Goversion, err)
@@ -451,7 +454,7 @@ func build(w http.ResponseWriter, r *http.Request, req request) bool {
 		return false
 	}
 
-	err = saveFiles(req, output, lname)
+	err = saveFiles(req, output, lname, start, cmd.ProcessState.SystemTime(), cmd.ProcessState.UserTime())
 	if err != nil {
 		failf(w, "writing resulting files: %v", err)
 		return false
@@ -459,12 +462,18 @@ func build(w http.ResponseWriter, r *http.Request, req request) bool {
 	return true
 }
 
-func saveFiles(req request, logOutput []byte, lname string) error {
+func saveFiles(req request, logOutput []byte, lname string, start time.Time, systemTime, userTime time.Duration) error {
 	of, err := os.Open(lname)
 	if err != nil {
 		return err
 	}
 	defer of.Close()
+
+	fi, err := of.Stat()
+	if err != nil {
+		return err
+	}
+	size := fi.Size()
 
 	h := sha256.New()
 	_, err = io.Copy(h, of)
@@ -526,7 +535,7 @@ func saveFiles(req request, logOutput []byte, lname string) error {
 			bf.Close()
 		}
 	}()
-	_, err = fmt.Fprintf(bf, "%s %s %s %s %s %s\n", req.Goos, req.Goarch, req.Goversion, req.Mod, req.Version, req.Dir)
+	_, err = fmt.Fprintf(bf, "v1 %s %d %d %d %d %d %s %s %s %s %s %s\n", sha256, size, start.UnixNano()/int64(time.Millisecond), time.Since(start)/time.Millisecond, systemTime/time.Millisecond, userTime/time.Millisecond, req.Goos, req.Goarch, req.Goversion, req.Mod, req.Version, req.Dir)
 	if err != nil {
 		return err
 	}

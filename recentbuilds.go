@@ -47,9 +47,18 @@ func readRecentBuilds() {
 		if s != "" {
 			s = s[:len(s)-1]
 			t := strings.Split(s, " ")
-			if len(t) == 6 {
-				p := fmt.Sprintf("%s-%s-%s/%s@%s/%s", t[0], t[1], t[2], t[3], t[4], t[5])
+			switch t[0] {
+			case "v1":
+				if len(t) != 13 {
+					log.Println("bad line with v1, got %d tokens, expected 13", len(t))
+					return
+				}
+
+				p := fmt.Sprintf("%s-%s-%s/%s@%s/%s", t[7], t[8], t[9], t[10], t[11], t[12])
 				l = append(l, p)
+			default:
+				log.Println("bad line, starts with %q", t[0])
+				return
 			}
 		}
 		if err == io.EOF {
