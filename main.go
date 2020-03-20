@@ -28,14 +28,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/mjl-/sconf"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 var (
-	listenAddress = flag.String("listen", "localhost:8000", "address to serve on")
-	listenAdmin   = flag.String("listenadmin", "localhost:8001", "address to serve admin-related http on")
-	workdir       string
+	workdir string
 
 	recentBuilds struct {
 		sync.Mutex
@@ -50,6 +49,20 @@ var (
 	}{
 		sync.Mutex{},
 		map[string]struct{}{},
+	}
+
+	config = struct {
+		BaseURL string `sconf-doc:"Used to make full URLs in the web pages."`
+		GoProxy string `sconf-doc:"URL to proxy, make sure it ends with a slash!."`
+		DataDir string `sconf-doc:"Directory where builds.txt and all builds files (binaries, logs, sha256) are stored."`
+		SDKDir  string `sconf-doc:"Directory where SDKs (go toolchains) are installed."`
+		HomeDir string `sconf-doc:"Directory set as home directory during builds. Go caches will be created there."`
+	}{
+		"http://localhost:8000/",
+		"https://proxy.golang.org/",
+		"data",
+		"sdk",
+		"home",
 	}
 )
 
@@ -80,14 +93,62 @@ var (
 func main() {
 	log.SetFlags(0)
 	flag.Usage = func() {
-		log.Println("usage: gobuild [flags]")
+		log.Println("usage: gobuild [flags] { config | testconfig | serve }")
+		log.Println("       gobuild config")
+		log.Println("       gobuild testconfig gobuild.conf")
+		log.Println("       gobuild serve [gobuild.conf]")
 		flag.PrintDefaults()
 	}
 	flag.Parse()
 	args := flag.Args()
-	if len(args) != 0 {
+	if len(args) == 0 {
 		flag.Usage()
 		os.Exit(2)
+	}
+	cmd, args := args[0], args[1:]
+	switch cmd {
+	case "config":
+		err := sconf.Describe(os.Stdout, &config)
+		if err != nil {
+			log.Fatalf("describing config: %v", err)
+		}
+	case "testconfig":
+		if len(args) != 1 {
+			flag.Usage()
+			os.Exit(2)
+		}
+		err := sconf.ParseFile(args[0], &config)
+		if err != nil {
+			log.Fatalf("parsing config file: %v", err)
+		}
+		log.Printf("config OK")
+	case "serve":
+		serve(args)
+	default:
+		flag.Usage()
+		os.Exit(2)
+	}
+}
+
+func serve(args []string) {
+	serveFlags := flag.NewFlagSet("serve", flag.ExitOnError)
+	listenAddress := serveFlags.String("listen", "localhost:8000", "address to serve on")
+	listenAdmin := serveFlags.String("listenadmin", "localhost:8001", "address to serve admin-related http on")
+	serveFlags.Usage = func() {
+		log.Println("usage: gobuild serve [flags] [gobuild.conf]")
+		serveFlags.PrintDefaults()
+	}
+	serveFlags.Parse(args)
+	args = serveFlags.Args()
+	if len(args) > 1 {
+		serveFlags.Usage()
+		os.Exit(2)
+	}
+	if len(args) > 0 {
+		err := sconf.ParseFile(args[0], &config)
+		if err != nil {
+			log.Fatalf("parsing config file: %v", err)
+		}
 	}
 
 	var err error
@@ -105,7 +166,7 @@ func main() {
 		w.Header().Set("Content-Type", "text/plain")
 		fmt.Fprint(w, "User-agent: *\nDisallow: /x/\n")
 	})
-	mux.HandleFunc("/x/", serve)
+	mux.HandleFunc("/x/", serveBuilds)
 	mux.HandleFunc("/", staticFile)
 	log.Printf("listening on %s and %s", *listenAddress, *listenAdmin)
 	go func() {
@@ -262,7 +323,7 @@ func failf(w http.ResponseWriter, format string, args ...interface{}) {
 	http.Error(w, "500 - "+msg, http.StatusInternalServerError)
 }
 
-func serve(w http.ResponseWriter, r *http.Request) {
+func serveBuilds(w http.ResponseWriter, r *http.Request) {
 	req, ok := parsePath(r.URL.Path[3:])
 	if !ok {
 		http.NotFound(w, r)
@@ -288,7 +349,7 @@ func serve(w http.ResponseWriter, r *http.Request) {
 			Version string
 			Time    time.Time
 		}
-		u := fmt.Sprintf("https://proxy.golang.org/%s/@latest", req.Mod)
+		u := fmt.Sprintf("%s%s/@latest", config.GoProxy, req.Mod)
 		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 		defer cancel()
 		mreq, err := http.NewRequestWithContext(ctx, "GET", u, nil)
@@ -298,21 +359,21 @@ func serve(w http.ResponseWriter, r *http.Request) {
 		}
 		resp, err := http.DefaultClient.Do(mreq)
 		if err != nil {
-			failf(w, "resolving latest at proxy.golang.org: %v", err)
+			failf(w, "resolving latest at goproxy: %v", err)
 			return
 		}
 		defer resp.Body.Close()
 		if resp.StatusCode != 200 {
-			failf(w, "error response from proxy.golang.org resolving latest, status %s", resp.Status)
+			failf(w, "error response from goproxy resolving latest, status %s", resp.Status)
 			return
 		}
 		err = json.NewDecoder(resp.Body).Decode(&modVersion)
 		if err != nil {
-			failf(w, "parsing json returned by proxy.golang.org for latest version: %v", err)
+			failf(w, "parsing json returned by goproxy for latest version: %v", err)
 			return
 		}
 		if modVersion.Version == "" {
-			failf(w, "empty version for latest from proxy.golang.org")
+			failf(w, "empty version for latest from goproxy")
 			return
 		}
 		p := fmt.Sprintf("/x/%s-%s-%s/%s@%s/%s%s", req.Goos, req.Goarch, req.Goversion, req.Mod, modVersion.Version, req.Dir, req.pagePart())
@@ -320,7 +381,7 @@ func serve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	lpath := "data/" + req.destdir()
+	lpath := path.Join(config.DataDir, req.destdir())
 	_, err := os.Stat(lpath)
 	if err != nil {
 		if !os.IsNotExist(err) {
@@ -406,7 +467,7 @@ func serve(w http.ResponseWriter, r *http.Request) {
 		go func() {
 			ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 			defer cancel()
-			u := fmt.Sprintf("https://proxy.golang.org/%s/@v/list", req.Mod)
+			u := fmt.Sprintf("%s%s/@v/list", config.GoProxy, req.Mod)
 			mreq, err := http.NewRequestWithContext(ctx, "GET", u, nil)
 			if err != nil {
 				c <- response{fmt.Errorf("preparing new http request: %v", err), nil}
@@ -551,7 +612,7 @@ func build(w http.ResponseWriter, r *http.Request, req request) bool {
 		return false
 	}
 
-	gobin := fmt.Sprintf("%s/sdk/%s/bin/go", workdir, req.Goversion)
+	gobin := path.Join(config.SDKDir, req.Goversion, "bin/go")
 	_, err = os.Stat(gobin)
 	if err != nil {
 		failf(w, "unknown toolchain %q: %v", req.Goversion, err)
@@ -565,13 +626,16 @@ func build(w http.ResponseWriter, r *http.Request, req request) bool {
 	}
 	defer os.RemoveAll(dir)
 
-	homedir := workdir + "/home"
+	homedir := config.HomeDir
+	if !path.IsAbs(homedir) {
+		homedir = path.Join(workdir, config.HomeDir)
+	}
 	os.Mkdir(homedir, 0777)
 
 	cmd := exec.CommandContext(r.Context(), gobin, "get", req.Mod+"@"+req.Version)
 	cmd.Dir = dir
 	cmd.Env = []string{
-		"GOPROXY=https://proxy.golang.org",
+		fmt.Sprintf("GOPROXY=%s", config.GoProxy),
 		"GO111MODULE=on",
 		"HOME=" + homedir,
 	}
@@ -643,7 +707,7 @@ func saveFiles(req request, logOutput []byte, lname string, start time.Time, sys
 		return err
 	}
 
-	dir := "data/" + req.destdir()
+	dir := path.Join(config.DataDir, req.destdir())
 
 	success := false
 	defer func() {
@@ -706,7 +770,7 @@ func saveFiles(req request, logOutput []byte, lname string, start time.Time, sys
 		return err
 	}
 
-	bf, err := os.OpenFile("data/builds.txt", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	bf, err := os.OpenFile(path.Join(config.DataDir, "builds.txt"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		return err
 	}

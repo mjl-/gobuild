@@ -13,6 +13,11 @@ github.com/matttproud/golang_protobuf_extensions/pbutil
 # github.com/mjl-/goreleases v0.0.1
 ## explicit
 github.com/mjl-/goreleases
+# github.com/mjl-/sconf v0.0.0-20190603191030-08de39cd8a7d
+## explicit
+github.com/mjl-/sconf
+# github.com/mjl-/xfmt v0.0.0-20190521151243-39d9c00752ce
+github.com/mjl-/xfmt
 # github.com/prometheus/client_golang v1.5.1
 ## explicit
 github.com/prometheus/client_golang/prometheus

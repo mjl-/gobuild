@@ -6,12 +6,13 @@ import (
 	"io"
 	"log"
 	"os"
+	"path"
 	"strings"
 )
 
 // Reading recent builds is best-effort...
 func readRecentBuilds() {
-	f, err := os.Open("data/builds.txt")
+	f, err := os.Open(path.Join(config.DataDir, "builds.txt"))
 	if err != nil {
 		log.Printf("open: %v", err)
 		return

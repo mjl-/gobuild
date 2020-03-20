@@ -5,6 +5,7 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"path"
 	"runtime"
 	"sort"
 	"strconv"
@@ -171,7 +172,7 @@ func ensureSDK(goversion string) error {
 				sdk.fetch.status[goversion] = err
 				return err
 			}
-			err = os.Rename(tmpdir+"/go", "sdk/"+goversion)
+			err = os.Rename(tmpdir+"/go", path.Join(config.SDKDir, goversion))
 			if err != nil {
 				err = fmt.Errorf("putting sdk in place: %v", err)
 			} else {

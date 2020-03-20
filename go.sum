@@ -36,6 +36,10 @@ github.com/matttproud/golang_protobuf_extensions v1.0.1 h1:4hp9jkHxhMHkqkrB3Ix0j
 github.com/matttproud/golang_protobuf_extensions v1.0.1/go.mod h1:D8He9yQNgCq6Z5Ld7szi9bcBfOoFv/3dc6xSMkL2PC0=
 github.com/mjl-/goreleases v0.0.1 h1:0FsG0yYqX2wExnC4KRtra1BnjqED/JXHNa+ChB3bPGc=
 github.com/mjl-/goreleases v0.0.1/go.mod h1:fQai17mOgk9qGV94WaH2cXFqxfjoZ4uD+XKhp3la4gQ=
+github.com/mjl-/sconf v0.0.0-20190603191030-08de39cd8a7d h1:F4KlpXrlyOkgtHQlFbIWcfUWBCNCT0Bpw1FDXQh9kSM=
+github.com/mjl-/sconf v0.0.0-20190603191030-08de39cd8a7d/go.mod h1:ezf7YOn7gtClo8y71SqgZKaEkyMQ5Te7vkv4PmTTfwM=
+github.com/mjl-/xfmt v0.0.0-20190521151243-39d9c00752ce h1:oyFmIHo3GLWZzb0odAzN9QUy0MTW6P8JaNRnNVGCBCk=
+github.com/mjl-/xfmt v0.0.0-20190521151243-39d9c00752ce/go.mod h1:DIEOLmETMQHHr4OgwPG7iC37rDiN9MaZIZxNm5hBtL8=
 github.com/modern-go/concurrent v0.0.0-20180228061459-e0a39a4cb421/go.mod h1:6dJC0mAP4ikYIbvyc7fijjWJddQyLn8Ig3JB5CqoB9Q=
 github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd/go.mod h1:6dJC0mAP4ikYIbvyc7fijjWJddQyLn8Ig3JB5CqoB9Q=
 github.com/modern-go/reflect2 v0.0.0-20180701023420-4b7aa43c6742/go.mod h1:bx2lNnkwVCuqBIxFjflWJWanXIb3RllmbCylyMrvgv0=
