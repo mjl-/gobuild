@@ -17,7 +17,7 @@ Gobuild builds by executing commands like:
 	cd $tmpdir
 	GO111MODULE=on GOPROXY=https://proxy.golang.org go get $module@$version
 	cd $gopath/pkg/mod/$module@$version/$path
-	CGO_ENABLED=0 GOOS=$goos GOARCH=$goarch go build -o $tmpdir/$name -x -trimpath -ldflags -buildid=00000000000000000000/00000000000000000000/00000000000000000000/00000000000000000000
+	CGO_ENABLED=0 GOOS=$goos GOARCH=$goarch go build -mod=readonly -o $tmpdir/$name -x -trimpath -ldflags -buildid=00000000000000000000/00000000000000000000/00000000000000000000/00000000000000000000
 
 Results are stored in ./data/.
 Builds are done with a home directory of ./home/.
@@ -34,5 +34,6 @@ Toolchains are in ./sdk/.
 - Create a transparency log with builds.
 
 - Write tests.
+- Could handle more versions, like @master, @commitid, etc.
 - Cache responses from goproxy?
 - Handle special characters in modules/versions/package paths.
