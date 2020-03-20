@@ -3,13 +3,12 @@
 // Serves URLs like:
 //
 // 	http://localhost:8000/
-// 	http://localhost:8000/x/github.com/mjl-/sherpa@v0.6.0/cmd/sherpaclient/linux-amd64-go1.13
-// 	http://localhost:8000/x/github.com/mjl-/sherpa@v0.6.0/cmd/sherpaclient/linux-amd64-go1.13-$sha256
-// 	http://localhost:8000/x/github.com/mjl-/sherpa@v0.6.0/cmd/sherpaclient/linux-amd64-go1.13.{log,sha256}
+// 	http://localhost:8000/x/linux-amd64-go1.14.1/github.com/mjl-/sherpa@v0.6.0/cmd/sherpaclient/{,log,sha256,dl}
 package main
 
 import (
 	"bytes"
+	"compress/gzip"
 	"crypto/sha256"
 	"flag"
 	"fmt"
@@ -277,14 +276,15 @@ func serve(w http.ResponseWriter, r *http.Request) {
 
 	switch req.Page {
 	case pageLog:
-		f, err := os.Open(lpath + "/log")
+		p := lpath + "/log.gz"
+		f, err := os.Open(p)
 		if err != nil {
-			failf(w, "open log: %v", err)
+			failf(w, "open log.gz: %v", err)
 			return
 		}
 		defer f.Close()
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		io.Copy(w, f)
+		serveGzipFile(w, r, p, f)
 	case pageSha256:
 		f, err := os.Open(lpath + "/sha256")
 		if err != nil {
@@ -308,7 +308,8 @@ func serve(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, sum, http.StatusFound)
 
 	case pageDownload:
-		f, err := os.Open(lpath + "/" + req.DownloadSum)
+		p := lpath + "/" + req.DownloadSum + ".gz"
+		f, err := os.Open(p)
 		if err != nil {
 			if os.IsNotExist(err) {
 				http.NotFound(w, r)
@@ -319,7 +320,7 @@ func serve(w http.ResponseWriter, r *http.Request) {
 		}
 		defer f.Close()
 		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", req.downloadFilename()))
-		io.Copy(w, f)
+		serveGzipFile(w, r, p, f)
 	case pageIndex:
 		buf, err := ioutil.ReadFile(lpath + "/sha256")
 		if err != nil {
@@ -381,6 +382,37 @@ func serve(w http.ResponseWriter, r *http.Request) {
 	default:
 		failf(w, "unknown page %v", req.Page)
 	}
+}
+
+func serveGzipFile(w http.ResponseWriter, r *http.Request, path string, src io.Reader) {
+	if acceptsGzip(r) {
+		w.Header().Set("Content-Encoding", "gzip")
+		io.Copy(w, src) // nothing to do for errors
+	} else {
+		gzr, err := gzip.NewReader(src)
+		if err != nil {
+			log.Printf("decompressing %q: %s", path, err)
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		io.Copy(w, gzr) // nothing to do for errors
+	}
+}
+
+func acceptsGzip(r *http.Request) bool {
+	s := r.Header.Get("Accept-Encoding")
+	t := strings.Split(s, ",")
+	for _, e := range t {
+		e = strings.TrimSpace(e)
+		tt := strings.Split(e, ";")
+		if len(tt) > 1 && t[1] == "q=0" {
+			continue
+		}
+		if tt[0] == "gzip" {
+			return true
+		}
+	}
+	return false
 }
 
 func build(w http.ResponseWriter, r *http.Request, req request) bool {
@@ -493,17 +525,36 @@ func saveFiles(req request, logOutput []byte, lname string, start time.Time, sys
 	}()
 	os.MkdirAll(dir, 0777)
 
-	err = ioutil.WriteFile(dir+"/log", logOutput, 0666)
-	if err != nil {
-		return err
-	}
-
 	err = ioutil.WriteFile(dir+"/sha256", []byte(sha256), 0666)
 	if err != nil {
 		return err
 	}
 
-	nf, err := os.Create(dir + "/" + sum)
+	lf, err := os.Create(dir + "/log.gz")
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if lf != nil {
+			lf.Close()
+		}
+	}()
+	lfgz := gzip.NewWriter(lf)
+	_, err = lfgz.Write(logOutput)
+	if err != nil {
+		return err
+	}
+	err = lfgz.Close()
+	if err != nil {
+		return err
+	}
+	err = lf.Close()
+	lf = nil
+	if err != nil {
+		return err
+	}
+
+	nf, err := os.Create(dir + "/" + sum + ".gz")
 	if err != nil {
 		return err
 	}
@@ -512,15 +563,20 @@ func saveFiles(req request, logOutput []byte, lname string, start time.Time, sys
 			nf.Close()
 		}
 	}()
-	_, err = io.Copy(nf, of)
+	nfgz := gzip.NewWriter(nf)
+	_, err = io.Copy(nfgz, of)
+	if err != nil {
+		return err
+	}
+	err = nfgz.Close()
 	if err != nil {
 		return err
 	}
 	err = nf.Close()
+	nf = nil
 	if err != nil {
 		return err
 	}
-	nf = nil
 
 	bf, err := os.OpenFile("data/builds.txt", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
