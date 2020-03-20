@@ -188,8 +188,10 @@ func (r request) pagePart() string {
 
 // name of file the http user-agent (browser) will save the file as.
 func (r request) downloadFilename() string {
-	name := path.Base(r.Dir)
-	if name == "" {
+	var name string
+	if r.Dir != "" {
+		name = path.Base(r.Dir)
+	} else {
 		name = path.Base(r.Mod)
 	}
 	ext := ""
