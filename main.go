@@ -7,7 +7,6 @@
 package main
 
 import (
-	"bytes"
 	"compress/gzip"
 	"context"
 	"crypto/sha256"
@@ -191,7 +190,6 @@ func staticFile(w http.ResponseWriter, r *http.Request) {
 	recents := recentBuilds.paths
 	recentBuilds.Unlock()
 
-	b := &bytes.Buffer{}
 	var args = struct {
 		Recents []string
 		BaseURL string
@@ -199,11 +197,10 @@ func staticFile(w http.ResponseWriter, r *http.Request) {
 		recents,
 		config.BaseURL,
 	}
-	err := homeTemplate.Execute(b, args)
+	err := homeTemplate.Execute(w, args)
 	if err != nil {
 		failf(w, "executing template: %v", err)
 	}
-	writeHTML(w, b.Bytes())
 }
 
 type page int
@@ -577,13 +574,11 @@ func serveBuilds(w http.ResponseWriter, r *http.Request) {
 			"TargetLinks":    targetLinks,
 			"Mod":            resp,
 		}
-		b := &bytes.Buffer{}
-		err = buildTemplate.Execute(b, args)
+		err = buildTemplate.Execute(w, args)
 		if err != nil {
 			failf(w, "executing html template: %v", err)
 			return
 		}
-		writeHTML(w, b.Bytes())
 	default:
 		failf(w, "unknown page %v", req.Page)
 	}
