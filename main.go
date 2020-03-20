@@ -200,7 +200,11 @@ func (r request) downloadFilename() string {
 	if name == "" {
 		name = path.Base(r.Mod)
 	}
-	return fmt.Sprintf("%s-%s-%s", name, r.Version, r.Goversion)
+	ext := ""
+	if r.Goos == "windows" {
+		ext = ".exe"
+	}
+	return fmt.Sprintf("%s-%s-%s%s", name, r.Version, r.Goversion, ext)
 }
 
 // we'll get paths like linux-amd64-go1.13/example.com/user/repo@version/cmd/dir/{log,sha256,dl,<sum>}
