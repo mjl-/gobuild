@@ -59,7 +59,7 @@ func readRecentBuilds() {
 
 				p := fmt.Sprintf("%s-%s-%s/%s@%s/%s", t[7], t[8], t[9], t[10], t[11], t[12])
 				l = append(l, p)
-				availableBuilds.index[p] = struct{}{}
+				availableBuilds.index[p] = t[1] != "x"
 				targetUse[t[7]+"/"+t[8]] += 1
 			default:
 				log.Println("bad line, starts with %q", t[0])

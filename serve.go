@@ -214,21 +214,43 @@ func serveBuilds(w http.ResponseWriter, r *http.Request) {
 		}
 
 		metricBuilds.WithLabelValues(req.Goos, req.Goarch, req.Goversion).Inc()
-		ok := build(w, r, req)
-		if !ok {
-			metricBuildErrors.WithLabelValues(req.Goos, req.Goarch, req.Goversion).Inc()
+		ok, tmpFail := build(w, r, req)
+		if !ok && tmpFail {
 			return
 		}
 		p := fmt.Sprintf("%s-%s-%s/%s@%s/%s", req.Goos, req.Goarch, req.Goversion, req.Mod, req.Version, req.Dir)
-		recentBuilds.Lock()
-		recentBuilds.paths = append(recentBuilds.paths, p)
-		if len(recentBuilds.paths) > 10 {
-			recentBuilds.paths = recentBuilds.paths[len(recentBuilds.paths)-10:]
+		if !ok {
+			metricBuildErrors.WithLabelValues(req.Goos, req.Goarch, req.Goversion).Inc()
+		} else {
+			recentBuilds.Lock()
+			recentBuilds.paths = append(recentBuilds.paths, p)
+			if len(recentBuilds.paths) > 10 {
+				recentBuilds.paths = recentBuilds.paths[len(recentBuilds.paths)-10:]
+			}
 		}
 		recentBuilds.Unlock()
 		availableBuilds.Lock()
-		availableBuilds.index[p] = struct{}{}
+		availableBuilds.index[p] = ok
 		availableBuilds.Unlock()
+	}
+
+	// Presence of sha256 file indicates success.
+	success := true
+	_, err = os.Stat(lpath + "/sha256")
+	if err != nil {
+		if !os.IsNotExist(err) {
+			failf(w, "open sha256 file: %v", err)
+			return
+		}
+		success = false
+		switch req.Page {
+		case pageLog, pageIndex:
+		default:
+			if !success {
+				http.Error(w, "400 - bad request, build failed", http.StatusBadRequest)
+				return
+			}
+		}
 	}
 
 	switch req.Page {
@@ -279,10 +301,33 @@ func serveBuilds(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", req.downloadFilename()))
 		serveGzipFile(w, r, p, f)
 	case pageIndex:
+		var output string
+		if !success {
+			p := lpath + "/log.gz"
+			f, err := os.Open(p)
+			if err != nil {
+				failf(w, "open log.gz: %v", err)
+				return
+			}
+			defer f.Close()
+			fgz, err := gzip.NewReader(f)
+			if err != nil {
+				failf(w, "parsing log.gz: %v", err)
+				return
+			}
+			buf, err := ioutil.ReadAll(fgz)
+			if err != nil {
+				failf(w, "reading log.gz: %v", err)
+				return
+			}
+			output = string(buf)
+		}
+
 		type versionLink struct {
 			Version   string
 			Path      string
 			Available bool
+			Success   bool
 			Active    bool
 		}
 		type response struct {
@@ -318,7 +363,7 @@ func serveBuilds(w http.ResponseWriter, r *http.Request) {
 			for _, s := range strings.Split(string(buf), "\n") {
 				if s != "" {
 					p := fmt.Sprintf("%s-%s-%s/%s@%s/%s", req.Goos, req.Goarch, req.Goversion, req.Mod, s, req.Dir)
-					link := versionLink{s, p, false, p == destdir}
+					link := versionLink{s, p, false, false, p == destdir}
 					l = append(l, link)
 				}
 			}
@@ -343,6 +388,7 @@ func serveBuilds(w http.ResponseWriter, r *http.Request) {
 			Goversion string
 			Path      string
 			Available bool
+			Success   bool
 			Supported bool
 			Active    bool
 		}
@@ -350,11 +396,11 @@ func serveBuilds(w http.ResponseWriter, r *http.Request) {
 		supported, remaining := installedSDK()
 		for _, goversion := range supported {
 			p := fmt.Sprintf("%s-%s-%s/%s@%s/%s", req.Goos, req.Goarch, goversion, req.Mod, req.Version, req.Dir)
-			goversionLinks = append(goversionLinks, goversionLink{goversion, p, false, true, p == destdir})
+			goversionLinks = append(goversionLinks, goversionLink{goversion, p, false, false, true, p == destdir})
 		}
 		for _, goversion := range remaining {
 			p := fmt.Sprintf("%s-%s-%s/%s@%s/%s", req.Goos, req.Goarch, goversion, req.Mod, req.Version, req.Dir)
-			goversionLinks = append(goversionLinks, goversionLink{goversion, p, false, false, p == destdir})
+			goversionLinks = append(goversionLinks, goversionLink{goversion, p, false, false, false, p == destdir})
 		}
 
 		type targetLink struct {
@@ -362,32 +408,32 @@ func serveBuilds(w http.ResponseWriter, r *http.Request) {
 			Goarch    string
 			Path      string
 			Available bool
+			Success   bool
 			Active    bool
 		}
 		targetLinks := []targetLink{}
 		for _, target := range targets {
 			p := fmt.Sprintf("%s-%s-%s/%s@%s/%s", target.Goos, target.Goarch, req.Goversion, req.Mod, req.Version, req.Dir)
-			targetLinks = append(targetLinks, targetLink{target.Goos, target.Goarch, p, false, p == destdir})
+			targetLinks = append(targetLinks, targetLink{target.Goos, target.Goarch, p, false, false, p == destdir})
 		}
 
 		resp := <-c
 
 		availableBuilds.Lock()
 		for i, link := range goversionLinks {
-			_, ok := availableBuilds.index[link.Path]
-			goversionLinks[i].Available = ok
+			goversionLinks[i].Success, goversionLinks[i].Available = availableBuilds.index[link.Path]
 		}
 		for i, link := range targetLinks {
-			_, ok := availableBuilds.index[link.Path]
-			targetLinks[i].Available = ok
+			targetLinks[i].Success, targetLinks[i].Available = availableBuilds.index[link.Path]
 		}
 		for i, link := range resp.VersionLinks {
-			_, ok := availableBuilds.index[link.Path]
-			resp.VersionLinks[i].Available = ok
+			resp.VersionLinks[i].Success, resp.VersionLinks[i].Available = availableBuilds.index[link.Path]
 		}
 		availableBuilds.Unlock()
 
 		args := map[string]interface{}{
+			"Success":        success,
+			"Output":         output,
 			"Req":            req,
 			"Sum":            sum,
 			"GoversionLinks": goversionLinks,

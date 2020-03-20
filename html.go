@@ -41,6 +41,9 @@ a { color: #007d9c; }
 .buildlink.unsupported { color: #aaa; }
 .buildlink.active { padding: .1rem .2rem; border-radius: .2rem; color: white; background-color: #007d9c; }
 .buildlink.unsupported.active { color: white; background-color: #aaa; }
+.success { color: #14ae14; }
+.failure { color: #d34826; }
+.output { margin-left: calc(-50vw + 25rem); width: calc(100vw - 2rem); }
 		</style>
 	</head>
 	<body>
@@ -58,12 +61,20 @@ const buildTemplateString = `
 {{ define "content" }}
 	<p><a href="/">&lt; Home</a></p>
 	<h1>{{ .Req.Mod }}@{{ .Req.Version }}/{{ .Req.Dir }}</h1>
-	<h2>{{ .Req.Goos }}/{{ .Req.Goarch }} {{ .Req.Goversion }}</h2>
+	<h2>{{ .Req.Goos }}/{{ .Req.Goarch }} {{ .Req.Goversion }} {{ if .Success }}<span class="success">✓</span>{{ else }}<span class="failure">❌</span>{{ end }}</h2>
+{{ if .Success }}
 	<ul>
 		<li><a href="{{ .Sum }}">Download</a></li>
 		<li><a href="log">Log</a></li>
 		<li><a href="sha256">Sha256</a> ({{ .Sum }})</li>
 	</ul>
+{{ else }}
+	<div class="output">
+		<pre>
+{{ .Output }}
+		</pre>
+	</div>
+{{ end }}
 
 	<ul>
 		<li><a href="/x/{{ .Req.Goos }}-{{ .Req.Goarch }}-latest/{{ .Req.Mod }}@latest/{{ .Req.Dir }}">{{ .Req.Goos }}-{{ .Req.Goarch }}-<b>latest</b>/{{ .Req.Mod }}@<b>latest</b>/{{ .Req.Dir }}</a> (<a href="/x/{{ .Req.Goos }}-{{ .Req.Goarch }}-latest/{{ .Req.Mod }}@latest/{{ .Req.Dir }}dl">direct download</a>)</li>
@@ -72,7 +83,7 @@ const buildTemplateString = `
 	{{ $req := .Req }}
 	<div style="width: 32%; display: inline-block; vertical-align: top">
 		<h2>Go versions</h2>
-	{{ range .GoversionLinks }}	<div><a href="/x/{{ .Path }}" class="buildlink{{ if .Active }} active{{ end }} {{ if not .Supported }} unsupported{{ end }}">{{ .Goversion }}</a>{{ if .Available }} ✓{{ end }}</div>{{ end }}
+	{{ range .GoversionLinks }}	<div><a href="/x/{{ .Path }}" class="buildlink{{ if .Active }} active{{ end }} {{ if not .Supported }} unsupported{{ end }}">{{ .Goversion }}</a>{{ if .Available }} {{ if .Success }}<span class="success">✓</span>{{ else }}<span class="failure">❌</span>{{ end }}{{ end }}</div>{{ end }}
 	</div>
 
 	<div style="width: 32%; display: inline-block; vertical-align: top">
@@ -80,13 +91,13 @@ const buildTemplateString = `
 	{{ if .Mod.Err }}
 		<div>error: {{ .Mod.Err }}</div>
 	{{ else }}
-	{{ range .Mod.VersionLinks }}	<div><a href="/x/{{ .Path }}" class="buildlink{{ if .Active }} active{{ end }} ">{{ .Version }}</a>{{ if .Available }} ✓{{ end }}</div>{{ end }}
+	{{ range .Mod.VersionLinks }}	<div><a href="/x/{{ .Path }}" class="buildlink{{ if .Active }} active{{ end }} ">{{ .Version }}</a>{{ if .Available }} {{ if .Success }}<span class="success">✓</span>{{ else }}<span class="failure">❌</span>{{ end }}{{ end }}</div>{{ end }}
 	{{ end }}
 	</div>
 
 	<div style="width: 32%; display: inline-block; vertical-align: top">
 		<h2>Targets</h2>
-	{{ range .TargetLinks }}	<div><a href="/x/{{ .Path }}" class="buildlink{{ if .Active }} active{{ end }} ">{{ .Goos }}/{{ .Goarch }}</a>{{ if .Available }} ✓{{ end }}</div>{{ end }}
+	{{ range .TargetLinks }}	<div><a href="/x/{{ .Path }}" class="buildlink{{ if .Active }} active{{ end }} ">{{ .Goos }}/{{ .Goarch }}</a>{{ if .Available }} {{ if .Success }}<span class="success">✓</span>{{ else }}<span class="failure">❌</span>{{ end }}{{ end }}</div>{{ end }}
 	</div>
 {{ end }}
 `

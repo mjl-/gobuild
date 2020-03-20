@@ -1,12 +1,12 @@
 package main
 
 import (
+	"bytes"
 	"compress/gzip"
 	"crypto/sha256"
 	"fmt"
 	"io"
 	"io/ioutil"
-	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -15,13 +15,13 @@ import (
 	"time"
 )
 
-func build(w http.ResponseWriter, r *http.Request, req request) bool {
+func build(w http.ResponseWriter, r *http.Request, req request) (ok bool, tmpFail bool) {
 	start := time.Now()
 
 	err := ensureSDK(req.Goversion)
 	if err != nil {
 		failf(w, "missing toolchain %q: %v", req.Goversion, err)
-		return false
+		return false, true
 	}
 
 	gobin := path.Join(config.SDKDir, req.Goversion, "bin/go")
@@ -31,13 +31,13 @@ func build(w http.ResponseWriter, r *http.Request, req request) bool {
 	_, err = os.Stat(gobin)
 	if err != nil {
 		failf(w, "unknown toolchain %q: %v", req.Goversion, err)
-		return false
+		return false, true
 	}
 
 	dir, err := ioutil.TempDir("", "gobuild")
 	if err != nil {
 		failf(w, "tempdir for build: %v", err)
-		return false
+		return false, true
 	}
 	defer os.RemoveAll(dir)
 
@@ -63,7 +63,7 @@ func build(w http.ResponseWriter, r *http.Request, req request) bool {
 		w.WriteHeader(400)
 		fmt.Fprintf(w, "400 - error fetching module from goproxy: %v\n\n# output:\n", err)
 		w.Write(getOutput)
-		return false
+		return false, true
 	}
 
 	lname := dir + "/bin/" + req.filename()
@@ -81,20 +81,53 @@ func build(w http.ResponseWriter, r *http.Request, req request) bool {
 	}
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		failf(w, "running build: %v", err)
-		log.Printf("output: %s", string(output))
-		return false
+		err := saveFailure(req, output, start, cmd.ProcessState.SystemTime(), cmd.ProcessState.UserTime())
+		if err != nil {
+			failf(w, "storing results: %v", err)
+			return false, true
+		}
+		return false, false
 	}
 
 	err = saveFiles(req, output, lname, start, cmd.ProcessState.SystemTime(), cmd.ProcessState.UserTime())
 	if err != nil {
-		failf(w, "writing resulting files: %v", err)
-		return false
+		failf(w, "storing results: %v", err)
+		return false, true
 	}
-	return true
+	return true, false
 }
 
-func saveFiles(req request, logOutput []byte, lname string, start time.Time, systemTime, userTime time.Duration) error {
+func saveFailure(req request, output []byte, start time.Time, systemTime, userTime time.Duration) error {
+	tmpdir, err := ioutil.TempDir(config.DataDir, "failure")
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if tmpdir != "" {
+			os.RemoveAll(tmpdir)
+		}
+	}()
+
+	err = writeGz(tmpdir+"/log.gz", bytes.NewReader(output))
+	if err != nil {
+		return err
+	}
+
+	finalDir := path.Join(config.DataDir, req.destdir())
+	os.MkdirAll(path.Dir(finalDir), 0755)
+	err = os.Rename(tmpdir, finalDir)
+	if err != nil {
+		return err
+	}
+	tmpdir = ""
+
+	sha256 := "x" // Marks failure.
+	size := int64(0)
+	err = appendBuildsTxt(sha256, size, start, systemTime, userTime, req)
+	return err
+}
+
+func saveFiles(req request, output []byte, lname string, start time.Time, systemTime, userTime time.Duration) error {
 	of, err := os.Open(lname)
 	if err != nil {
 		return err
@@ -119,22 +152,45 @@ func saveFiles(req request, logOutput []byte, lname string, start time.Time, sys
 		return err
 	}
 
-	dir := path.Join(config.DataDir, req.destdir())
-
-	success := false
+	tmpdir, err := ioutil.TempDir(config.DataDir, "success")
+	if err != nil {
+		return err
+	}
 	defer func() {
-		if !success {
-			os.RemoveAll(dir)
+		if tmpdir != "" {
+			os.RemoveAll(tmpdir)
 		}
 	}()
-	os.MkdirAll(dir, 0777)
 
-	err = ioutil.WriteFile(dir+"/sha256", []byte(sha256), 0666)
+	err = ioutil.WriteFile(tmpdir+"/sha256", []byte(sha256), 0666)
 	if err != nil {
 		return err
 	}
 
-	lf, err := os.Create(dir + "/log.gz")
+	err = writeGz(tmpdir+"/log.gz", bytes.NewReader(output))
+	if err != nil {
+		return err
+	}
+
+	err = writeGz(tmpdir+"/"+sum+".gz", of)
+	if err != nil {
+		return err
+	}
+
+	finalDir := path.Join(config.DataDir, req.destdir())
+	os.MkdirAll(path.Dir(finalDir), 0755)
+	err = os.Rename(tmpdir, finalDir)
+	if err != nil {
+		return err
+	}
+	tmpdir = ""
+
+	err = appendBuildsTxt(sha256, size, start, systemTime, userTime, req)
+	return err
+}
+
+func writeGz(path string, src io.Reader) error {
+	lf, err := os.Create(path)
 	if err != nil {
 		return err
 	}
@@ -144,7 +200,7 @@ func saveFiles(req request, logOutput []byte, lname string, start time.Time, sys
 		}
 	}()
 	lfgz := gzip.NewWriter(lf)
-	_, err = lfgz.Write(logOutput)
+	_, err = io.Copy(lfgz, src)
 	if err != nil {
 		return err
 	}
@@ -154,34 +210,10 @@ func saveFiles(req request, logOutput []byte, lname string, start time.Time, sys
 	}
 	err = lf.Close()
 	lf = nil
-	if err != nil {
-		return err
-	}
+	return err
+}
 
-	nf, err := os.Create(dir + "/" + sum + ".gz")
-	if err != nil {
-		return err
-	}
-	defer func() {
-		if nf != nil {
-			nf.Close()
-		}
-	}()
-	nfgz := gzip.NewWriter(nf)
-	_, err = io.Copy(nfgz, of)
-	if err != nil {
-		return err
-	}
-	err = nfgz.Close()
-	if err != nil {
-		return err
-	}
-	err = nf.Close()
-	nf = nil
-	if err != nil {
-		return err
-	}
-
+func appendBuildsTxt(sha256 string, size int64, start time.Time, systemTime, userTime time.Duration, req request) error {
 	bf, err := os.OpenFile(path.Join(config.DataDir, "builds.txt"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		return err
@@ -196,10 +228,6 @@ func saveFiles(req request, logOutput []byte, lname string, start time.Time, sys
 		return err
 	}
 	err = bf.Close()
-	if err != nil {
-		return err
-	}
-
-	success = true
-	return nil
+	bf = nil
+	return err
 }

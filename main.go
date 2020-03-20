@@ -29,13 +29,13 @@ var (
 	}
 
 	// We keep a map of available builds, so we can show in links in UI that navigating
-	// won't trigger a build but will return quickly.
+	// won't trigger a build but will return quickly. The value indicates if the build was successful.
 	availableBuilds = struct {
 		sync.Mutex
-		index map[string]struct{} // keys are: goos-goarch-goversion/mod@version/dir
+		index map[string]bool // keys are: goos-goarch-goversion/mod@version/dir
 	}{
 		sync.Mutex{},
-		map[string]struct{}{},
+		map[string]bool{},
 	}
 
 	config = struct {
