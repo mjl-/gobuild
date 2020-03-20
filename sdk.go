@@ -21,17 +21,18 @@ type target struct {
 	Goarch string
 }
 
-// by "go tool dist list", bound to be out of date here; should probably generate on startup, or when we get the first sdk installed
+// By "go tool dist list", bound to be out of date here; should probably generate on startup, or when we get the first sdk installed.
+// Android and darwin/arm* cannot build on my linux/amd64 machine.
 var targets = []target{
 	{"aix", "ppc64"},
-	{"android", "386"},
-	{"android", "amd64"},
-	{"android", "arm"},
-	{"android", "arm64"},
+	//	{"android", "386"},
+	//	{"android", "amd64"},
+	//	{"android", "arm"},
+	//	{"android", "arm64"},
 	{"darwin", "386"},
 	{"darwin", "amd64"},
-	{"darwin", "arm"},
-	{"darwin", "arm64"},
+	//	{"darwin", "arm"},
+	//	{"darwin", "arm64"},
 	{"dragonfly", "amd64"},
 	{"freebsd", "386"},
 	{"freebsd", "amd64"},
