@@ -1,8 +1,12 @@
 Gobuild builds reproducible binaries on demand.
 
-Gobuild serves URL that specify what to compile: Go module, version, package path in the URL, Go toolchain version, GOOS, GOARCH.
+Gobuild serves URL that specify what to compile: Go module, version,
+package path in the URL, Go toolchain version, GOOS, GOARCH.
 
-Gobuild serves HTML pages with links to the downloadable binary, along with links to other versions and targets.
+Gobuild serves HTML pages with links to the downloadable binary, along
+with links to other module versions, go versions and build targets.
+
+Gobuild will automatically download new Go toolchains (SDKs).
 
 URLs are of the form:
 
@@ -18,6 +22,7 @@ Gobuild builds by executing commands like:
 Results are stored in ./data/.
 Builds are done with a home directory of ./home/.
 Toolchains are in ./sdk/.
+
 
 # Todo
 
