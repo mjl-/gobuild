@@ -192,7 +192,14 @@ func staticFile(w http.ResponseWriter, r *http.Request) {
 	recentBuilds.Unlock()
 
 	b := &bytes.Buffer{}
-	err := homeTemplate.Execute(b, recents)
+	var args = struct {
+		Recents []string
+		BaseURL string
+	}{
+		recents,
+		config.BaseURL,
+	}
+	err := homeTemplate.Execute(b, args)
 	if err != nil {
 		failf(w, "executing template: %v", err)
 	}
