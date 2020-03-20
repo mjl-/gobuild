@@ -102,7 +102,7 @@ const homeTemplateString = `
 		<p>Composition of URLs:</p>
 		<blockquote style="color:#666">{{ .BaseURL }}x/<span style="color:#111">&lt;goos&gt;</span>-<span style="color:#111">&lt;goarch&gt;</span>-<span style="color:#111">&lt;goversion&gt;</span>/<span style="color:#111">&lt;module&gt;</span>@<span style="color:#111">&lt;version&gt;</span>/<span style="color:#111">&lt;package&gt;</span>/</blockquote>
 		<p>Example:</p>
-		<blockquote><a href="/x/linux-amd64-latest/github.com/mjl-/sherpa@latest/cmd/sherpaclient/">{{ .BaseURL }}x/linux-amd64-latest/github.com/mjl-/sherpa@latest/cmd/sherpaclient/</a></blockquote>
+		<blockquote><a href="/x/linux-amd64-latest/github.com/mjl-/sherpa/@latest/cmd/sherpaclient/">{{ .BaseURL }}x/linux-amd64-latest/github.com/mjl-/sherpa/@latest/cmd/sherpaclient/</a></blockquote>
 		<p>Opening this URL will either start a build, or show the results of an earlier build. The page shows links to download the binary, view the build output log file, the sha256 sum of the binary. You'll also see cross references to builds with different goversion, goos, goarch, and different versions of the module. You need not and cannot refresh a build, because they are reproducible.</p>
 
 		<h2>Recent builds</h2>

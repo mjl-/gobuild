@@ -3,7 +3,7 @@
 // Serves URLs like:
 //
 // 	http://localhost:8000/
-// 	http://localhost:8000/x/linux-amd64-go1.14.1/github.com/mjl-/sherpa@v0.6.0/cmd/sherpaclient/{,log,sha256,dl}
+// 	http://localhost:8000/x/linux-amd64-go1.14.1/github.com/mjl-/sherpa/@v0.6.0/cmd/sherpaclient/{,log,sha256,dl}
 package main
 
 import (
@@ -220,12 +220,12 @@ func (p page) String() string {
 }
 
 type request struct {
-	Mod         string
-	Version     string
+	Mod         string // Ends with slash, eg github.com/mjl-/gobuild/
+	Version     string // Either explicit version like "v0.1.2", or "latest".
 	Dir         string // Either empty, or ending with a slash.
 	Goos        string
 	Goarch      string
-	Goversion   string
+	Goversion   string // Eg "go1.14.1" or "latest".
 	Page        page
 	DownloadSum string
 }
@@ -251,22 +251,23 @@ func (r request) pagePart() string {
 	}
 }
 
+func (r request) filename() string {
+	if r.Dir != "" {
+		return path.Base(r.Dir)
+	}
+	return path.Base(r.Mod)
+}
+
 // name of file the http user-agent (browser) will save the file as.
 func (r request) downloadFilename() string {
-	var name string
-	if r.Dir != "" {
-		name = path.Base(r.Dir)
-	} else {
-		name = path.Base(r.Mod)
-	}
 	ext := ""
 	if r.Goos == "windows" {
 		ext = ".exe"
 	}
-	return fmt.Sprintf("%s-%s-%s%s", name, r.Version, r.Goversion, ext)
+	return fmt.Sprintf("%s-%s-%s%s", r.filename(), r.Version, r.Goversion, ext)
 }
 
-// we'll get paths like linux-amd64-go1.13/example.com/user/repo@version/cmd/dir/{log,sha256,dl,<sum>}
+// we'll get paths like linux-amd64-go1.13/example.com/user/repo/@version/cmd/dir/{log,sha256,dl,<sum>}
 func parsePath(s string) (r request, ok bool) {
 	t := strings.SplitN(s, "/", 2)
 	if len(t) != 2 {
@@ -303,13 +304,16 @@ func parsePath(s string) (r request, ok bool) {
 	}
 
 	// We are left parsing eg:
-	// - example.com/user/repo@version/cmd/dir
-	// - example.com/user/repo@version
+	// - example.com/user/repo/@version/cmd/dir
+	// - example.com/user/repo/@version
 	t = strings.SplitN(s, "@", 2)
 	if len(t) != 2 {
 		return
 	}
 	r.Mod = t[0]
+	if !strings.HasSuffix(r.Mod, "/") {
+		return
+	}
 	s = t[1]
 	t = strings.SplitN(s, "/", 2)
 	r.Version = t[0]
@@ -336,6 +340,7 @@ func serveBuilds(w http.ResponseWriter, r *http.Request) {
 
 	metricRequestsTotal.WithLabelValues(req.Page.String())
 
+	// Resolve "latest" goversion with a redirect.
 	if req.Goversion == "latest" {
 		supported, _ := installedSDK()
 		if len(supported) == 0 {
@@ -348,12 +353,13 @@ func serveBuilds(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Resolve "latest" module version with a redirect.
 	if req.Version == "latest" {
 		var modVersion struct {
 			Version string
 			Time    time.Time
 		}
-		u := fmt.Sprintf("%s%s/@latest", config.GoProxy, req.Mod)
+		u := fmt.Sprintf("%s%s@latest", config.GoProxy, req.Mod)
 		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 		defer cancel()
 		mreq, err := http.NewRequestWithContext(ctx, "GET", u, nil)
@@ -393,6 +399,7 @@ func serveBuilds(w http.ResponseWriter, r *http.Request) {
 			failf(w, "stat path: %v", err)
 			return
 		}
+
 		metricBuilds.WithLabelValues(req.Goos, req.Goarch, req.Goversion).Inc()
 		ok := build(w, r, req)
 		if !ok {
@@ -473,7 +480,7 @@ func serveBuilds(w http.ResponseWriter, r *http.Request) {
 		go func() {
 			ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 			defer cancel()
-			u := fmt.Sprintf("%s%s/@v/list", config.GoProxy, req.Mod)
+			u := fmt.Sprintf("%s%s@v/list", config.GoProxy, req.Mod)
 			mreq, err := http.NewRequestWithContext(ctx, "GET", u, nil)
 			if err != nil {
 				c <- response{fmt.Errorf("preparing new http request: %v", err), nil}
@@ -647,7 +654,7 @@ func build(w http.ResponseWriter, r *http.Request, req request) bool {
 	}
 	os.Mkdir(homedir, 0777)
 
-	cmd := exec.CommandContext(r.Context(), gobin, "get", req.Mod+"@"+req.Version)
+	cmd := exec.CommandContext(r.Context(), gobin, "get", req.Mod[:len(req.Mod)-1]+"@"+req.Version)
 	cmd.Dir = dir
 	cmd.Env = []string{
 		fmt.Sprintf("GOPROXY=%s", config.GoProxy),
@@ -661,15 +668,7 @@ func build(w http.ResponseWriter, r *http.Request, req request) bool {
 		return false
 	}
 
-	var name string
-	if req.Dir != "" {
-		t := strings.Split(req.Dir[:len(req.Dir)-1], "/")
-		name = t[len(t)-1]
-	} else {
-		t := strings.Split(req.Mod, "/")
-		name = t[len(t)-1]
-	}
-	lname := dir + "/bin/" + name
+	lname := dir + "/bin/" + req.filename()
 	os.Mkdir(filepath.Dir(lname), 0777)
 	cmd = exec.CommandContext(r.Context(), gobin, "build", "-o", lname, "-x", "-trimpath", "-ldflags", "-buildid=00000000000000000000/00000000000000000000/00000000000000000000/00000000000000000000")
 	cmd.Env = []string{
@@ -678,14 +677,14 @@ func build(w http.ResponseWriter, r *http.Request, req request) bool {
 		"GOARCH=" + req.Goarch,
 		"HOME=" + homedir,
 	}
-	cmd.Dir = homedir + "/go/pkg/mod/" + req.Mod + "@" + req.Version
+	cmd.Dir = homedir + "/go/pkg/mod/" + req.Mod[:len(req.Mod)-1] + "@" + req.Version
 	if req.Dir != "" {
 		cmd.Dir += "/" + req.Dir
 	}
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		failf(w, "running build: %v", err)
-		log.Printf("output: %s\n", string(output))
+		log.Printf("output: %s", string(output))
 		return false
 	}
 
