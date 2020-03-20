@@ -19,6 +19,10 @@ body { margin: 0 auto; max-width: 50rem; font-family: Ubuntu, Lato, sans-serif; 
 h1 { font-size: 1.75rem; }
 h2 { font-size: 1.5rem; }
 a { color: #007d9c; }
+.buildlink { padding: 0 .2rem; display: inline-block; }
+.buildlink.unsupported { color: #aaa; }
+.buildlink.active { padding: .1rem .2rem; border-radius: .2rem; color: white; background-color: #007d9c; }
+.buildlink.unsupported.active { color: white; background-color: #aaa; }
 		</style>
 	</head>
 	<body>
@@ -71,7 +75,7 @@ const buildTemplateString = `<p><a href="/">&lt; Home</a></p>
 {{ $req := .Req }}
 <div style="width: 32%; display: inline-block; vertical-align: top">
 	<h2>Go versions</h2>
-{{ range .GoversionLinks }}	<div><a href="/x/{{ .Path }}"{{ if not .Supported }} style="color: #aaa"{{ end }}>{{ .Goversion }}</a>{{ if .Available }} ✓{{ end }}</div>{{ end }}
+{{ range .GoversionLinks }}	<div><a href="/x/{{ .Path }}" class="buildlink{{ if .Active }} active{{ end }} {{ if not .Supported }} unsupported{{ end }}">{{ .Goversion }}</a>{{ if .Available }} ✓{{ end }}</div>{{ end }}
 </div>
 
 <div style="width: 32%; display: inline-block; vertical-align: top">
@@ -79,13 +83,13 @@ const buildTemplateString = `<p><a href="/">&lt; Home</a></p>
 {{ if .Mod.Err }}
 	<div>error: {{ .Mod.Err }}</div>
 {{ else }}
-{{ range .Mod.VersionLinks }}	<div><a href="/x/{{ .Path }}">{{ .Version }}</a>{{ if .Available }} ✓{{ end }}</div>{{ end }}
+{{ range .Mod.VersionLinks }}	<div><a href="/x/{{ .Path }}" class="buildlink{{ if .Active }} active{{ end }} ">{{ .Version }}</a>{{ if .Available }} ✓{{ end }}</div>{{ end }}
 {{ end }}
 </div>
 
 <div style="width: 32%; display: inline-block; vertical-align: top">
 	<h2>Targets</h2>
-{{ range .TargetLinks }}	<div><a href="/x/{{ .Path }}">{{ .Goos }}/{{ .Goarch }}</a>{{ if .Available }} ✓{{ end }}</div>{{ end }}
+{{ range .TargetLinks }}	<div><a href="/x/{{ .Path }}" class="buildlink{{ if .Active }} active{{ end }} ">{{ .Goos }}/{{ .Goarch }}</a>{{ if .Available }} ✓{{ end }}</div>{{ end }}
 </div>
 `
 

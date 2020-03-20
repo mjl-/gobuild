@@ -388,7 +388,8 @@ func serveBuilds(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	lpath := path.Join(config.DataDir, req.destdir())
+	destdir := req.destdir()
+	lpath := path.Join(config.DataDir, destdir)
 	_, err := os.Stat(lpath)
 	if err != nil {
 		if !os.IsNotExist(err) {
@@ -465,6 +466,7 @@ func serveBuilds(w http.ResponseWriter, r *http.Request) {
 			Version   string
 			Path      string
 			Available bool
+			Active    bool
 		}
 		type response struct {
 			Err          error
@@ -499,7 +501,7 @@ func serveBuilds(w http.ResponseWriter, r *http.Request) {
 			for _, s := range strings.Split(string(buf), "\n") {
 				if s != "" {
 					p := fmt.Sprintf("%s-%s-%s/%s@%s/%s", req.Goos, req.Goarch, req.Goversion, req.Mod, s, req.Dir)
-					link := versionLink{s, p, false}
+					link := versionLink{s, p, false, p == destdir}
 					l = append(l, link)
 				}
 			}
@@ -525,16 +527,17 @@ func serveBuilds(w http.ResponseWriter, r *http.Request) {
 			Path      string
 			Available bool
 			Supported bool
+			Active    bool
 		}
 		goversionLinks := []goversionLink{}
 		supported, remaining := installedSDK()
 		for _, goversion := range supported {
 			p := fmt.Sprintf("%s-%s-%s/%s@%s/%s", req.Goos, req.Goarch, goversion, req.Mod, req.Version, req.Dir)
-			goversionLinks = append(goversionLinks, goversionLink{goversion, p, false, true})
+			goversionLinks = append(goversionLinks, goversionLink{goversion, p, false, true, p == destdir})
 		}
 		for _, goversion := range remaining {
 			p := fmt.Sprintf("%s-%s-%s/%s@%s/%s", req.Goos, req.Goarch, goversion, req.Mod, req.Version, req.Dir)
-			goversionLinks = append(goversionLinks, goversionLink{goversion, p, false, false})
+			goversionLinks = append(goversionLinks, goversionLink{goversion, p, false, false, p == destdir})
 		}
 
 		type targetLink struct {
@@ -542,11 +545,12 @@ func serveBuilds(w http.ResponseWriter, r *http.Request) {
 			Goarch    string
 			Path      string
 			Available bool
+			Active    bool
 		}
 		targetLinks := []targetLink{}
 		for _, target := range targets {
 			p := fmt.Sprintf("%s-%s-%s/%s@%s/%s", target.Goos, target.Goarch, req.Goversion, req.Mod, req.Version, req.Dir)
-			targetLinks = append(targetLinks, targetLink{target.Goos, target.Goarch, p, false})
+			targetLinks = append(targetLinks, targetLink{target.Goos, target.Goarch, p, false, p == destdir})
 		}
 
 		resp := <-c
