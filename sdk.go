@@ -22,8 +22,13 @@ type target struct {
 	Goarch string
 }
 
+func (t target) osarch() string {
+	return t.Goos + "/" + t.Goarch
+}
+
 // By "go tool dist list", bound to be out of date here; should probably generate on startup, or when we get the first sdk installed.
 // Android and darwin/arm* cannot build on my linux/amd64 machine.
+// Note: this list will be sorted after startup by readRecentBuilds, most used first.
 var targets = []target{
 	{"aix", "ppc64"},
 	//	{"android", "386"},

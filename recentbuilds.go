@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"path"
+	"sort"
 	"strings"
 )
 
@@ -43,6 +44,7 @@ func readRecentBuilds() {
 		}
 	}
 	l := []string{}
+	targetUse := map[string]int{}
 	for {
 		s, err := b.ReadString('\n')
 		if s != "" {
@@ -58,6 +60,7 @@ func readRecentBuilds() {
 				p := fmt.Sprintf("%s-%s-%s/%s@%s/%s", t[7], t[8], t[9], t[10], t[11], t[12])
 				l = append(l, p)
 				availableBuilds.index[p] = struct{}{}
+				targetUse[t[7]+"/"+t[8]] += 1
 			default:
 				log.Println("bad line, starts with %q", t[0])
 				return
@@ -75,4 +78,8 @@ func readRecentBuilds() {
 		l = l[len(l)-10:]
 	}
 	recentBuilds.paths = l
+
+	sort.Slice(targets, func(i, j int) bool {
+		return targetUse[targets[i].osarch()] > targetUse[targets[j].osarch()]
+	})
 }
