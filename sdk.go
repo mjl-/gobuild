@@ -94,6 +94,7 @@ func init() {
 	sdk.fetch.status = map[string]error{}
 }
 
+// todo: should cache this list
 func installedSDK() []string {
 	l := []string{}
 	sdk.Lock()

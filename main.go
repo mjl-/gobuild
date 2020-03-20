@@ -9,7 +9,9 @@ package main
 import (
 	"bytes"
 	"compress/gzip"
+	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -21,6 +23,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -166,6 +169,23 @@ func (r request) destdir() string {
 	return fmt.Sprintf("%s-%s-%s/%s@%s/%s", r.Goos, r.Goarch, r.Goversion, r.Mod, r.Version, r.Dir)
 }
 
+func (r request) pagePart() string {
+	switch r.Page {
+	case pageIndex:
+		return ""
+	case pageLog:
+		return "log"
+	case pageSha256:
+		return "sha256"
+	case pageDownloadRedirect:
+		return "dl"
+	case pageDownload:
+		return r.DownloadSum
+	default:
+		panic("missing case")
+	}
+}
+
 // name of file the http user-agent (browser) will save the file as.
 func (r request) downloadFilename() string {
 	name := path.Base(r.Dir)
@@ -249,6 +269,55 @@ func serve(w http.ResponseWriter, r *http.Request) {
 
 	metricRequestsTotal.WithLabelValues(req.Page.String())
 
+	if req.Goversion == "latest" {
+		l := installedSDK()
+		if len(l) == 0 {
+			http.Error(w, "no go toolchains available", http.StatusServiceUnavailable)
+			return
+		}
+		goversion := l[0]
+		p := fmt.Sprintf("/x/%s-%s-%s/%s@%s/%s%s", req.Goos, req.Goarch, goversion, req.Mod, req.Version, req.Dir, req.pagePart())
+		http.Redirect(w, r, p, http.StatusFound)
+		return
+	}
+
+	if req.Version == "latest" {
+		var modVersion struct {
+			Version string
+			Time    time.Time
+		}
+		u := fmt.Sprintf("https://proxy.golang.org/%s/@latest", req.Mod)
+		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+		defer cancel()
+		mreq, err := http.NewRequestWithContext(ctx, "GET", u, nil)
+		if err != nil {
+			failf(w, "preparing goproxy http request: %v", err)
+			return
+		}
+		resp, err := http.DefaultClient.Do(mreq)
+		if err != nil {
+			failf(w, "resolving latest at proxy.golang.org: %v", err)
+			return
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != 200 {
+			failf(w, "error response from proxy.golang.org resolving latest, status %s", resp.Status)
+			return
+		}
+		err = json.NewDecoder(resp.Body).Decode(&modVersion)
+		if err != nil {
+			failf(w, "parsing json returned by proxy.golang.org for latest version: %v", err)
+			return
+		}
+		if modVersion.Version == "" {
+			failf(w, "empty version for latest from proxy.golang.org")
+			return
+		}
+		p := fmt.Sprintf("/x/%s-%s-%s/%s@%s/%s%s", req.Goos, req.Goarch, req.Goversion, req.Mod, modVersion.Version, req.Dir, req.pagePart())
+		http.Redirect(w, r, p, http.StatusFound)
+		return
+	}
+
 	lpath := "data/" + req.destdir()
 	_, err := os.Stat(lpath)
 	if err != nil {
@@ -322,6 +391,55 @@ func serve(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", req.downloadFilename()))
 		serveGzipFile(w, r, p, f)
 	case pageIndex:
+		type versionLink struct {
+			Version   string
+			Path      string
+			Available bool
+		}
+		type response struct {
+			Err          error
+			VersionLinks []versionLink
+		}
+		c := make(chan response, 1)
+		go func() {
+			ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+			defer cancel()
+			u := fmt.Sprintf("https://proxy.golang.org/%s/@v/list", req.Mod)
+			mreq, err := http.NewRequestWithContext(ctx, "GET", u, nil)
+			if err != nil {
+				c <- response{fmt.Errorf("preparing new http request: %v", err), nil}
+				return
+			}
+			resp, err := http.DefaultClient.Do(mreq)
+			if err != nil {
+				c <- response{fmt.Errorf("http request: %v", err), nil}
+				return
+			}
+			defer resp.Body.Close()
+			if err != nil {
+				c <- response{fmt.Errorf("response from goproxy: %v", err), nil}
+				return
+			}
+			buf, err := ioutil.ReadAll(resp.Body)
+			if err != nil {
+				c <- response{fmt.Errorf("reading versions from goproxy: %v", err), nil}
+				return
+			}
+			l := []versionLink{}
+			for _, s := range strings.Split(string(buf), "\n") {
+				if s != "" {
+					p := fmt.Sprintf("%s-%s-%s/%s@%s/%s", req.Goos, req.Goarch, req.Goversion, req.Mod, s, req.Dir)
+					link := versionLink{s, p, false}
+					l = append(l, link)
+				}
+			}
+			// todo: do better job of sorting versions; proxy.golang.org doesn't seem to sort them.
+			sort.Slice(l, func(i, j int) bool {
+				return l[j].Version < l[i].Version
+			})
+			c <- response{nil, l}
+		}()
+
 		buf, err := ioutil.ReadFile(lpath + "/sha256")
 		if err != nil {
 			failf(w, "reading sha256: %v", err)
@@ -355,6 +473,8 @@ func serve(w http.ResponseWriter, r *http.Request) {
 			targetLinks = append(targetLinks, targetLink{target.Goos, target.Goarch, p, false})
 		}
 
+		resp := <-c
+
 		availableBuilds.Lock()
 		for i, link := range goversionLinks {
 			_, ok := availableBuilds.index[link.Path]
@@ -364,6 +484,10 @@ func serve(w http.ResponseWriter, r *http.Request) {
 			_, ok := availableBuilds.index[link.Path]
 			targetLinks[i].Available = ok
 		}
+		for i, link := range resp.VersionLinks {
+			_, ok := availableBuilds.index[link.Path]
+			resp.VersionLinks[i].Available = ok
+		}
 		availableBuilds.Unlock()
 
 		args := map[string]interface{}{
@@ -371,6 +495,7 @@ func serve(w http.ResponseWriter, r *http.Request) {
 			"Sum":            sum,
 			"GoversionLinks": goversionLinks,
 			"TargetLinks":    targetLinks,
+			"Mod":            resp,
 		}
 		b := &bytes.Buffer{}
 		err = buildTemplate.Execute(b, args)
@@ -479,6 +604,7 @@ func build(w http.ResponseWriter, r *http.Request, req request) bool {
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		failf(w, "running build: %v", err)
+		log.Printf("output: %s\n", string(output))
 		return false
 	}
 
