@@ -227,8 +227,8 @@ func serveBuilds(w http.ResponseWriter, r *http.Request) {
 			if len(recentBuilds.paths) > 10 {
 				recentBuilds.paths = recentBuilds.paths[len(recentBuilds.paths)-10:]
 			}
+			recentBuilds.Unlock()
 		}
-		recentBuilds.Unlock()
 		availableBuilds.Lock()
 		availableBuilds.index[p] = ok
 		availableBuilds.Unlock()
@@ -374,15 +374,18 @@ func serveBuilds(w http.ResponseWriter, r *http.Request) {
 			c <- response{nil, l}
 		}()
 
-		buf, err := ioutil.ReadFile(lpath + "/sha256")
-		if err != nil {
-			failf(w, "reading sha256: %v", err)
-			return
+		var sum string
+		if success {
+			buf, err := ioutil.ReadFile(lpath + "/sha256")
+			if err != nil {
+				failf(w, "reading sha256: %v", err)
+				return
+			}
+			if len(buf) != 64 {
+				failf(w, "bad sha256 file")
+			}
+			sum = string(buf[:40])
 		}
-		if len(buf) != 64 {
-			failf(w, "bad sha256 file")
-		}
-		sum := string(buf[:40])
 
 		type goversionLink struct {
 			Goversion string
@@ -433,9 +436,9 @@ func serveBuilds(w http.ResponseWriter, r *http.Request) {
 
 		args := map[string]interface{}{
 			"Success":        success,
-			"Output":         output,
+			"Output":         output, // Only set when !success.
 			"Req":            req,
-			"Sum":            sum,
+			"Sum":            sum, // Only set when success.
 			"GoversionLinks": goversionLinks,
 			"TargetLinks":    targetLinks,
 			"Mod":            resp,
