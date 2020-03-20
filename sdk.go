@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/mjl-/goreleases"
 )
@@ -77,7 +78,10 @@ var targets = []target{
 
 var sdk struct {
 	sync.Mutex
-	installed map[string]struct{}
+	installed     map[string]struct{}
+	lastSupported time.Time // When last supported list was fetched. We fetch once per hour.
+	supportedList []string  // List of latest supported releases, from https://golang.org/dl/?mode=json.
+	installedList []string  // List of all other installed releases.
 
 	fetch struct {
 		sync.Mutex
@@ -96,22 +100,61 @@ func init() {
 			sdk.installed[e.Name()] = struct{}{}
 		}
 	}
+	sdkUpdateInstalledList()
 
 	sdk.fetch.status = map[string]error{}
 }
 
-// todo: should cache this list
-func installedSDK() []string {
-	l := []string{}
-	sdk.Lock()
-	for goversion := range sdk.installed {
-		l = append(l, goversion)
+// Lock must be held by calling.
+func sdkIsSupported(goversion string) bool {
+	for _, e := range sdk.supportedList {
+		if e == goversion {
+			return true
+		}
 	}
-	sdk.Unlock()
+	return false
+}
+
+// Lock must be held by calling.
+func sdkUpdateInstalledList() {
+	l := []string{}
+	for goversion := range sdk.installed {
+		if !sdkIsSupported(goversion) {
+			l = append(l, goversion)
+		}
+	}
 	sort.Slice(l, func(i, j int) bool {
 		return l[j] < l[i]
 	})
-	return l
+	sdk.installedList = l
+}
+
+func installedSDK() (supported []string, remainingAvailable []string) {
+	now := time.Now()
+	sdk.Lock()
+	if now.Sub(sdk.lastSupported) > time.Hour {
+		// Don't hold lock while requesting. Don't let others make the same request.
+		sdk.lastSupported = now
+		sdk.Unlock()
+
+		// todo: set a (low) timeout on the request
+		rels, err := goreleases.ListSupported()
+		sdk.Lock()
+
+		if err != nil {
+			log.Printf("listing supported go releases: %v", err)
+		} else {
+			sdk.supportedList = []string{}
+			for _, rel := range rels {
+				sdk.supportedList = append(sdk.supportedList, rel.Version)
+			}
+			sdkUpdateInstalledList()
+		}
+	}
+	supported = sdk.supportedList
+	remainingAvailable = sdk.installedList
+	defer sdk.Unlock()
+	return
 }
 
 func ensureSDK(goversion string) error {
@@ -184,6 +227,7 @@ func ensureSDK(goversion string) error {
 				sdk.Lock()
 				defer sdk.Unlock()
 				sdk.installed[goversion] = struct{}{}
+				sdkUpdateInstalledList()
 			}
 			sdk.fetch.status[goversion] = err
 			return err

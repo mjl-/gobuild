@@ -71,7 +71,7 @@ const buildTemplateString = `<p><a href="/">&lt; Home</a></p>
 {{ $req := .Req }}
 <div style="width: 32%; display: inline-block; vertical-align: top">
 	<h2>Go versions</h2>
-{{ range .GoversionLinks }}	<div><a href="/x/{{ .Path }}">{{ .Goversion }}</a>{{ if .Available }} ✓{{ end }}</div>{{ end }}
+{{ range .GoversionLinks }}	<div><a href="/x/{{ .Path }}"{{ if not .Supported }} style="color: #aaa"{{ end }}>{{ .Goversion }}</a>{{ if .Available }} ✓{{ end }}</div>{{ end }}
 </div>
 
 <div style="width: 32%; display: inline-block; vertical-align: top">

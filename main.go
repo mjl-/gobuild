@@ -333,12 +333,12 @@ func serveBuilds(w http.ResponseWriter, r *http.Request) {
 	metricRequestsTotal.WithLabelValues(req.Page.String())
 
 	if req.Goversion == "latest" {
-		l := installedSDK()
-		if len(l) == 0 {
-			http.Error(w, "no go toolchains available", http.StatusServiceUnavailable)
+		supported, _ := installedSDK()
+		if len(supported) == 0 {
+			http.Error(w, "no go supported toolchains available", http.StatusServiceUnavailable)
 			return
 		}
-		goversion := l[0]
+		goversion := supported[0]
 		p := fmt.Sprintf("/x/%s-%s-%s/%s@%s/%s%s", req.Goos, req.Goarch, goversion, req.Mod, req.Version, req.Dir, req.pagePart())
 		http.Redirect(w, r, p, http.StatusFound)
 		return
@@ -517,11 +517,17 @@ func serveBuilds(w http.ResponseWriter, r *http.Request) {
 			Goversion string
 			Path      string
 			Available bool
+			Supported bool
 		}
 		goversionLinks := []goversionLink{}
-		for _, goversion := range installedSDK() {
+		supported, remaining := installedSDK()
+		for _, goversion := range supported {
 			p := fmt.Sprintf("%s-%s-%s/%s@%s/%s", req.Goos, req.Goarch, goversion, req.Mod, req.Version, req.Dir)
-			goversionLinks = append(goversionLinks, goversionLink{goversion, p, false})
+			goversionLinks = append(goversionLinks, goversionLink{goversion, p, false, true})
+		}
+		for _, goversion := range remaining {
+			p := fmt.Sprintf("%s-%s-%s/%s@%s/%s", req.Goos, req.Goarch, goversion, req.Mod, req.Version, req.Dir)
+			goversionLinks = append(goversionLinks, goversionLink{goversion, p, false, false})
 		}
 
 		type targetLink struct {
@@ -613,6 +619,9 @@ func build(w http.ResponseWriter, r *http.Request, req request) bool {
 	}
 
 	gobin := path.Join(config.SDKDir, req.Goversion, "bin/go")
+	if !path.IsAbs(gobin) {
+		gobin = path.Join(workdir, gobin)
+	}
 	_, err = os.Stat(gobin)
 	if err != nil {
 		failf(w, "unknown toolchain %q: %v", req.Goversion, err)
