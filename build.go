@@ -67,19 +67,43 @@ func build(w http.ResponseWriter, r *http.Request, req request) (ok bool, tmpFai
 		return false, true
 	}
 
+	pkgDir := homedir + "/go/pkg/mod/" + req.Mod[:len(req.Mod)-1] + "@" + req.Version + "/" + req.Dir
+
+	// Check if package is a main package, resulting in an executable when built.
+	cmd = exec.CommandContext(r.Context(), gobin, "list", "-f", "{{.Name}}")
+	cmd.Dir = pkgDir
+	cmd.Env = []string{
+		fmt.Sprintf("GOPROXY=%s", config.GoProxy),
+		"GO111MODULE=on",
+		"HOME=" + homedir,
+	}
+	nameOutput, err := cmd.CombinedOutput()
+	if err != nil {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprintf(w, "400 - error finding package name; perhaps package does not exist?")
+		w.Write(nameOutput) // nothing to do for errors
+		return false, true
+	}
+	if string(nameOutput) != "main\n" {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprintf(w, "400 - not package main, building would not result in executable binary")
+		return false, true
+	}
+
 	lname := dir + "/bin/" + req.filename()
 	os.Mkdir(filepath.Dir(lname), 0775) // failures will be caught later
 	cmd = exec.CommandContext(r.Context(), gobin, "build", "-mod=readonly", "-o", lname, "-x", "-v", "-trimpath", "-ldflags", "-buildid=00000000000000000000/00000000000000000000/00000000000000000000/00000000000000000000")
 	cmd.Env = []string{
+		fmt.Sprintf("GOPROXY=%s", config.GoProxy),
+		"GO111MODULE=on",
 		"CGO_ENABLED=0",
 		"GOOS=" + req.Goos,
 		"GOARCH=" + req.Goarch,
 		"HOME=" + homedir,
 	}
-	cmd.Dir = homedir + "/go/pkg/mod/" + req.Mod[:len(req.Mod)-1] + "@" + req.Version
-	if req.Dir != "" {
-		cmd.Dir += "/" + req.Dir
-	}
+	cmd.Dir = pkgDir
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		var sysTime, userTime time.Duration
