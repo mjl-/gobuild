@@ -87,7 +87,7 @@ func (r request) downloadFilename() string {
 }
 
 // we'll get paths like linux-amd64-go1.13/example.com/user/repo/@version/cmd/dir/{log,sha256,dl,<name>,<name>.gz,build.json}
-func parsePath(s string) (r request, ok bool) {
+func parsePath(s string) (r request, hint string, ok bool) {
 	t := strings.SplitN(s, "/", 2)
 	if len(t) != 2 {
 		return
@@ -136,10 +136,12 @@ func parsePath(s string) (r request, ok bool) {
 	// - example.com/user/repo/@version
 	t = strings.SplitN(s, "@", 2)
 	if len(t) != 2 {
+		hint = `Perhaps a missing "@" version in URL?`
 		return
 	}
 	r.Mod = t[0]
 	if !strings.HasSuffix(r.Mod, "/") {
+		hint = "Perhaps a missing / at end of module?"
 		return
 	}
 	s = t[1]
@@ -149,6 +151,7 @@ func parsePath(s string) (r request, ok bool) {
 		r.Dir = t[1] + "/"
 	}
 
+	hint = "Perhaps a missing / at end of package?"
 	switch r.Page {
 	case pageDownload:
 		if r.downloadFilename() != downloadName {
@@ -171,9 +174,13 @@ func failf(w http.ResponseWriter, format string, args ...interface{}) {
 }
 
 func serveBuilds(w http.ResponseWriter, r *http.Request) {
-	req, ok := parsePath(r.URL.Path[3:])
+	req, hint, ok := parsePath(r.URL.Path[3:])
 	if !ok {
-		http.NotFound(w, r)
+		if hint != "" {
+			http.Error(w, fmt.Sprintf("404 - File Not Found\n\n%s\n", hint), http.StatusNotFound)
+		} else {
+			http.NotFound(w, r)
+		}
 		return
 	}
 
