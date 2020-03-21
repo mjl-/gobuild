@@ -3,7 +3,7 @@
 // Serves URLs like:
 //
 // 	http://localhost:8000/
-// 	http://localhost:8000/x/linux-amd64-go1.14.1/github.com/mjl-/sherpa/@v0.6.0/cmd/sherpaclient/{,log,sha256,dl}
+// 	http://localhost:8000/x/linux-amd64-go1.14.1/github.com/mjl-/sherpa/@v0.6.0/cmd/sherpaclient/{,log,sha256,build.json,dl}
 package main
 
 import (
@@ -13,6 +13,7 @@ import (
 	"net/http"
 	_ "net/http/pprof"
 	"os"
+	"path"
 	"sync"
 
 	"github.com/mjl-/sconf"
@@ -152,6 +153,9 @@ func serve(args []string) {
 	mux.HandleFunc("/robots.txt", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain")
 		fmt.Fprint(w, "User-agent: *\nDisallow: /x/\n")
+	})
+	mux.HandleFunc("/builds.txt", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, path.Join(config.DataDir, "builds.txt"))
 	})
 	mux.HandleFunc("/x/", serveBuilds)
 	mux.HandleFunc("/", staticFile)
