@@ -18,6 +18,7 @@ import (
 
 	"github.com/mjl-/sconf"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
@@ -55,21 +56,21 @@ var (
 )
 
 var (
-	metricBuilds = prometheus.NewCounterVec(
+	metricBuilds = promauto.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "gobuild_builds_total",
 			Help: "Number of builds.",
 		},
 		[]string{"goos", "goarch", "goversion"},
 	)
-	metricBuildErrors = prometheus.NewCounterVec(
+	metricBuildErrors = promauto.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "gobuild_build_errors_total",
 			Help: "Number of errors during builds.",
 		},
 		[]string{"goos", "goarch", "goversion"},
 	)
-	metricRequestsTotal = prometheus.NewCounterVec(
+	metricRequestsTotal = promauto.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "gobuild_requests_total",
 			Help: "Number of requests per page.",
