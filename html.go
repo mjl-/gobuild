@@ -69,7 +69,9 @@ const buildTemplateString = `
 	<p><a href="/">&lt; Home</a></p>
 	<h1>
 		{{ .Req.Mod }}@{{ .Req.Version }}/{{ .Req.Dir }}<br/>
-		{{ .Req.Goos }}/{{ .Req.Goarch }} {{ .Req.Goversion }} {{ if .Success }}<span class="success">✓</span>{{ else }}<span class="failure">❌</span>{{ end }}
+		{{ .Req.Goos }}/{{ .Req.Goarch }} {{ .Req.Goversion }}
+		{{ if .Success}}<br/>{{ .Sum }}{{ end }}
+		{{ if .Success }}<span class="success">✓</span>{{ else }}<span class="failure">❌</span>{{ end }}
 	</h1>
 
 {{ if .Success }}
@@ -88,7 +90,6 @@ const buildTemplateString = `
 	<h2>More</h2>
 	<ul>
 		<li><a href="log">Build log</a></li>
-		<li>SHA256: {{ .SHA256 }}</li>
 		<li><a href="/x/{{ .Req.Goos }}-{{ .Req.Goarch }}-latest/{{ .Req.Mod }}@latest/{{ .Req.Dir }}">{{ .Req.Goos }}-{{ .Req.Goarch }}-<b>latest</b>/{{ .Req.Mod }}@<b>latest</b>/{{ .Req.Dir }}</a> (<a href="/x/{{ .Req.Goos }}-{{ .Req.Goarch }}-latest/{{ .Req.Mod }}@latest/{{ .Req.Dir }}dl">direct download</a>)</li>
 		<li>Built on {{ .Start }}, in {{ .BuildWallTimeMS }}ms; sys {{ .SystemTimeMS }}ms, user {{ .UserTimeMS }}ms.</li>
 	</ul>

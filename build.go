@@ -19,7 +19,7 @@ import (
 
 type buildJSON struct {
 	V             string // "v0"
-	SHA256        string
+	SHA256        []byte
 	Filesize      int64
 	FilesizeGz    int64
 	Start         time.Time
@@ -155,7 +155,7 @@ func saveFailure(req request, output string, start time.Time, systemTime, userTi
 
 	buildResult := buildJSON{
 		"v0",
-		"x", // Marks failure.
+		nil, // Marks failure.
 		0,
 		0,
 		start,
@@ -209,7 +209,7 @@ func saveFiles(req request, output []byte, lname string, start time.Time, system
 
 	buildResult := buildJSON{
 		"v0",
-		fmt.Sprintf("%x", sha256),
+		sha256,
 		size,
 		0, // filled in below
 		start,
@@ -295,7 +295,11 @@ func appendBuildsTxt(b buildJSON) error {
 			bf.Close()
 		}
 	}()
-	_, err = fmt.Fprintf(bf, "v0 %s %d %d %d %d %d %d %s %s %s %s %s %s\n", b.SHA256, b.Filesize, b.FilesizeGz, b.Start.UnixNano()/int64(time.Millisecond), b.BuildWallTime/time.Millisecond, b.SystemTime/time.Millisecond, b.UserTime/time.Millisecond, b.Goos, b.Goarch, b.Goversion, b.Mod, b.Version, b.Dir)
+	sum := "x"
+	if b.SHA256 != nil {
+		sum = fmt.Sprintf("%x", b.SHA256)
+	}
+	_, err = fmt.Fprintf(bf, "v0 %s %d %d %d %d %d %d %s %s %s %s %s %s\n", sum, b.Filesize, b.FilesizeGz, b.Start.UnixNano()/int64(time.Millisecond), b.BuildWallTime/time.Millisecond, b.SystemTime/time.Millisecond, b.UserTime/time.Millisecond, b.Goos, b.Goarch, b.Goversion, b.Mod, b.Version, b.Dir)
 	if err != nil {
 		return err
 	}

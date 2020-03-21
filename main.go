@@ -5,6 +5,7 @@
 // 	http://localhost:8000/
 // 	http://localhost:8000/m/github.com/mjl-/sherpa/
 // 	http://localhost:8000/x/linux-amd64-go1.14.1/github.com/mjl-/sherpa/@v0.6.0/cmd/sherpaclient/{,log,sha256,build.json,dl}
+// 	http://localhost:8000/z/$base64urlsum/linux-amd64-go1.14.1/github.com/mjl-/sherpa/@v0.6.0/cmd/sherpaclient/{,log,sha256,build.json,dl}
 package main
 
 import (
@@ -92,6 +93,14 @@ var (
 		prometheus.HistogramOpts{
 			Name:    "gobuild_http_build_request_duration_seconds",
 			Help:    "Duration of requests on build endpoint in seconds.",
+			Buckets: []float64{0.1, 0.25, 0.5, 1, 2, 4, 8, 16, 32, 64, 128},
+		},
+		[]string{"code", "method"},
+	)
+	metricHTTPResultRequestDuration = promauto.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "gobuild_http_result_request_duration_seconds",
+			Help:    "Duration of requests on result endpoint in seconds.",
 			Buckets: []float64{0.1, 0.25, 0.5, 1, 2, 4, 8, 16, 32, 64, 128},
 		},
 		[]string{"code", "method"},
@@ -191,6 +200,7 @@ func serve(args []string) {
 	})
 	mux.HandleFunc("/m/", promhttp.InstrumentHandlerDuration(metricHTTPModuleRequestDuration, http.HandlerFunc(serveModules)))
 	mux.HandleFunc("/x/", promhttp.InstrumentHandlerDuration(metricHTTPBuildRequestDuration, http.HandlerFunc(serveBuilds)))
+	mux.HandleFunc("/z/", promhttp.InstrumentHandlerDuration(metricHTTPResultRequestDuration, http.HandlerFunc(serveResults)))
 	mux.HandleFunc("/", serveHome)
 	log.Printf("listening on %s and %s", *listenAddress, *listenAdmin)
 	go func() {

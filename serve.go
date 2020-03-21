@@ -2,18 +2,15 @@ package main
 
 import (
 	"compress/gzip"
-	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
 	"path"
-	"sort"
 	"strings"
-	"time"
 )
 
 type page int
@@ -249,8 +246,6 @@ func serveBuilds(w http.ResponseWriter, r *http.Request) {
 		availableBuilds.Unlock()
 	}
 
-	// Presence of build.json file indicates success.
-	success := true
 	bf, err := os.Open(lpath + "/build.json")
 	if err == nil {
 		defer bf.Close()
@@ -259,201 +254,38 @@ func serveBuilds(w http.ResponseWriter, r *http.Request) {
 	if err == nil {
 		err = json.NewDecoder(bf).Decode(&buildResult)
 	}
-	if err != nil {
-		if !os.IsNotExist(err) {
-			failf(w, "reading build.json: %v", err)
-			return
-		}
-		success = false
-		switch req.Page {
-		case pageLog, pageIndex:
-		default:
-			http.Error(w, "400 - bad request, build failed", http.StatusBadRequest)
-			return
-		}
+	if err != nil && !os.IsNotExist(err) {
+		failf(w, "reading build.json: %v", err)
+		return
+	}
+	if err == nil {
+		// Redirect to the permanent URLs that include the hash.
+		bsum := base64.RawURLEncoding.EncodeToString(buildResult.SHA256[:20])
+		p := fmt.Sprintf("/z/%s/%s-%s-%s/%s@%s/%s%s", bsum, req.Goos, req.Goarch, req.Goversion, req.Mod, req.Version, req.Dir, req.pagePart())
+		http.Redirect(w, r, p, http.StatusFound)
+		return
 	}
 
+	// Show failed build to user, for the pages where that works.
 	switch req.Page {
 	case pageLog:
-		p := lpath + "/log.gz"
-		f, err := os.Open(p)
-		if err != nil {
-			failf(w, "open log.gz: %v", err)
-			return
-		}
-		defer f.Close()
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		serveGzipFile(w, r, p, f)
-	case pageSha256:
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		w.Write([]byte(buildResult.SHA256)) // nothing to do for errors
-	case pageDownloadRedirect:
-		p := "/x/" + req.destdir() + req.downloadFilename()
-		http.Redirect(w, r, p, http.StatusFound)
-	case pageDownload:
-		p := path.Join(lpath, req.downloadFilename()+".gz")
-		f, err := os.Open(p)
-		if err != nil {
-			failf(w, "open binary: %v", err)
-			return
-		}
-		defer f.Close()
-		serveGzipFile(w, r, p, f)
-	case pageDownloadGz:
-		p := path.Join(lpath, req.downloadFilename()+".gz")
-		http.ServeFile(w, r, p)
-	case pageBuildJSON:
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		json.NewEncoder(w).Encode(buildResult) // nothing to do for errors
+		serveLog(w, r, lpath+"/log.gz")
 	case pageIndex:
-		type versionLink struct {
-			Version   string
-			Path      string
-			Available bool
-			Success   bool
-			Active    bool
-		}
-		type response struct {
-			Err          error
-			VersionLinks []versionLink
-		}
-		c := make(chan response, 1)
-		go func() {
-			ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
-			defer cancel()
-			u := fmt.Sprintf("%s%s@v/list", config.GoProxy, req.Mod)
-			mreq, err := http.NewRequestWithContext(ctx, "GET", u, nil)
-			if err != nil {
-				c <- response{fmt.Errorf("preparing new http request: %v", err), nil}
-				return
-			}
-			resp, err := http.DefaultClient.Do(mreq)
-			if err != nil {
-				c <- response{fmt.Errorf("http request: %v", err), nil}
-				return
-			}
-			defer resp.Body.Close()
-			if err != nil {
-				c <- response{fmt.Errorf("response from goproxy: %v", err), nil}
-				return
-			}
-			buf, err := ioutil.ReadAll(resp.Body)
-			if err != nil {
-				c <- response{fmt.Errorf("reading versions from goproxy: %v", err), nil}
-				return
-			}
-			l := []versionLink{}
-			for _, s := range strings.Split(string(buf), "\n") {
-				if s != "" {
-					p := fmt.Sprintf("%s-%s-%s/%s@%s/%s", req.Goos, req.Goarch, req.Goversion, req.Mod, s, req.Dir)
-					link := versionLink{s, p, false, false, p == destdir}
-					l = append(l, link)
-				}
-			}
-			// todo: do better job of sorting versions; proxy.golang.org doesn't seem to sort them.
-			sort.Slice(l, func(i, j int) bool {
-				return l[j].Version < l[i].Version
-			})
-			c <- response{nil, l}
-		}()
-
-		var output string
-		if !success {
-			p := lpath + "/log.gz"
-			f, err := os.Open(p)
-			if err != nil {
-				failf(w, "open log.gz: %v", err)
-				return
-			}
-			defer f.Close()
-			fgz, err := gzip.NewReader(f)
-			if err != nil {
-				failf(w, "parsing log.gz: %v", err)
-				return
-			}
-			buf, err := ioutil.ReadAll(fgz)
-			if err != nil {
-				failf(w, "reading log.gz: %v", err)
-				return
-			}
-			output = string(buf)
-		}
-
-		type goversionLink struct {
-			Goversion string
-			Path      string
-			Available bool
-			Success   bool
-			Supported bool
-			Active    bool
-		}
-		goversionLinks := []goversionLink{}
-		supported, remaining := installedSDK()
-		for _, goversion := range supported {
-			p := fmt.Sprintf("%s-%s-%s/%s@%s/%s", req.Goos, req.Goarch, goversion, req.Mod, req.Version, req.Dir)
-			goversionLinks = append(goversionLinks, goversionLink{goversion, p, false, false, true, p == destdir})
-		}
-		for _, goversion := range remaining {
-			p := fmt.Sprintf("%s-%s-%s/%s@%s/%s", req.Goos, req.Goarch, goversion, req.Mod, req.Version, req.Dir)
-			goversionLinks = append(goversionLinks, goversionLink{goversion, p, false, false, false, p == destdir})
-		}
-
-		type targetLink struct {
-			Goos      string
-			Goarch    string
-			Path      string
-			Available bool
-			Success   bool
-			Active    bool
-		}
-		targetLinks := []targetLink{}
-		for _, target := range targets {
-			p := fmt.Sprintf("%s-%s-%s/%s@%s/%s", target.Goos, target.Goarch, req.Goversion, req.Mod, req.Version, req.Dir)
-			targetLinks = append(targetLinks, targetLink{target.Goos, target.Goarch, p, false, false, p == destdir})
-		}
-
-		resp := <-c
-
-		availableBuilds.Lock()
-		for i, link := range goversionLinks {
-			goversionLinks[i].Success, goversionLinks[i].Available = availableBuilds.index[link.Path]
-		}
-		for i, link := range targetLinks {
-			targetLinks[i].Success, targetLinks[i].Available = availableBuilds.index[link.Path]
-		}
-		for i, link := range resp.VersionLinks {
-			resp.VersionLinks[i].Success, resp.VersionLinks[i].Available = availableBuilds.index[link.Path]
-		}
-		availableBuilds.Unlock()
-
-		pkgGoDevURL := fmt.Sprintf("https://pkg.go.dev/%s@%s/%s", req.Mod, req.Version, req.Dir)
-		pkgGoDevURL = pkgGoDevURL[:len(pkgGoDevURL)-1] + "?tab=doc"
-
-		args := map[string]interface{}{
-			"Success":          success,
-			"Output":           output, // Only set when !success.
-			"Req":              req,
-			"SHA256":           buildResult.SHA256, // Only set when success.
-			"GoversionLinks":   goversionLinks,
-			"TargetLinks":      targetLinks,
-			"Mod":              resp,
-			"DownloadFilename": req.downloadFilename(),
-			"Filesize":         fmt.Sprintf("%.1f MB", float64(buildResult.Filesize)/(1024*1024)),
-			"FilesizeGz":       fmt.Sprintf("%.1f MB", float64(buildResult.FilesizeGz)/(1024*1024)),
-			"Start":            buildResult.Start.Format("2006-01-02 15:04:05"),
-			"BuildWallTimeMS":  fmt.Sprintf("%d", buildResult.BuildWallTime/time.Millisecond),
-			"SystemTimeMS":     fmt.Sprintf("%d", buildResult.SystemTime/time.Millisecond),
-			"UserTimeMS":       fmt.Sprintf("%d", buildResult.UserTime/time.Millisecond),
-			"PkgGoDevURL":      pkgGoDevURL,
-		}
-		err = buildTemplate.Execute(w, args)
-		if err != nil {
-			failf(w, "executing template: %v", err)
-			return
-		}
+		serveBuildIndex(w, r, req, nil)
 	default:
-		failf(w, "unknown page %v", req.Page)
+		http.Error(w, "400 - bad request, build failed", http.StatusBadRequest)
 	}
+}
+
+func serveLog(w http.ResponseWriter, r *http.Request, p string) {
+	f, err := os.Open(p)
+	if err != nil {
+		failf(w, "open log.gz: %v", err)
+		return
+	}
+	defer f.Close()
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	serveGzipFile(w, r, p, f)
 }
 
 func serveGzipFile(w http.ResponseWriter, r *http.Request, path string, src io.Reader) {
