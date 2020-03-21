@@ -61,7 +61,7 @@ func build(w http.ResponseWriter, r *http.Request, req request) (ok bool, tmpFai
 		// store these results. Perhaps the user is trying to build something that was
 		// uploaded just now, and not yet available in the go module proxy.
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		w.WriteHeader(400)
+		w.WriteHeader(http.StatusBadRequest)
 		fmt.Fprintf(w, "400 - error fetching module from goproxy: %v\n\n# output:\n", err)
 		w.Write(getOutput) // nothing to do for errors
 		return false, true
@@ -176,7 +176,6 @@ func saveFiles(req request, output []byte, lname string, start time.Time, system
 		return err
 	}
 	sha256 := fmt.Sprintf("%x", h.Sum(nil))
-	sum := sha256[:40]
 	_, err = of.Seek(0, io.SeekStart)
 	if err != nil {
 		return err
@@ -197,12 +196,17 @@ func saveFiles(req request, output []byte, lname string, start time.Time, system
 		return err
 	}
 
+	err = ioutil.WriteFile(tmpdir+"/size", []byte(fmt.Sprintf("%d", size)), 0666)
+	if err != nil {
+		return err
+	}
+
 	err = writeGz(tmpdir+"/log.gz", bytes.NewReader(output))
 	if err != nil {
 		return err
 	}
 
-	err = writeGz(tmpdir+"/"+sum+".gz", of)
+	err = writeGz(tmpdir+"/"+req.downloadFilename()+".gz", of)
 	if err != nil {
 		return err
 	}

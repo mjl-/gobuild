@@ -12,6 +12,7 @@ import (
 	"os"
 	"path"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -24,9 +25,10 @@ const (
 	pageSha256
 	pageDownloadRedirect
 	pageDownload
+	pageDownloadGz
 )
 
-var pageNames = []string{"index", "log", "sha256", "dlredir", "download"}
+var pageNames = []string{"index", "log", "sha256", "dlredir", "download", "downloadgz"}
 
 func (p page) String() string {
 	return pageNames[p]
@@ -58,7 +60,9 @@ func (r request) pagePart() string {
 	case pageDownloadRedirect:
 		return "dl"
 	case pageDownload:
-		return r.DownloadSum
+		return r.downloadFilename()
+	case pageDownloadGz:
+		return r.downloadFilename() + ".gz"
 	default:
 		panic("missing case")
 	}
@@ -80,7 +84,7 @@ func (r request) downloadFilename() string {
 	return fmt.Sprintf("%s-%s-%s%s", r.filename(), r.Version, r.Goversion, ext)
 }
 
-// we'll get paths like linux-amd64-go1.13/example.com/user/repo/@version/cmd/dir/{log,sha256,dl,<sum>}
+// we'll get paths like linux-amd64-go1.13/example.com/user/repo/@version/cmd/dir/{log,sha256,dl,<name>,<name>.gz}
 func parsePath(s string) (r request, ok bool) {
 	t := strings.SplitN(s, "/", 2)
 	if len(t) != 2 {
@@ -95,6 +99,7 @@ func parsePath(s string) (r request, ok bool) {
 	r.Goarch = tt[1]
 	r.Goversion = tt[2]
 
+	var downloadName string
 	switch {
 	case strings.HasSuffix(s, "/"):
 		r.Page = pageIndex
@@ -108,12 +113,17 @@ func parsePath(s string) (r request, ok bool) {
 	case strings.HasSuffix(s, "/dl"):
 		r.Page = pageDownloadRedirect
 		s = s[:len(s)-len("/dl")]
-	case len(s) >= 1+40 && s[len(s)-1-40] == '/':
-		r.Page = pageDownload
-		r.DownloadSum = s[len(s)-40:]
-		s = s[:len(s)-1-40]
 	default:
-		return
+		t := strings.Split(s, "/")
+		downloadName = t[len(t)-1]
+		if strings.HasSuffix(downloadName, ".gz") {
+			r.Page = pageDownloadGz
+		} else {
+			r.Page = pageDownload
+		}
+		s = s[:len(s)-1-len(downloadName)]
+		// After parsing module,version,package below, we'll check if the download name is
+		// indeed valid for this filename.
 	}
 
 	// We are left parsing eg:
@@ -132,6 +142,17 @@ func parsePath(s string) (r request, ok bool) {
 	r.Version = t[0]
 	if len(t) == 2 {
 		r.Dir = t[1] + "/"
+	}
+
+	switch r.Page {
+	case pageDownload:
+		if r.downloadFilename() != downloadName {
+			return
+		}
+	case pageDownloadGz:
+		if r.downloadFilename()+".gz" != downloadName {
+			return
+		}
 	}
 
 	ok = true
@@ -274,55 +295,21 @@ func serveBuilds(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		io.Copy(w, f) // nothing to do for errors
 	case pageDownloadRedirect:
-		buf, err := ioutil.ReadFile(lpath + "/sha256")
-		if err != nil {
-			failf(w, "open sha256: %v", err)
-			return
-		}
-		if len(buf) != 64 {
-			failf(w, "bad sha256 file")
-			return
-		}
-		sum := string(buf[:40])
-		http.Redirect(w, r, sum, http.StatusFound)
-
+		p := "/x/" + req.destdir() + req.downloadFilename()
+		http.Redirect(w, r, p, http.StatusFound)
 	case pageDownload:
-		p := lpath + "/" + req.DownloadSum + ".gz"
+		p := path.Join(lpath, req.downloadFilename()+".gz")
 		f, err := os.Open(p)
 		if err != nil {
-			if os.IsNotExist(err) {
-				http.NotFound(w, r)
-			} else {
-				failf(w, "open binary: %v", err)
-			}
+			failf(w, "open binary: %v", err)
 			return
 		}
 		defer f.Close()
-		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", req.downloadFilename()))
 		serveGzipFile(w, r, p, f)
+	case pageDownloadGz:
+		p := path.Join(lpath, req.downloadFilename()+".gz")
+		http.ServeFile(w, r, p)
 	case pageIndex:
-		var output string
-		if !success {
-			p := lpath + "/log.gz"
-			f, err := os.Open(p)
-			if err != nil {
-				failf(w, "open log.gz: %v", err)
-				return
-			}
-			defer f.Close()
-			fgz, err := gzip.NewReader(f)
-			if err != nil {
-				failf(w, "parsing log.gz: %v", err)
-				return
-			}
-			buf, err := ioutil.ReadAll(fgz)
-			if err != nil {
-				failf(w, "reading log.gz: %v", err)
-				return
-			}
-			output = string(buf)
-		}
-
 		type versionLink struct {
 			Version   string
 			Path      string
@@ -374,7 +361,31 @@ func serveBuilds(w http.ResponseWriter, r *http.Request) {
 			c <- response{nil, l}
 		}()
 
+		var output string
+		if !success {
+			p := lpath + "/log.gz"
+			f, err := os.Open(p)
+			if err != nil {
+				failf(w, "open log.gz: %v", err)
+				return
+			}
+			defer f.Close()
+			fgz, err := gzip.NewReader(f)
+			if err != nil {
+				failf(w, "parsing log.gz: %v", err)
+				return
+			}
+			buf, err := ioutil.ReadAll(fgz)
+			if err != nil {
+				failf(w, "reading log.gz: %v", err)
+				return
+			}
+			output = string(buf)
+		}
+
 		var sum string
+		var filesize string
+		var filesizeGz string
 		if success {
 			buf, err := ioutil.ReadFile(lpath + "/sha256")
 			if err != nil {
@@ -383,8 +394,29 @@ func serveBuilds(w http.ResponseWriter, r *http.Request) {
 			}
 			if len(buf) != 64 {
 				failf(w, "bad sha256 file")
+				return
 			}
-			sum = string(buf[:40])
+			sum = string(buf)
+
+			buf, err = ioutil.ReadFile(lpath + "/size")
+			if err != nil {
+				failf(w, "reading file size: %v", err)
+				return
+			}
+			size, err := strconv.ParseInt(string(buf), 10, 64)
+			if err != nil {
+				failf(w, "parsing file size: %v", err)
+				return
+			}
+			filesize = fmt.Sprintf("%.1f MB", float64(size)/(1024*1024))
+
+			downloadPath := lpath + "/" + req.downloadFilename() + ".gz"
+			fi, err := os.Stat(downloadPath)
+			if err != nil {
+				failf(w, "stat binary: %v", err)
+				return
+			}
+			filesizeGz = fmt.Sprintf("%.1f MB", float64(fi.Size())/(1024*1024))
 		}
 
 		type goversionLink struct {
@@ -435,13 +467,16 @@ func serveBuilds(w http.ResponseWriter, r *http.Request) {
 		availableBuilds.Unlock()
 
 		args := map[string]interface{}{
-			"Success":        success,
-			"Output":         output, // Only set when !success.
-			"Req":            req,
-			"Sum":            sum, // Only set when success.
-			"GoversionLinks": goversionLinks,
-			"TargetLinks":    targetLinks,
-			"Mod":            resp,
+			"Success":          success,
+			"Output":           output, // Only set when !success.
+			"Req":              req,
+			"Sum":              sum, // Only set when success.
+			"GoversionLinks":   goversionLinks,
+			"TargetLinks":      targetLinks,
+			"Mod":              resp,
+			"DownloadFilename": req.downloadFilename(),
+			"Filesize":         filesize,
+			"FilesizeGz":       filesizeGz,
 		}
 		err = buildTemplate.Execute(w, args)
 		if err != nil {

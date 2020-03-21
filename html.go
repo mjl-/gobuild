@@ -34,8 +34,9 @@ const htmlTemplateString = `
 		<style>
 * { box-sizing: border-box; }
 body { margin: 0 auto; max-width: 50rem; font-family: Ubuntu, Lato, sans-serif; color: #111; line-height: 1.3; }
-h1 { font-size: 1.75rem; }
-h2 { font-size: 1.5rem; }
+h1 { font-size: 1.5rem; }
+h2 { font-size: 1.25rem; }
+ul { padding-left: 1rem; }
 a { color: #007d9c; }
 .buildlink { padding: 0 .2rem; display: inline-block; }
 .buildlink.unsupported { color: #aaa; }
@@ -60,25 +61,38 @@ const buildTemplateString = `
 {{ define "title" }}{{ .Req.Mod }}@{{ .Req.Version }}/{{ .Req.Dir }} - {{ .Req.Goos }}/{{ .Req.Goarch }} {{ .Req.Goversion }} - gobuild{{ end }}
 {{ define "content" }}
 	<p><a href="/">&lt; Home</a></p>
-	<h1>{{ .Req.Mod }}@{{ .Req.Version }}/{{ .Req.Dir }}</h1>
-	<h2>{{ .Req.Goos }}/{{ .Req.Goarch }} {{ .Req.Goversion }} {{ if .Success }}<span class="success">✓</span>{{ else }}<span class="failure">❌</span>{{ end }}</h2>
+	<h1>
+		{{ .Req.Mod }}@{{ .Req.Version }}/{{ .Req.Dir }}<br/>
+		{{ .Req.Goos }}/{{ .Req.Goarch }} {{ .Req.Goversion }} {{ if .Success }}<span class="success">✓</span>{{ else }}<span class="failure">❌</span>{{ end }}
+	</h1>
+
 {{ if .Success }}
+	<h2>Download</h2>
+	<table>
+		<tr>
+			<td><a href="{{ .DownloadFilename }}">{{ .DownloadFilename }}</a></td>
+			<td style="padding-left: 1rem">{{ .Filesize }}</td>
+		</tr>
+		<tr>
+			<td><a href="{{ .DownloadFilename }}.gz">{{ .DownloadFilename }}.gz</a></td>
+			<td style="padding-left: 1rem">{{ .FilesizeGz }}</td>
+		</tr>
+	</table>
+
+	<h2>More</h2>
 	<ul>
-		<li><a href="{{ .Sum }}">Download</a></li>
-		<li><a href="log">Log</a></li>
-		<li><a href="sha256">Sha256</a> ({{ .Sum }})</li>
+		<li><a href="log">Build log</a></li>
+		<li>SHA256: {{ .Sum }}</li>
+		<li><a href="/x/{{ .Req.Goos }}-{{ .Req.Goarch }}-latest/{{ .Req.Mod }}@latest/{{ .Req.Dir }}">{{ .Req.Goos }}-{{ .Req.Goarch }}-<b>latest</b>/{{ .Req.Mod }}@<b>latest</b>/{{ .Req.Dir }}</a> (<a href="/x/{{ .Req.Goos }}-{{ .Req.Goarch }}-latest/{{ .Req.Mod }}@latest/{{ .Req.Dir }}dl">direct download</a>)</li>
 	</ul>
 {{ else }}
+	<h2>Error</h2>
 	<div class="output">
 		<pre>
 {{ .Output }}
 		</pre>
 	</div>
 {{ end }}
-
-	<ul>
-		<li><a href="/x/{{ .Req.Goos }}-{{ .Req.Goarch }}-latest/{{ .Req.Mod }}@latest/{{ .Req.Dir }}">{{ .Req.Goos }}-{{ .Req.Goarch }}-<b>latest</b>/{{ .Req.Mod }}@<b>latest</b>/{{ .Req.Dir }}</a> (<a href="/x/{{ .Req.Goos }}-{{ .Req.Goarch }}-latest/{{ .Req.Mod }}@latest/{{ .Req.Dir }}dl">direct download</a>)</li>
-	</ul>
 
 	<div style="width: 32%; display: inline-block; vertical-align: top">
 		<h2>Module versions</h2>
