@@ -141,9 +141,10 @@ const homeTemplateString = `
 {{ range .Recents }}			<li><a href="/x/{{ . }}">{{ . }}</a></li>{{ end }}
 		</ul>
 
-		<h2>Details</h2>
-		<p>Builds are created with CGO_ENABLED=0, -trimpath flag, and an zero buildid.</p>
-		<p>Only "go build" is run. No tests, no generate, no makefiles, etc.</p>
+		<h2>More</h2>
+		<p>Builds are created with CGO_ENABLED=0, -trimpath flag, and a zero buildid.</p>
+		<p>Only "go build" is run. No "go test", "go generate", no build tags, no cgo, no custom compile/link flags, no makefiles, etc.</p>
+		<p>Modules are looked up through the go proxy. That's why shorthand versions like "@v1" don't resolve.</p>
 		<p>Code is available at <a href="https://github.com/mjl-/gobuild">github.com/mjl-/gobuild</a>, under MIT-license.</p>
 {{ end }}
 `
