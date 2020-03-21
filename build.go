@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -68,7 +69,7 @@ func build(w http.ResponseWriter, r *http.Request, req request) (ok bool, tmpFai
 
 	lname := dir + "/bin/" + req.filename()
 	os.Mkdir(filepath.Dir(lname), 0775) // failures will be caught later
-	cmd = exec.CommandContext(r.Context(), gobin, "build", "-mod=readonly", "-o", lname, "-x", "-trimpath", "-ldflags", "-buildid=00000000000000000000/00000000000000000000/00000000000000000000/00000000000000000000")
+	cmd = exec.CommandContext(r.Context(), gobin, "build", "-mod=readonly", "-o", lname, "-x", "-v", "-trimpath", "-ldflags", "-buildid=00000000000000000000/00000000000000000000/00000000000000000000/00000000000000000000")
 	cmd.Env = []string{
 		"CGO_ENABLED=0",
 		"GOOS=" + req.Goos,
@@ -81,9 +82,14 @@ func build(w http.ResponseWriter, r *http.Request, req request) (ok bool, tmpFai
 	}
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		err := saveFailure(req, output, start, cmd.ProcessState.SystemTime(), cmd.ProcessState.UserTime())
+		var sysTime, userTime time.Duration
+		if cmd.ProcessState != nil {
+			sysTime = cmd.ProcessState.SystemTime()
+			userTime = cmd.ProcessState.UserTime()
+		}
+		err := saveFailure(req, err.Error()+"\n\n"+string(output), start, sysTime, userTime)
 		if err != nil {
-			failf(w, "storing results: %v", err)
+			failf(w, "storing results of failure: %v", err)
 			return false, true
 		}
 		return false, false
@@ -97,7 +103,7 @@ func build(w http.ResponseWriter, r *http.Request, req request) (ok bool, tmpFai
 	return true, false
 }
 
-func saveFailure(req request, output []byte, start time.Time, systemTime, userTime time.Duration) error {
+func saveFailure(req request, output string, start time.Time, systemTime, userTime time.Duration) error {
 	tmpdir, err := ioutil.TempDir(config.DataDir, "failure")
 	if err != nil {
 		return err
@@ -108,7 +114,7 @@ func saveFailure(req request, output []byte, start time.Time, systemTime, userTi
 		}
 	}()
 
-	err = writeGz(tmpdir+"/log.gz", bytes.NewReader(output))
+	err = writeGz(tmpdir+"/log.gz", strings.NewReader(output))
 	if err != nil {
 		return err
 	}
