@@ -47,7 +47,7 @@ func build(w http.ResponseWriter, r *http.Request, req request) (ok bool, tmpFai
 	}
 	os.Mkdir(homedir, 0775) // failures will be caught later
 
-	cmd := exec.CommandContext(r.Context(), gobin, "get", req.Mod[:len(req.Mod)-1]+"@"+req.Version)
+	cmd := exec.CommandContext(r.Context(), gobin, "get", "-d", "-v", req.Mod[:len(req.Mod)-1]+"@"+req.Version)
 	cmd.Dir = dir
 	cmd.Env = []string{
 		fmt.Sprintf("GOPROXY=%s", config.GoProxy),
