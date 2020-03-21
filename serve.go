@@ -446,6 +446,9 @@ func serveBuilds(w http.ResponseWriter, r *http.Request) {
 		}
 		availableBuilds.Unlock()
 
+		pkgGoDevURL := fmt.Sprintf("https://pkg.go.dev/%s@%s/%s", req.Mod, req.Version, req.Dir)
+		pkgGoDevURL = pkgGoDevURL[:len(pkgGoDevURL)-1] + "?tab=doc"
+
 		args := map[string]interface{}{
 			"Success":          success,
 			"Output":           output, // Only set when !success.
@@ -461,6 +464,7 @@ func serveBuilds(w http.ResponseWriter, r *http.Request) {
 			"BuildWallTimeMS":  fmt.Sprintf("%d", buildResult.BuildWallTime/time.Millisecond),
 			"SystemTimeMS":     fmt.Sprintf("%d", buildResult.SystemTime/time.Millisecond),
 			"UserTimeMS":       fmt.Sprintf("%d", buildResult.UserTime/time.Millisecond),
+			"PkgGoDevURL":      pkgGoDevURL,
 		}
 		err = buildTemplate.Execute(w, args)
 		if err != nil {
