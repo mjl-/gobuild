@@ -77,6 +77,14 @@ var (
 		},
 		[]string{"page"},
 	)
+	metricHTTPBuildRequestDuration = promauto.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "gobuild_http_build_request_duration_seconds",
+			Help:    "Duration of requests on build endpoint in seconds.",
+			Buckets: []float64{0.1, 0.25, 0.5, 1, 2, 4, 8, 16, 32, 64, 128},
+		},
+		[]string{"code", "method"},
+	)
 )
 
 func main() {
@@ -158,8 +166,8 @@ func serve(args []string) {
 	mux.HandleFunc("/builds.txt", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, path.Join(config.DataDir, "builds.txt"))
 	})
-	mux.HandleFunc("/x/", serveBuilds)
-	mux.HandleFunc("/", staticFile)
+	mux.HandleFunc("/x/", promhttp.InstrumentHandlerDuration(metricHTTPBuildRequestDuration, http.HandlerFunc(serveBuilds)))
+	mux.HandleFunc("/", serveHome)
 	log.Printf("listening on %s and %s", *listenAddress, *listenAdmin)
 	go func() {
 		log.Fatalln(http.ListenAndServe(*listenAdmin, nil))
@@ -167,7 +175,7 @@ func serve(args []string) {
 	log.Fatalln(http.ListenAndServe(*listenAddress, mux))
 }
 
-func staticFile(w http.ResponseWriter, r *http.Request) {
+func serveHome(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
 		return
