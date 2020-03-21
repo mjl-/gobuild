@@ -3,7 +3,6 @@ package main
 import (
 	"compress/gzip"
 	"context"
-	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -13,7 +12,6 @@ import (
 	"os"
 	"path"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -27,9 +25,10 @@ const (
 	pageDownloadRedirect
 	pageDownload
 	pageDownloadGz
+	pageBuildJSON
 )
 
-var pageNames = []string{"index", "log", "sha256", "dlredir", "download", "downloadgz"}
+var pageNames = []string{"index", "log", "sha256", "dlredir", "download", "downloadgz", "buildjson"}
 
 func (p page) String() string {
 	return pageNames[p]
@@ -64,6 +63,8 @@ func (r request) pagePart() string {
 		return r.downloadFilename()
 	case pageDownloadGz:
 		return r.downloadFilename() + ".gz"
+	case pageBuildJSON:
+		return "build.json"
 	default:
 		panic("missing case")
 	}
@@ -85,7 +86,7 @@ func (r request) downloadFilename() string {
 	return fmt.Sprintf("%s-%s-%s%s", r.filename(), r.Version, r.Goversion, ext)
 }
 
-// we'll get paths like linux-amd64-go1.13/example.com/user/repo/@version/cmd/dir/{log,sha256,dl,<name>,<name>.gz}
+// we'll get paths like linux-amd64-go1.13/example.com/user/repo/@version/cmd/dir/{log,sha256,dl,<name>,<name>.gz,build.json}
 func parsePath(s string) (r request, ok bool) {
 	t := strings.SplitN(s, "/", 2)
 	if len(t) != 2 {
@@ -114,6 +115,9 @@ func parsePath(s string) (r request, ok bool) {
 	case strings.HasSuffix(s, "/dl"):
 		r.Page = pageDownloadRedirect
 		s = s[:len(s)-len("/dl")]
+	case strings.HasSuffix(s, "/build.json"):
+		r.Page = pageBuildJSON
+		s = s[:len(s)-len("/build.json")]
 	default:
 		t := strings.Split(s, "/")
 		downloadName = t[len(t)-1]
@@ -228,6 +232,8 @@ func serveBuilds(w http.ResponseWriter, r *http.Request) {
 
 	destdir := req.destdir()
 	lpath := path.Join(config.DataDir, destdir)
+
+	// Presence of log.gz file indicates if a build was done before, whether successful or failed.
 	_, err := os.Stat(lpath + "/log.gz")
 	if err != nil {
 		if !os.IsNotExist(err) {
@@ -256,22 +262,27 @@ func serveBuilds(w http.ResponseWriter, r *http.Request) {
 		availableBuilds.Unlock()
 	}
 
-	// Presence of sha256 file indicates success.
+	// Presence of build.json file indicates success.
 	success := true
-	_, err = os.Stat(lpath + "/sha256")
+	bf, err := os.Open(lpath + "/build.json")
+	if err == nil {
+		defer bf.Close()
+	}
+	var buildResult buildJSON
+	if err == nil {
+		err = json.NewDecoder(bf).Decode(&buildResult)
+	}
 	if err != nil {
 		if !os.IsNotExist(err) {
-			failf(w, "sha256 file: %v", err)
+			failf(w, "reading build.json: %v", err)
 			return
 		}
 		success = false
 		switch req.Page {
 		case pageLog, pageIndex:
 		default:
-			if !success {
-				http.Error(w, "400 - bad request, build failed", http.StatusBadRequest)
-				return
-			}
+			http.Error(w, "400 - bad request, build failed", http.StatusBadRequest)
+			return
 		}
 	}
 
@@ -287,16 +298,8 @@ func serveBuilds(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		serveGzipFile(w, r, p, f)
 	case pageSha256:
-		buf, err := ioutil.ReadFile(lpath + "/sha256")
-		if err == nil && len(buf) != sha256.Size {
-			err = fmt.Errorf("bad size for sha256")
-		}
-		if err != nil {
-			failf(w, "read sha256 file: %v", err)
-			return
-		}
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		fmt.Fprintf(w, "%x\n", buf) // nothing to do for errors
+		w.Write([]byte(buildResult.SHA256)) // nothing to do for errors
 	case pageDownloadRedirect:
 		p := "/x/" + req.destdir() + req.downloadFilename()
 		http.Redirect(w, r, p, http.StatusFound)
@@ -312,6 +315,9 @@ func serveBuilds(w http.ResponseWriter, r *http.Request) {
 	case pageDownloadGz:
 		p := path.Join(lpath, req.downloadFilename()+".gz")
 		http.ServeFile(w, r, p)
+	case pageBuildJSON:
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		json.NewEncoder(w).Encode(buildResult) // nothing to do for errors
 	case pageIndex:
 		type versionLink struct {
 			Version   string
@@ -386,41 +392,6 @@ func serveBuilds(w http.ResponseWriter, r *http.Request) {
 			output = string(buf)
 		}
 
-		var sum string
-		var filesize string
-		var filesizeGz string
-		if success {
-			buf, err := ioutil.ReadFile(lpath + "/sha256")
-			if err == nil && len(buf) != sha256.Size {
-				err = fmt.Errorf("bad sha256 size")
-			}
-			if err != nil {
-				failf(w, "reading sha256: %v", err)
-				return
-			}
-			sum = fmt.Sprintf("%x", buf)
-
-			buf, err = ioutil.ReadFile(lpath + "/size")
-			if err != nil {
-				failf(w, "reading file size: %v", err)
-				return
-			}
-			size, err := strconv.ParseInt(string(buf), 10, 64)
-			if err != nil {
-				failf(w, "parsing file size: %v", err)
-				return
-			}
-			filesize = fmt.Sprintf("%.1f MB", float64(size)/(1024*1024))
-
-			downloadPath := lpath + "/" + req.downloadFilename() + ".gz"
-			fi, err := os.Stat(downloadPath)
-			if err != nil {
-				failf(w, "stat binary: %v", err)
-				return
-			}
-			filesizeGz = fmt.Sprintf("%.1f MB", float64(fi.Size())/(1024*1024))
-		}
-
 		type goversionLink struct {
 			Goversion string
 			Path      string
@@ -472,13 +443,17 @@ func serveBuilds(w http.ResponseWriter, r *http.Request) {
 			"Success":          success,
 			"Output":           output, // Only set when !success.
 			"Req":              req,
-			"Sum":              sum, // Only set when success.
+			"SHA256":           buildResult.SHA256, // Only set when success.
 			"GoversionLinks":   goversionLinks,
 			"TargetLinks":      targetLinks,
 			"Mod":              resp,
 			"DownloadFilename": req.downloadFilename(),
-			"Filesize":         filesize,
-			"FilesizeGz":       filesizeGz,
+			"Filesize":         fmt.Sprintf("%.1f MB", float64(buildResult.Filesize)/(1024*1024)),
+			"FilesizeGz":       fmt.Sprintf("%.1f MB", float64(buildResult.FilesizeGz)/(1024*1024)),
+			"Start":            buildResult.Start.Format("2006-01-02 15:04:05"),
+			"BuildWallTimeMS":  fmt.Sprintf("%d", buildResult.BuildWallTime/time.Millisecond),
+			"SystemTimeMS":     fmt.Sprintf("%d", buildResult.SystemTime/time.Millisecond),
+			"UserTimeMS":       fmt.Sprintf("%d", buildResult.UserTime/time.Millisecond),
 		}
 		err = buildTemplate.Execute(w, args)
 		if err != nil {

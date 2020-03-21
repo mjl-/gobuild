@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -15,6 +16,23 @@ import (
 	"strings"
 	"time"
 )
+
+type buildJSON struct {
+	V             string // "v0"
+	SHA256        string
+	Filesize      int64
+	FilesizeGz    int64
+	Start         time.Time
+	BuildWallTime time.Duration
+	SystemTime    time.Duration
+	UserTime      time.Duration
+	Goversion     string
+	Goos          string
+	Goarch        string
+	Mod           string
+	Version       string
+	Dir           string
+}
 
 func build(w http.ResponseWriter, r *http.Request, req request) (ok bool, tmpFail bool) {
 	start := time.Now()
@@ -151,9 +169,23 @@ func saveFailure(req request, output string, start time.Time, systemTime, userTi
 	}
 	tmpdir = ""
 
-	sha256 := "x" // Marks failure.
-	size := int64(0)
-	err = appendBuildsTxt(sha256, size, start, systemTime, userTime, req)
+	buildResult := buildJSON{
+		"v0",
+		"x", // Marks failure.
+		0,
+		0,
+		start,
+		time.Since(start),
+		systemTime,
+		userTime,
+		req.Goversion,
+		req.Goos,
+		req.Goarch,
+		req.Mod,
+		req.Version,
+		req.Dir,
+	}
+	err = appendBuildsTxt(buildResult)
 	return err
 }
 
@@ -191,14 +223,21 @@ func saveFiles(req request, output []byte, lname string, start time.Time, system
 		}
 	}()
 
-	err = ioutil.WriteFile(tmpdir+"/sha256", sha256, 0666)
-	if err != nil {
-		return err
-	}
-
-	err = ioutil.WriteFile(tmpdir+"/size", []byte(fmt.Sprintf("%d", size)), 0666)
-	if err != nil {
-		return err
+	buildResult := buildJSON{
+		"v0",
+		fmt.Sprintf("%x", sha256),
+		size,
+		0, // filled in below
+		start,
+		time.Since(start),
+		systemTime,
+		userTime,
+		req.Goversion,
+		req.Goos,
+		req.Goarch,
+		req.Mod,
+		req.Version,
+		req.Dir,
 	}
 
 	err = writeGz(tmpdir+"/log.gz", bytes.NewReader(output))
@@ -206,7 +245,22 @@ func saveFiles(req request, output []byte, lname string, start time.Time, system
 		return err
 	}
 
-	err = writeGz(tmpdir+"/"+req.downloadFilename()+".gz", of)
+	binGz := tmpdir + "/" + req.downloadFilename() + ".gz"
+	err = writeGz(binGz, of)
+	if err != nil {
+		return err
+	}
+	fi, err = os.Stat(binGz)
+	if err != nil {
+		return err
+	}
+	buildResult.FilesizeGz = fi.Size()
+
+	buf, err := json.Marshal(buildResult)
+	if err != nil {
+		return fmt.Errorf("marshal build.json: %v", err)
+	}
+	err = ioutil.WriteFile(tmpdir+"/build.json", buf, 0664)
 	if err != nil {
 		return err
 	}
@@ -219,7 +273,7 @@ func saveFiles(req request, output []byte, lname string, start time.Time, system
 	}
 	tmpdir = ""
 
-	err = appendBuildsTxt(fmt.Sprintf("%x", sha256), size, start, systemTime, userTime, req)
+	err = appendBuildsTxt(buildResult)
 	return err
 }
 
@@ -247,7 +301,7 @@ func writeGz(path string, src io.Reader) error {
 	return err
 }
 
-func appendBuildsTxt(sha256 string, size int64, start time.Time, systemTime, userTime time.Duration, req request) error {
+func appendBuildsTxt(b buildJSON) error {
 	bf, err := os.OpenFile(path.Join(config.DataDir, "builds.txt"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		return err
@@ -257,7 +311,7 @@ func appendBuildsTxt(sha256 string, size int64, start time.Time, systemTime, use
 			bf.Close()
 		}
 	}()
-	_, err = fmt.Fprintf(bf, "v1 %s %d %d %d %d %d %s %s %s %s %s %s\n", sha256, size, start.UnixNano()/int64(time.Millisecond), time.Since(start)/time.Millisecond, systemTime/time.Millisecond, userTime/time.Millisecond, req.Goos, req.Goarch, req.Goversion, req.Mod, req.Version, req.Dir)
+	_, err = fmt.Fprintf(bf, "v0 %s %d %d %d %d %d %d %s %s %s %s %s %s\n", b.SHA256, b.Filesize, b.FilesizeGz, b.Start.UnixNano()/int64(time.Millisecond), b.BuildWallTime/time.Millisecond, b.SystemTime/time.Millisecond, b.UserTime/time.Millisecond, b.Goos, b.Goarch, b.Goversion, b.Mod, b.Version, b.Dir)
 	if err != nil {
 		return err
 	}

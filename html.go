@@ -82,8 +82,9 @@ const buildTemplateString = `
 	<h2>More</h2>
 	<ul>
 		<li><a href="log">Build log</a></li>
-		<li>SHA256: {{ .Sum }}</li>
+		<li>SHA256: {{ .SHA256 }}</li>
 		<li><a href="/x/{{ .Req.Goos }}-{{ .Req.Goarch }}-latest/{{ .Req.Mod }}@latest/{{ .Req.Dir }}">{{ .Req.Goos }}-{{ .Req.Goarch }}-<b>latest</b>/{{ .Req.Mod }}@<b>latest</b>/{{ .Req.Dir }}</a> (<a href="/x/{{ .Req.Goos }}-{{ .Req.Goarch }}-latest/{{ .Req.Mod }}@latest/{{ .Req.Dir }}dl">direct download</a>)</li>
+		<li>Built on {{ .Start }}, in {{ .BuildWallTimeMS }}ms; sys {{ .SystemTimeMS }}ms, user {{ .UserTimeMS }}ms.</li>
 	</ul>
 {{ else }}
 	<h2>Error</h2>
