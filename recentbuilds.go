@@ -2,6 +2,8 @@ package main
 
 import (
 	"bufio"
+	"encoding/base64"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"log"
@@ -58,7 +60,19 @@ func readRecentBuilds() {
 				}
 
 				p := fmt.Sprintf("%s-%s-%s/%s@%s/%s", t[8], t[9], t[10], t[11], t[12], t[13])
-				l = append(l, p)
+				var fp string
+				if t[1] == "x" {
+					fp = "/x/" + p
+				} else {
+					sha256, err := hex.DecodeString(t[1])
+					if err != nil {
+						log.Printf("bad hex sha256 %q: %v", t[1], err)
+						return
+					}
+					sum := base64.RawURLEncoding.EncodeToString(sha256[:20])
+					fp = "/z/" + sum + "/" + p
+				}
+				l = append(l, fp)
 				availableBuilds.index[p] = t[1] != "x"
 				targetUse[t[8]+"/"+t[9]]++
 			default:

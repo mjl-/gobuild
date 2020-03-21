@@ -214,8 +214,9 @@ func serveBuildIndex(w http.ResponseWriter, r *http.Request, req request, result
 	var bsum string
 	if success {
 		bsum = base64.RawURLEncoding.EncodeToString(result.SHA256[:20])
+	} else {
+		result = &buildJSON{}
 	}
-	result = &buildJSON{}
 
 	args := map[string]interface{}{
 		"Success":        success,

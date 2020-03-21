@@ -226,16 +226,22 @@ func serveBuilds(w http.ResponseWriter, r *http.Request) {
 		}
 
 		metricBuilds.WithLabelValues(req.Goos, req.Goarch, req.Goversion).Inc()
-		ok, tmpFail := build(w, r, req)
-		if !ok && tmpFail {
+		result, tmpFail := build(w, r, req)
+		if result == nil && tmpFail {
 			return
 		}
 		p := fmt.Sprintf("%s-%s-%s/%s@%s/%s", req.Goos, req.Goarch, req.Goversion, req.Mod, req.Version, req.Dir)
-		if !ok {
+		if result == nil {
 			metricBuildErrors.WithLabelValues(req.Goos, req.Goarch, req.Goversion).Inc()
 		} else {
+			var fp string
+			if ok {
+				fp = "/" + base64.RawURLEncoding.EncodeToString(result.SHA256[:20]) + "/" + p
+			} else {
+				fp = "/x/" + p
+			}
 			recentBuilds.Lock()
-			recentBuilds.paths = append(recentBuilds.paths, p)
+			recentBuilds.paths = append(recentBuilds.paths, fp)
 			if len(recentBuilds.paths) > 10 {
 				recentBuilds.paths = recentBuilds.paths[len(recentBuilds.paths)-10:]
 			}

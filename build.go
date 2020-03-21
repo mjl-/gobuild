@@ -34,13 +34,13 @@ type buildJSON struct {
 	Dir           string
 }
 
-func build(w http.ResponseWriter, r *http.Request, req request) (ok bool, tmpFail bool) {
+func build(w http.ResponseWriter, r *http.Request, req request) (result *buildJSON, tmpFail bool) {
 	start := time.Now()
 
 	err := ensureSDK(req.Goversion)
 	if err != nil {
 		failf(w, "missing toolchain %q: %v", req.Goversion, err)
-		return false, true
+		return nil, true
 	}
 
 	gobin := path.Join(config.SDKDir, req.Goversion, "bin/go")
@@ -50,13 +50,13 @@ func build(w http.ResponseWriter, r *http.Request, req request) (ok bool, tmpFai
 	_, err = os.Stat(gobin)
 	if err != nil {
 		failf(w, "unknown toolchain %q: %v", req.Goversion, err)
-		return false, true
+		return nil, true
 	}
 
 	dir, err := ioutil.TempDir("", "gobuild")
 	if err != nil {
 		failf(w, "tempdir for build: %v", err)
-		return false, true
+		return nil, true
 	}
 	defer os.RemoveAll(dir)
 
@@ -66,7 +66,7 @@ func build(w http.ResponseWriter, r *http.Request, req request) (ok bool, tmpFai
 		// store these results. Perhaps the user is trying to build something that was
 		// uploaded just now, and not yet available in the go module proxy.
 		ufailf(w, "error fetching module from goproxy: %v\n\n# output from go get:\n%s", err, string(getOutput))
-		return false, true
+		return nil, true
 	}
 
 	pkgDir := modDir + "/" + req.Dir
@@ -85,13 +85,13 @@ func build(w http.ResponseWriter, r *http.Request, req request) (ok bool, tmpFai
 		w.WriteHeader(http.StatusBadRequest)
 		fmt.Fprintf(w, "400 - error finding package name; perhaps package does not exist?")
 		w.Write(nameOutput) // nothing to do for errors
-		return false, true
+		return nil, true
 	}
 	if string(nameOutput) != "main\n" {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.WriteHeader(http.StatusBadRequest)
 		fmt.Fprintf(w, "400 - not package main, building would not result in executable binary")
-		return false, true
+		return nil, true
 	}
 
 	lname := dir + "/bin/" + req.filename()
@@ -116,17 +116,17 @@ func build(w http.ResponseWriter, r *http.Request, req request) (ok bool, tmpFai
 		err := saveFailure(req, err.Error()+"\n\n"+string(output), start, sysTime, userTime)
 		if err != nil {
 			failf(w, "storing results of failure: %v", err)
-			return false, true
+			return nil, true
 		}
-		return false, false
+		return nil, false
 	}
 
-	err = saveFiles(req, output, lname, start, cmd.ProcessState.SystemTime(), cmd.ProcessState.UserTime())
+	result, err = saveFiles(req, output, lname, start, cmd.ProcessState.SystemTime(), cmd.ProcessState.UserTime())
 	if err != nil {
 		failf(w, "storing results: %v", err)
-		return false, true
+		return nil, true
 	}
-	return true, false
+	return result, false
 }
 
 func saveFailure(req request, output string, start time.Time, systemTime, userTime time.Duration) error {
@@ -173,33 +173,33 @@ func saveFailure(req request, output string, start time.Time, systemTime, userTi
 	return err
 }
 
-func saveFiles(req request, output []byte, lname string, start time.Time, systemTime, userTime time.Duration) error {
+func saveFiles(req request, output []byte, lname string, start time.Time, systemTime, userTime time.Duration) (*buildJSON, error) {
 	of, err := os.Open(lname)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer of.Close()
 
 	fi, err := of.Stat()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	size := fi.Size()
 
 	h := sha256.New()
 	_, err = io.Copy(h, of)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	sha256 := h.Sum(nil)
 	_, err = of.Seek(0, io.SeekStart)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	tmpdir, err := ioutil.TempDir(config.DataDir, "success")
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer func() {
 		if tmpdir != "" {
@@ -226,39 +226,42 @@ func saveFiles(req request, output []byte, lname string, start time.Time, system
 
 	err = writeGz(tmpdir+"/log.gz", bytes.NewReader(output))
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	binGz := tmpdir + "/" + req.downloadFilename() + ".gz"
 	err = writeGz(binGz, of)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	fi, err = os.Stat(binGz)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	buildResult.FilesizeGz = fi.Size()
 
 	buf, err := json.Marshal(buildResult)
 	if err != nil {
-		return fmt.Errorf("marshal build.json: %v", err)
+		return nil, fmt.Errorf("marshal build.json: %v", err)
 	}
 	err = ioutil.WriteFile(tmpdir+"/build.json", buf, 0664)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	finalDir := path.Join(config.DataDir, req.destdir())
 	os.MkdirAll(path.Dir(finalDir), 0775) // failures will be caught later
 	err = os.Rename(tmpdir, finalDir)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	tmpdir = ""
 
 	err = appendBuildsTxt(buildResult)
-	return err
+	if err != nil {
+		return nil, err
+	}
+	return &buildResult, nil
 }
 
 func writeGz(path string, src io.Reader) error {
