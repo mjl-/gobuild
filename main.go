@@ -3,6 +3,7 @@
 // Serves URLs like:
 //
 // 	http://localhost:8000/
+// 	http://localhost:8000/m/github.com/mjl-/sherpa/
 // 	http://localhost:8000/x/linux-amd64-go1.14.1/github.com/mjl-/sherpa/@v0.6.0/cmd/sherpaclient/{,log,sha256,build.json,dl}
 package main
 
@@ -14,6 +15,7 @@ import (
 	_ "net/http/pprof"
 	"os"
 	"path"
+	"path/filepath"
 	"sync"
 
 	"github.com/mjl-/sconf"
@@ -24,6 +26,7 @@ import (
 
 var (
 	workdir string
+	homedir string
 
 	recentBuilds struct {
 		sync.Mutex
@@ -76,6 +79,14 @@ var (
 			Help: "Number of requests per page.",
 		},
 		[]string{"page"},
+	)
+	metricHTTPModuleRequestDuration = promauto.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "gobuild_http_module_request_duration_seconds",
+			Help:    "Duration of requests on module endpoint in seconds.",
+			Buckets: []float64{0.1, 0.25, 0.5, 1, 2, 4, 8, 16, 32, 64, 128},
+		},
+		[]string{"code", "method"},
 	)
 	metricHTTPBuildRequestDuration = promauto.NewHistogramVec(
 		prometheus.HistogramOpts{
@@ -154,6 +165,18 @@ func serve(args []string) {
 		log.Fatalln("getwd:", err)
 	}
 
+	homedir = config.HomeDir
+	if !path.IsAbs(homedir) {
+		homedir = path.Join(workdir, config.HomeDir)
+	}
+	// We need a clean name: we will be match path prefixes against paths returned by
+	// go tools, that will have evaluated names.
+	homedir, err = filepath.EvalSymlinks(homedir)
+	if err != nil {
+		log.Fatalf("evaluating symlinks in homedir: %v", err)
+	}
+	os.Mkdir(homedir, 0775) // failures will be caught later
+
 	readRecentBuilds()
 
 	http.Handle("/metrics", promhttp.Handler())
@@ -166,6 +189,7 @@ func serve(args []string) {
 	mux.HandleFunc("/builds.txt", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, path.Join(config.DataDir, "builds.txt"))
 	})
+	mux.HandleFunc("/m/", promhttp.InstrumentHandlerDuration(metricHTTPModuleRequestDuration, http.HandlerFunc(serveModules)))
 	mux.HandleFunc("/x/", promhttp.InstrumentHandlerDuration(metricHTTPBuildRequestDuration, http.HandlerFunc(serveBuilds)))
 	mux.HandleFunc("/", serveHome)
 	log.Printf("listening on %s and %s", *listenAddress, *listenAdmin)

@@ -60,35 +60,19 @@ func build(w http.ResponseWriter, r *http.Request, req request) (ok bool, tmpFai
 	}
 	defer os.RemoveAll(dir)
 
-	homedir := config.HomeDir
-	if !path.IsAbs(homedir) {
-		homedir = path.Join(workdir, config.HomeDir)
-	}
-	os.Mkdir(homedir, 0775) // failures will be caught later
-
-	cmd := exec.CommandContext(r.Context(), gobin, "get", "-d", "-v", req.Mod[:len(req.Mod)-1]+"@"+req.Version)
-	cmd.Dir = dir
-	cmd.Env = []string{
-		fmt.Sprintf("GOPROXY=%s", config.GoProxy),
-		"GO111MODULE=on",
-		"HOME=" + homedir,
-	}
-	getOutput, err := cmd.CombinedOutput()
+	modDir, getOutput, err := ensureModule(gobin, req.Mod, req.Version)
 	if err != nil {
 		// Fetching the code failed. We report it back to the user immediately. We don't
 		// store these results. Perhaps the user is trying to build something that was
 		// uploaded just now, and not yet available in the go module proxy.
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		w.WriteHeader(http.StatusBadRequest)
-		fmt.Fprintf(w, "400 - error fetching module from goproxy: %v\n\n# output:\n", err)
-		w.Write(getOutput) // nothing to do for errors
+		ufailf(w, "error fetching module from goproxy: %v\n\n# output from go get:\n%s", err, string(getOutput))
 		return false, true
 	}
 
-	pkgDir := homedir + "/go/pkg/mod/" + req.Mod[:len(req.Mod)-1] + "@" + req.Version + "/" + req.Dir
+	pkgDir := modDir + "/" + req.Dir
 
 	// Check if package is a main package, resulting in an executable when built.
-	cmd = exec.CommandContext(r.Context(), gobin, "list", "-f", "{{.Name}}")
+	cmd := exec.CommandContext(r.Context(), gobin, "list", "-f", "{{.Name}}")
 	cmd.Dir = pkgDir
 	cmd.Env = []string{
 		fmt.Sprintf("GOPROXY=%s", config.GoProxy),

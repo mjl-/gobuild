@@ -127,6 +127,18 @@ func sdkUpdateInstalledList() {
 	sdk.installedList = l
 }
 
+func ensureMostRecentSDK() (string, error) {
+	supported, _ := installedSDK()
+	if len(supported) == 0 {
+		return "", fmt.Errorf("no supported go versions")
+	}
+	err := ensureSDK(supported[0])
+	if err != nil {
+		return "", err
+	}
+	return supported[0], nil
+}
+
 func installedSDK() (supported []string, remainingAvailable []string) {
 	now := time.Now()
 	sdk.Lock()

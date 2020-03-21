@@ -173,6 +173,11 @@ func failf(w http.ResponseWriter, format string, args ...interface{}) {
 	http.Error(w, "500 - "+msg, http.StatusInternalServerError)
 }
 
+func ufailf(w http.ResponseWriter, format string, args ...interface{}) {
+	msg := fmt.Sprintf(format, args...)
+	http.Error(w, "400 - "+msg, http.StatusBadRequest)
+}
+
 func serveBuilds(w http.ResponseWriter, r *http.Request) {
 	req, hint, ok := parsePath(r.URL.Path[3:])
 	if !ok {
@@ -201,38 +206,13 @@ func serveBuilds(w http.ResponseWriter, r *http.Request) {
 
 	// Resolve "latest" module version with a redirect.
 	if req.Version == "latest" {
-		var modVersion struct {
-			Version string
-			Time    time.Time
-		}
-		u := fmt.Sprintf("%s%s@latest", config.GoProxy, req.Mod)
-		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
-		defer cancel()
-		mreq, err := http.NewRequestWithContext(ctx, "GET", u, nil)
+		info, err := resolveModuleLatest(r.Context(), req.Mod)
 		if err != nil {
-			failf(w, "preparing goproxy http request: %v", err)
+			failf(w, "resolving latest for module: %v", err)
 			return
 		}
-		resp, err := http.DefaultClient.Do(mreq)
-		if err != nil {
-			failf(w, "resolving latest at goproxy: %v", err)
-			return
-		}
-		defer resp.Body.Close()
-		if resp.StatusCode != 200 {
-			failf(w, "error response from goproxy resolving latest, status %s", resp.Status)
-			return
-		}
-		err = json.NewDecoder(resp.Body).Decode(&modVersion)
-		if err != nil {
-			failf(w, "parsing json returned by goproxy for latest version: %v", err)
-			return
-		}
-		if modVersion.Version == "" {
-			failf(w, "empty version for latest from goproxy")
-			return
-		}
-		p := fmt.Sprintf("/x/%s-%s-%s/%s@%s/%s%s", req.Goos, req.Goarch, req.Goversion, req.Mod, modVersion.Version, req.Dir, req.pagePart())
+
+		p := fmt.Sprintf("/x/%s-%s-%s/%s@%s/%s%s", req.Goos, req.Goarch, req.Goversion, req.Mod, info.Version, req.Dir, req.pagePart())
 		http.Redirect(w, r, p, http.StatusFound)
 		return
 	}
@@ -468,7 +448,7 @@ func serveBuilds(w http.ResponseWriter, r *http.Request) {
 		}
 		err = buildTemplate.Execute(w, args)
 		if err != nil {
-			failf(w, "executing html template: %v", err)
+			failf(w, "executing template: %v", err)
 			return
 		}
 	default:

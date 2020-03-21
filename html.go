@@ -6,7 +6,7 @@ import (
 )
 
 var (
-	homeTemplate, buildTemplate *template.Template
+	homeTemplate, moduleTemplate, buildTemplate *template.Template
 )
 
 func init() {
@@ -15,6 +15,11 @@ func init() {
 	buildTemplate, err = template.New("build").Parse(buildTemplateString + htmlTemplateString)
 	if err != nil {
 		log.Fatalf("parsing build html template: %v", err)
+	}
+
+	moduleTemplate, err = template.New("module").Parse(moduleTemplateString + htmlTemplateString)
+	if err != nil {
+		log.Fatalf("parsing module html template: %v", err)
 	}
 
 	homeTemplate, err = template.New("home").Parse(homeTemplateString + htmlTemplateString)
@@ -34,6 +39,7 @@ const htmlTemplateString = `
 		<style>
 * { box-sizing: border-box; }
 body { margin: 0 auto; max-width: 50rem; font-family: Ubuntu, Lato, sans-serif; color: #111; line-height: 1.3; }
+body, input, button { font-size: 17px; }
 h1 { font-size: 1.5rem; }
 h2 { font-size: 1.25rem; }
 ul { padding-left: 1rem; }
@@ -122,12 +128,31 @@ const buildTemplateString = `
 {{ end }}
 `
 
+const moduleTemplateString = `
+{{ define "title" }}{{ .Module }}@{{ .Version }} - gobuild{{ end }}
+{{ define "content" }}
+	<p><a href="/">&lt; Home</a></p>
+	<h1>{{ .Module }}@{{ .Version }}</h1>
+	<p>Main packages:</p>
+	<ul>
+{{ range .Mains }}		<li><a href="{{ .Link }}">{{ .Name }}</a></li>{{ end }}
+	</ul>
+{{ end }}
+`
+
 const homeTemplateString = `
 {{ define "title" }}reproducible binaries for the go module proxy - gobuild{{ end }}
 {{ define "content" }}
 		<h1>gobuild - reproducible binaries with the go module proxy</h1>
-		<p>The Go team runs the <a href="https://proxy.golang.org/">Go module proxy</a>. This ensures code stays available, and you are likely to get the same code each time you fetch it. This helps you make reproducible builds. But you still have to build it yourself.</p>
-		<p>Gobuild actually compiles Go code available through the Go module proxy, and returns the binary.</p>
+		<p>Gobuild deterministically compiles Go code available through the Go module proxy, and returns the binary.</p>
+
+		<p>The <a href="https://proxy.golang.org/">Go module proxy</a> ensures source code stays available, and you are likely to get the same code each time you fetch it. Gobuild aims to achieve the same for binaries.</p>
+
+		<h2>Try a module</h2>
+		<form onsubmit="location.href = '/m/' + moduleName.value; return false" method="GET" action="/m/">
+			<input id="moduleName" name="m" type="text" placeholder="github.com/your/project" style="width:30rem; max-width:75%" />
+			<button type="submit">Go!</button>
+		</form>
 
 		<h2>URLs</h2>
 		<p>Composition of URLs:</p>
