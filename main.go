@@ -41,7 +41,7 @@ var (
 	config = struct {
 		BaseURL string `sconf-doc:"Used to make full URLs in the web pages."`
 		GoProxy string `sconf-doc:"URL to proxy, make sure it ends with a slash!."`
-		DataDir string `sconf-doc:"Directory where builds.txt and all builds files (binaries, logs, sha256) are stored."`
+		DataDir string `sconf-doc:"Directory where builds.txt and all builds files (binary, log, sha256) are stored."`
 		SDKDir  string `sconf-doc:"Directory where SDKs (go toolchains) are installed."`
 		HomeDir string `sconf-doc:"Directory set as home directory during builds. Go caches will be created there."`
 	}{

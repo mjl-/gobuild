@@ -3,6 +3,7 @@ package main
 import (
 	"compress/gzip"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -260,7 +261,7 @@ func serveBuilds(w http.ResponseWriter, r *http.Request) {
 	_, err = os.Stat(lpath + "/sha256")
 	if err != nil {
 		if !os.IsNotExist(err) {
-			failf(w, "open sha256 file: %v", err)
+			failf(w, "sha256 file: %v", err)
 			return
 		}
 		success = false
@@ -286,14 +287,16 @@ func serveBuilds(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		serveGzipFile(w, r, p, f)
 	case pageSha256:
-		f, err := os.Open(lpath + "/sha256")
+		buf, err := ioutil.ReadFile(lpath + "/sha256")
+		if err == nil && len(buf) != sha256.Size {
+			err = fmt.Errorf("bad size for sha256")
+		}
 		if err != nil {
-			failf(w, "open log: %v", err)
+			failf(w, "read sha256 file: %v", err)
 			return
 		}
-		defer f.Close()
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		io.Copy(w, f) // nothing to do for errors
+		fmt.Fprintf(w, "%x\n", buf) // nothing to do for errors
 	case pageDownloadRedirect:
 		p := "/x/" + req.destdir() + req.downloadFilename()
 		http.Redirect(w, r, p, http.StatusFound)
@@ -388,15 +391,14 @@ func serveBuilds(w http.ResponseWriter, r *http.Request) {
 		var filesizeGz string
 		if success {
 			buf, err := ioutil.ReadFile(lpath + "/sha256")
+			if err == nil && len(buf) != sha256.Size {
+				err = fmt.Errorf("bad sha256 size")
+			}
 			if err != nil {
 				failf(w, "reading sha256: %v", err)
 				return
 			}
-			if len(buf) != 64 {
-				failf(w, "bad sha256 file")
-				return
-			}
-			sum = string(buf)
+			sum = fmt.Sprintf("%x", buf)
 
 			buf, err = ioutil.ReadFile(lpath + "/size")
 			if err != nil {

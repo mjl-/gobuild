@@ -175,7 +175,7 @@ func saveFiles(req request, output []byte, lname string, start time.Time, system
 	if err != nil {
 		return err
 	}
-	sha256 := fmt.Sprintf("%x", h.Sum(nil))
+	sha256 := h.Sum(nil)
 	_, err = of.Seek(0, io.SeekStart)
 	if err != nil {
 		return err
@@ -191,7 +191,7 @@ func saveFiles(req request, output []byte, lname string, start time.Time, system
 		}
 	}()
 
-	err = ioutil.WriteFile(tmpdir+"/sha256", []byte(sha256), 0666)
+	err = ioutil.WriteFile(tmpdir+"/sha256", sha256, 0666)
 	if err != nil {
 		return err
 	}
@@ -219,7 +219,7 @@ func saveFiles(req request, output []byte, lname string, start time.Time, system
 	}
 	tmpdir = ""
 
-	err = appendBuildsTxt(sha256, size, start, systemTime, userTime, req)
+	err = appendBuildsTxt(fmt.Sprintf("%x", sha256), size, start, systemTime, userTime, req)
 	return err
 }
 
