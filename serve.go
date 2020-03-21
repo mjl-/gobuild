@@ -206,7 +206,7 @@ func serveBuilds(w http.ResponseWriter, r *http.Request) {
 
 	destdir := req.destdir()
 	lpath := path.Join(config.DataDir, destdir)
-	_, err := os.Stat(lpath)
+	_, err := os.Stat(lpath + "/log.gz")
 	if err != nil {
 		if !os.IsNotExist(err) {
 			failf(w, "stat path: %v", err)
