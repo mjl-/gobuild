@@ -249,6 +249,6 @@ func serveHome(w http.ResponseWriter, r *http.Request) {
 	}
 	err := homeTemplate.Execute(w, args)
 	if err != nil {
-		failf(w, "executing template: %v", err)
+		failf(w, "%w: executing template: %v", errServer, err)
 	}
 }

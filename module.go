@@ -31,13 +31,13 @@ func serveModules(w http.ResponseWriter, r *http.Request) {
 
 	info, err := resolveModuleLatest(r.Context(), mod)
 	if err != nil {
-		failf(w, "resolving latest for module: %v", err)
+		failf(w, "resolving latest for module: %w", err)
 		return
 	}
 
 	goversion, err := ensureMostRecentSDK()
 	if err != nil {
-		failf(w, "ensuring most recent goversion: %v", err)
+		failf(w, "ensuring most recent goversion: %w", err)
 		return
 	}
 	gobin := path.Join(config.SDKDir, goversion, "bin/go")
@@ -47,7 +47,7 @@ func serveModules(w http.ResponseWriter, r *http.Request) {
 
 	modDir, getOutput, err := ensureModule(gobin, mod, info.Version)
 	if err != nil {
-		ufailf(w, "error fetching module from goproxy: %v\n\n# output from go get:\n%s", err, string(getOutput))
+		failf(w, "error fetching module from goproxy: %w\n\n# output from go get:\n%s", err, string(getOutput))
 		return
 	}
 
@@ -55,11 +55,11 @@ func serveModules(w http.ResponseWriter, r *http.Request) {
 
 	mainDirs, err := listMainPackages(r.Context(), gobin, modDir)
 	if err != nil {
-		failf(w, "listing main packages in module: %v", err)
+		failf(w, "listing main packages in module: %w", err)
 		return
 	}
 	if len(mainDirs) == 0 {
-		ufailf(w, "no main packages in module")
+		failf(w, "no main packages in module")
 		return
 	}
 	if len(mainDirs) == 1 {
@@ -91,7 +91,7 @@ func serveModules(w http.ResponseWriter, r *http.Request) {
 	}
 	err = moduleTemplate.Execute(w, args)
 	if err != nil {
-		failf(w, "executing template: %v", err)
+		failf(w, "%w: executing template: %v", errServer, err)
 	}
 }
 

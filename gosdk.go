@@ -130,7 +130,7 @@ func sdkUpdateInstalledList() {
 func ensureMostRecentSDK() (string, error) {
 	supported, _ := installedSDK()
 	if len(supported) == 0 {
-		return "", fmt.Errorf("no supported go versions")
+		return "", fmt.Errorf("%w: no supported go versions", errServer)
 	}
 	err := ensureSDK(supported[0])
 	if err != nil {
@@ -203,7 +203,7 @@ func ensureSDK(goversion string) error {
 
 	rels, err := goreleases.ListAll()
 	if err != nil {
-		err = fmt.Errorf("listing known releases: %v", err)
+		err = fmt.Errorf("%w: listing known releases: %v", errRemote, err)
 		sdk.fetch.status[goversion] = err
 		return err
 	}
@@ -211,13 +211,13 @@ func ensureSDK(goversion string) error {
 		if rel.Version == goversion {
 			f, err := goreleases.FindFile(rel, runtime.GOOS, runtime.GOARCH, "archive")
 			if err != nil {
-				err = fmt.Errorf("finding release file: %v", err)
+				err = fmt.Errorf("%w: finding release file: %v", errServer, err)
 				sdk.fetch.status[goversion] = err
 				return err
 			}
 			tmpdir, err := ioutil.TempDir("sdk", "tmp-install")
 			if err != nil {
-				err = fmt.Errorf("making tempdir for sdk: %v", err)
+				err = fmt.Errorf("%w: making tempdir for sdk: %v", errServer, err)
 				sdk.fetch.status[goversion] = err
 				return err
 			}
@@ -226,13 +226,13 @@ func ensureSDK(goversion string) error {
 			}()
 			err = goreleases.Fetch(f, tmpdir, nil)
 			if err != nil {
-				err = fmt.Errorf("installing sdk: %v", err)
+				err = fmt.Errorf("%w: installing sdk: %v", errServer, err)
 				sdk.fetch.status[goversion] = err
 				return err
 			}
 			err = os.Rename(tmpdir+"/go", path.Join(config.SDKDir, goversion))
 			if err != nil {
-				err = fmt.Errorf("putting sdk in place: %v", err)
+				err = fmt.Errorf("%w: putting sdk in place: %v", errServer, err)
 			} else {
 				sdk.Lock()
 				defer sdk.Unlock()
@@ -245,6 +245,7 @@ func ensureSDK(goversion string) error {
 	}
 
 	// Release not found. It may be a future release. Don't mark it as
-	// tried-and-failed. We may want to ratelimit how often we ask...
+	// tried-and-failed.
+	// We may want to ratelimit how often we ask...
 	return fmt.Errorf("goversion not found")
 }

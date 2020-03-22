@@ -20,23 +20,23 @@ func resolveModuleLatest(ctx context.Context, module string) (*modVersion, error
 	u := fmt.Sprintf("%s%s@latest", config.GoProxy, module)
 	mreq, err := http.NewRequestWithContext(ctx, "GET", u, nil)
 	if err != nil {
-		return nil, fmt.Errorf("preparing goproxy http request: %v", err)
+		return nil, fmt.Errorf("%w: preparing goproxy http request: %v", errServer, err)
 	}
 	resp, err := http.DefaultClient.Do(mreq)
 	if err != nil {
-		return nil, fmt.Errorf("http request to goproxy: %v", err)
+		return nil, fmt.Errorf("%w: http request to goproxy: %v", errServer, err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("error response from goproxy, status %s", resp.Status)
+		return nil, fmt.Errorf("%w: error response from goproxy, status %s", errRemote, resp.Status)
 	}
 	var info modVersion
 	err = json.NewDecoder(resp.Body).Decode(&info)
 	if err != nil {
-		return nil, fmt.Errorf("parsing json returned by goproxy: %v", err)
+		return nil, fmt.Errorf("%w: parsing json returned by goproxy: %v", errRemote, err)
 	}
 	if info.Version == "" {
-		return nil, fmt.Errorf("empty version from goproxy")
+		return nil, fmt.Errorf("%w: empty version from goproxy", errRemote)
 	}
 	return &info, nil
 }

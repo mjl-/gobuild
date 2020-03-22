@@ -63,7 +63,7 @@ func prepareBuild(req request) error {
 
 	modDir, getOutput, err := ensureModule(gobin, req.Mod, req.Version)
 	if err != nil {
-		return fmt.Errorf("error fetching module from goproxy: %v\n\n# output from go get:\n%s", err, string(getOutput))
+		return fmt.Errorf("error fetching module from goproxy: %w\n\n# output from go get:\n%s", err, string(getOutput))
 	}
 
 	pkgDir := modDir + "/" + req.Dir
@@ -254,7 +254,7 @@ func saveFiles(req request, output []byte, lname string, start time.Time, system
 
 	buf, err := json.Marshal(buildResult)
 	if err != nil {
-		return nil, fmt.Errorf("marshal build.json: %v", err)
+		return nil, fmt.Errorf("%w: marshal build.json: %v", errServer, err)
 	}
 	err = ioutil.WriteFile(tmpdir+"/build.json", buf, 0664)
 	if err != nil {

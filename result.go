@@ -60,7 +60,7 @@ func serveResults(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		failf(w, "reading build.json: %v", err)
+		failf(w, "%w: reading build.json: %v", errServer, err)
 		return
 	}
 	if base64.RawURLEncoding.EncodeToString(buildResult.SHA256[:20]) != bsum {
@@ -81,7 +81,7 @@ func serveResults(w http.ResponseWriter, r *http.Request) {
 		p := path.Join(lpath, req.downloadFilename()+".gz")
 		f, err := os.Open(p)
 		if err != nil {
-			failf(w, "open binary: %v", err)
+			failf(w, "%w: open binary: %v", errServer, err)
 			return
 		}
 		defer f.Close()
@@ -95,7 +95,7 @@ func serveResults(w http.ResponseWriter, r *http.Request) {
 	case pageIndex:
 		serveBuildIndex(w, r, req, &buildResult)
 	default:
-		failf(w, "unknown page %v", req.Page)
+		failf(w, "%w: unknown page %v", errServer, req.Page)
 	}
 }
 
@@ -122,22 +122,22 @@ func serveBuildIndex(w http.ResponseWriter, r *http.Request, req request, result
 		u := fmt.Sprintf("%s%s@v/list", config.GoProxy, req.Mod)
 		mreq, err := http.NewRequestWithContext(ctx, "GET", u, nil)
 		if err != nil {
-			c <- response{fmt.Errorf("preparing new http request: %v", err), nil}
+			c <- response{fmt.Errorf("%w: preparing new http request: %v", errServer, err), nil}
 			return
 		}
 		resp, err := http.DefaultClient.Do(mreq)
 		if err != nil {
-			c <- response{fmt.Errorf("http request: %v", err), nil}
+			c <- response{fmt.Errorf("%w: http request: %v", errServer, err), nil}
 			return
 		}
 		defer resp.Body.Close()
 		if err != nil {
-			c <- response{fmt.Errorf("response from goproxy: %v", err), nil}
+			c <- response{fmt.Errorf("%w: response from goproxy: %v", errRemote, err), nil}
 			return
 		}
 		buf, err := ioutil.ReadAll(resp.Body)
 		if err != nil {
-			c <- response{fmt.Errorf("reading versions from goproxy: %v", err), nil}
+			c <- response{fmt.Errorf("%w: reading versions from goproxy: %v", errRemote, err), nil}
 			return
 		}
 		l := []versionLink{}
@@ -162,7 +162,7 @@ func serveBuildIndex(w http.ResponseWriter, r *http.Request, req request, result
 		buf, err := readGzipFile(lpath + "/log.gz")
 		if err != nil {
 			if !os.IsNotExist(err) {
-				failf(w, "reading log.gz: %v", err)
+				failf(w, "%w: reading log.gz: %v", errServer, err)
 				return
 			}
 		} else {
@@ -256,7 +256,7 @@ func serveBuildIndex(w http.ResponseWriter, r *http.Request, req request, result
 	}
 	err := buildTemplate.Execute(w, args)
 	if err != nil {
-		failf(w, "executing template: %v", err)
+		failf(w, "%w: executing template: %v", errServer, err)
 	}
 }
 

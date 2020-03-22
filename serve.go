@@ -4,6 +4,7 @@ import (
 	"compress/gzip"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -12,6 +13,9 @@ import (
 	"path"
 	"strings"
 )
+
+var errRemote = errors.New("remote")
+var errServer = errors.New("server error")
 
 type page int
 
@@ -171,13 +175,13 @@ func parsePath(s string) (r request, hint string, ok bool) {
 }
 
 func failf(w http.ResponseWriter, format string, args ...interface{}) {
-	msg := fmt.Sprintf(format, args...)
-	log.Println(msg)
-	http.Error(w, "500 - "+msg, http.StatusInternalServerError)
-}
-
-func ufailf(w http.ResponseWriter, format string, args ...interface{}) {
-	msg := fmt.Sprintf(format, args...)
+	err := fmt.Errorf(format, args...)
+	msg := err.Error()
+	if errors.Is(err, errServer) {
+		log.Println(msg)
+		http.Error(w, "500 - "+msg, http.StatusInternalServerError)
+		return
+	}
 	http.Error(w, "400 - "+msg, http.StatusBadRequest)
 }
 
@@ -216,7 +220,7 @@ func serveBuilds(w http.ResponseWriter, r *http.Request) {
 	if req.Version == "latest" {
 		info, err := resolveModuleLatest(r.Context(), req.Mod)
 		if err != nil {
-			failf(w, "resolving latest for module: %v", err)
+			failf(w, "resolving latest for module: %w", err)
 			return
 		}
 
@@ -238,7 +242,7 @@ func serveBuilds(w http.ResponseWriter, r *http.Request) {
 		err = json.NewDecoder(bf).Decode(&buildResult)
 	}
 	if err != nil && !os.IsNotExist(err) {
-		failf(w, "reading build.json: %v", err)
+		failf(w, "%w: reading build.json: %v", errServer, err)
 		return
 	}
 	if err == nil {
@@ -252,7 +256,7 @@ func serveBuilds(w http.ResponseWriter, r *http.Request) {
 	// If log.gz exists, we have a failed build.
 	_, err = os.Stat(lpath + "/log.gz")
 	if err != nil && !os.IsNotExist(err) {
-		failf(w, "stat path: %v", err)
+		failf(w, "%w: stat path: %v", errServer, err)
 		return
 	}
 	if err == nil {
@@ -274,7 +278,7 @@ func serveBuilds(w http.ResponseWriter, r *http.Request) {
 	// module and package exist, and seems like it has a chance to compile.
 	err = prepareBuild(req)
 	if err != nil {
-		failf(w, "preparing build: %v", err)
+		failf(w, "preparing build: %w", err)
 		return
 	}
 
@@ -295,7 +299,7 @@ func serveBuilds(w http.ResponseWriter, r *http.Request) {
 		flusher, ok := w.(http.Flusher)
 		if !ok {
 			log.Println("ResponseWriter not a http.Flusher")
-			failf(w, "internal error: cannot stream updates")
+			failf(w, "%w: implementation limitation: cannot stream updates", errServer)
 			return
 		}
 
@@ -339,7 +343,7 @@ func serveBuilds(w http.ResponseWriter, r *http.Request) {
 				}
 
 				if update.err != nil {
-					failf(w, "build failed: %v", update.err)
+					failf(w, "build failed: %w", update.err)
 					return
 				}
 
@@ -385,7 +389,7 @@ func goBuild(req request) (*buildJSON, error) {
 func serveLog(w http.ResponseWriter, r *http.Request, p string) {
 	f, err := os.Open(p)
 	if err != nil {
-		failf(w, "open log.gz: %v", err)
+		failf(w, "%w: open log.gz: %v", errServer, err)
 		return
 	}
 	defer f.Close()
@@ -400,8 +404,7 @@ func serveGzipFile(w http.ResponseWriter, r *http.Request, path string, src io.R
 	} else {
 		gzr, err := gzip.NewReader(src)
 		if err != nil {
-			log.Printf("decompressing %q: %s", path, err)
-			http.Error(w, "internal server error", http.StatusInternalServerError)
+			failf(w, "%w: decompressing %q: %s", errServer, path, err)
 			return
 		}
 		io.Copy(w, gzr) // nothing to do for errors
