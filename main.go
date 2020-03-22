@@ -1,11 +1,3 @@
-// Gobuild serves reproducibly built binaries from sources via go module proxy.
-//
-// Serves URLs like:
-//
-// 	http://localhost:8000/
-// 	http://localhost:8000/m/github.com/mjl-/sherpa/
-// 	http://localhost:8000/x/linux-amd64-go1.14.1/github.com/mjl-/sherpa/@v0.6.0/cmd/sherpaclient/{,log,sha256,build.json,dl}
-// 	http://localhost:8000/z/$base64urlsum/linux-amd64-go1.14.1/github.com/mjl-/sherpa/@v0.6.0/cmd/sherpaclient/{,log,sha256,build.json,dl}
 package main
 
 import (
@@ -46,14 +38,12 @@ var (
 	}
 
 	config = struct {
-		BaseURL   string `sconf-doc:"Used to make full URLs in the web pages."`
 		GoProxy   string `sconf-doc:"URL to proxy."`
 		DataDir   string `sconf-doc:"Directory where builds.txt and all builds files (binary, log, sha256) are stored."`
 		SDKDir    string `sconf-doc:"Directory where SDKs (go toolchains) are installed."`
 		HomeDir   string `sconf-doc:"Directory set as home directory during builds. Go caches will be created there."`
 		MaxBuilds int    `sconf-doc:"Maximum concurrent builds. Default (0) uses NumCPU+1."`
 	}{
-		"http://localhost:8000/",
 		"https://proxy.golang.org/",
 		"data",
 		"sdk",
@@ -170,9 +160,6 @@ func serve(args []string) {
 			log.Fatalf("parsing config file: %v", err)
 		}
 	}
-	if !strings.HasSuffix(config.BaseURL, "/") {
-		config.BaseURL += "/"
-	}
 	if !strings.HasSuffix(config.GoProxy, "/") {
 		config.GoProxy += "/"
 	}
@@ -187,14 +174,17 @@ func serve(args []string) {
 	if !path.IsAbs(homedir) {
 		homedir = path.Join(workdir, config.HomeDir)
 	}
+	os.Mkdir(homedir, 0775) // failures will be caught later
 	// We need a clean name: we will be match path prefixes against paths returned by
 	// go tools, that will have evaluated names.
 	homedir, err = filepath.EvalSymlinks(homedir)
 	if err != nil {
 		log.Fatalf("evaluating symlinks in homedir: %v", err)
 	}
-	os.Mkdir(homedir, 0775) // failures will be caught later
+	os.Mkdir(config.SDKDir, 0775)  // may already exist, we'll get errors later
+	os.Mkdir(config.DataDir, 0775) // may already exist, we'll get errors later
 
+	initSDK()
 	readRecentBuilds()
 
 	go coordinateBuilds()
@@ -242,10 +232,8 @@ func serveHome(w http.ResponseWriter, r *http.Request) {
 
 	var args = struct {
 		Recents []string
-		BaseURL string
 	}{
 		recents,
-		config.BaseURL,
 	}
 	err := homeTemplate.Execute(w, args)
 	if err != nil {

@@ -87,9 +87,9 @@ var sdk struct {
 	}
 }
 
-func init() {
+func initSDK() {
 	sdk.installed = map[string]struct{}{}
-	l, err := ioutil.ReadDir("sdk")
+	l, err := ioutil.ReadDir(config.SDKDir)
 	if err != nil {
 		log.Fatalf("readdir sdk: %v", err)
 	}
@@ -215,7 +215,7 @@ func ensureSDK(goversion string) error {
 				sdk.fetch.status[goversion] = err
 				return err
 			}
-			tmpdir, err := ioutil.TempDir("sdk", "tmp-install")
+			tmpdir, err := ioutil.TempDir(config.SDKDir, "tmp-install")
 			if err != nil {
 				err = fmt.Errorf("%w: making tempdir for sdk: %v", errServer, err)
 				sdk.fetch.status[goversion] = err

@@ -42,7 +42,6 @@ body { margin: 0 auto; max-width: 50rem; font-family: Ubuntu, Lato, sans-serif; 
 body, input, button { font-size: 17px; }
 h1 { font-size: 1.5rem; }
 h2 { font-size: 1.25rem; }
-ul { padding-left: 1rem; }
 a { color: #007d9c; }
 .buildlink { padding: 0 .2rem; display: inline-block; }
 .buildlink.unsupported { color: #aaa; }
@@ -94,12 +93,20 @@ const buildTemplateString = `
 		<li><a href="log">Build log</a></li>
 		<li><a href="/x/{{ .Req.Goos }}-{{ .Req.Goarch }}-latest/{{ .Req.Mod }}@latest/{{ .Req.Dir }}">{{ .Req.Goos }}-{{ .Req.Goarch }}-<b>latest</b>/{{ .Req.Mod }}@<b>latest</b>/{{ .Req.Dir }}</a> (<a href="/x/{{ .Req.Goos }}-{{ .Req.Goarch }}-latest/{{ .Req.Mod }}@latest/{{ .Req.Dir }}dl">direct download</a>)</li>
 		<li>Built on {{ .Start }}, in {{ .BuildWallTimeMS }}ms; sys {{ .SystemTimeMS }}ms, user {{ .UserTimeMS }}ms.</li>
-	</ul>
-
-	<h2>Links</h2>
-	<ul>
 		<li>Documentation at <a href="{{ .PkgGoDevURL }}">pkg.go.dev</a></li>
 	</ul>
+
+	<h2>Reproduce</h2>
+<pre style="font-size: .9rem">tmpdir=$(mktemp -d)
+cd $tmpdir
+GO111MODULE=on GOPROXY={{ .GoProxy }} {{ .Req.Goversion }} get -d -v {{ .ShortMod }}@{{ .Req.Version }}
+cd $HOME/go/pkg/mod/{{ .ShortMod }}@{{ .Req.Version }}/{{ .Req.Dir }}
+GO111MODULE=on GOPROXY={{ .GoProxy }} CGO_ENABLED=0 GOOS={{ .Req.Goos }} GOARCH={{ .Req.Goarch }} \
+	{{ .Req.Goversion }} build -mod=readonly -o $tmpdir/{{ .DownloadFilename }} -x -v -trimpath \
+	-ldflags -buildid=00000000000000000000/00000000000000000000/00000000000000000000/00000000000000000000
+sha256sum $tmpdir/{{ .DownloadFilename }}
+# should be: {{ .SHA256 }}
+</pre>
 
 {{ else if .InProgress }}
 	<h2>Progress <img style="visibility: hidden; width: 32px; height: 32px;" id="dance" src="/img/gopher-dance-long.gif" title="Dancing gopher, by Ego Elbre, CC0" /></h2>
@@ -143,7 +150,9 @@ const buildTemplateString = `
 	function hide(e) { e.style.display = 'hidden'; }
 	function text(s) { return document.createTextNode(s) }
 	function elem(tag) {
-		const e = document.createElement(tag)
+		const t = tag.split('.')
+		const e = document.createElement(t.shift())
+		e.className = t.join(' ')
 		for (let i = 1; i < arguments.length; i++) {
 			let a = arguments[i]
 			if (typeof a === 'string') {
@@ -284,24 +293,25 @@ const homeTemplateString = `
 
 		<h2>Recent builds</h2>
 		<div style="white-space: nowrap">
+{{ if not .Recents }}<p>No builds yet.</p>{{ end }}
 			<ul>
 {{ range .Recents }}			<li><a href="{{ . }}">{{ . }}</a></li>{{ end }}
 			</ul>
 		</div>
 
 		<h2>URLs</h2>
-		<div style="color:#666; white-space: nowrap">
-			<div>{{ .BaseURL }}m/<span style="color:#111">&lt;module&gt;</span>/</div>
-			<div>{{ .BaseURL }}x/<span style="color:#111">&lt;goos&gt;</span>-<span style="color:#111">&lt;goarch&gt;</span>-<span style="color:#111">&lt;goversion&gt;</span>/<span style="color:#111">&lt;module&gt;</span>/@<span style="color:#111">&lt;version&gt;</span>/<span style="color:#111">&lt;package&gt;</span>/</div>
-			<div>{{ .BaseURL }}z/<span style="color:#111">&lt;sum&gt;</span>/<span style="color:#111">&lt;goos&gt;</span>-<span style="color:#111">&lt;goarch&gt;</span>-<span style="color:#111">&lt;goversion&gt;</span>/<span style="color:#111">&lt;module&gt;</span>/@<span style="color:#111">&lt;version&gt;</span>/<span style="color:#111">&lt;package&gt;</span>/</div>
-		</div>
+		<blockquote style="color:#666; white-space: nowrap">
+			<div>/m/<span style="color:#111">&lt;module&gt;</span>/</div>
+			<div>/x/<span style="color:#111">&lt;goos&gt;</span>-<span style="color:#111">&lt;goarch&gt;</span>-<span style="color:#111">&lt;goversion&gt;</span>/<span style="color:#111">&lt;module&gt;</span>/@<span style="color:#111">&lt;version&gt;</span>/<span style="color:#111">&lt;package&gt;</span>/</div>
+			<div>/z/<span style="color:#111">&lt;sum&gt;</span>/<span style="color:#111">&lt;goos&gt;</span>-<span style="color:#111">&lt;goarch&gt;</span>-<span style="color:#111">&lt;goversion&gt;</span>/<span style="color:#111">&lt;module&gt;</span>/@<span style="color:#111">&lt;version&gt;</span>/<span style="color:#111">&lt;package&gt;</span>/</div>
+		</blockquote>
 
 		<h3>Examples</h3>
-		<div style="color:#666; white-space: nowrap">
-			<a href="/m/github.com/mjl-/gobuild/">{{ .BaseURL }}m/github.com/mjl-/gobuild/</a><br/>
-			<a href="/x/linux-amd64-latest/github.com/mjl-/sherpa/@latest/cmd/sherpaclient/">{{ .BaseURL }}x/linux-amd64-latest/github.com/mjl-/sherpa/@latest/cmd/sherpaclient/</a><br/>
-			<a href="/z/zzYj4cIecfWqaL30rNkiJ3e1v5A/linux-amd64-go1.14.1/github.com/mjl-/sherpa/@v0.6.0/cmd/sherpaclient/">{{ .BaseURL }}z/zzYj4cIecfWqaL30rNkiJ3e1v5A/linux-amd64-go1.14.1/github.com/mjl-/sherpa/@v0.6.0/cmd/sherpaclient/</a>
-		</div>
+		<blockquote style="color:#666; white-space: nowrap">
+			<a href="/m/github.com/mjl-/gobuild/">/m/github.com/mjl-/gobuild/</a><br/>
+			<a href="/x/linux-amd64-latest/github.com/mjl-/sherpa/@latest/cmd/sherpaclient/">/x/linux-amd64-latest/github.com/mjl-/sherpa/@latest/cmd/sherpaclient/</a><br/>
+			<a href="/z/zzYj4cIecfWqaL30rNkiJ3e1v5A/linux-amd64-go1.14.1/github.com/mjl-/sherpa/@v0.6.0/cmd/sherpaclient/">/z/zzYj4cIecfWqaL30rNkiJ3e1v5A/linux-amd64-go1.14.1/github.com/mjl-/sherpa/@v0.6.0/cmd/sherpaclient/</a>
+		</blockquote>
 
 		<p>The first URL fetches the requested Go module, and redirects to a URL of the second form.</p>
 		<p>The second URL starts a build for the requested parameters. When finished, it redirects to a URL of the third form.</p>
@@ -309,10 +319,17 @@ const homeTemplateString = `
 		<p>You need not and cannot refresh a build, because they are reproducible.</p>
 
 		<h2>More</h2>
-		<p>Builds are created with CGO_ENABLED=0, -trimpath, and a zero buildid.</p>
 		<p>Only "go build" is run. No of "go test", "go generate", build tags, cgo, custom compile/link flags, makefiles, etc.</p>
 		<p>Gobuild looks up modules through the go proxy. That's why shorthand versions like "@v1" don't resolve.</p>
 		<p>Code is available at <a href="https://github.com/mjl-/gobuild">github.com/mjl-/gobuild</a>, under MIT-license, feedback welcome.</p>
+		<p>To build, gobuild executes:</p>
+<pre style="font-size:.9rem">tmpdir=$(mktemp -d)
+cd $tmpdir
+GO111MODULE=on GOPROXY=https://proxy.golang.org/ $goversion get -d -v $module@$version
+cd $HOME/go/pkg/mod/$module@$version/$path
+GO111MODULE=on GOPROXY=https://proxy.golang.org/ CGO_ENABLED=0 GOOS=$goos GOARCH=$goarch \
+	$goversion build -mod=readonly -o $tmpdir/$name -x -v -trimpath \
+	-ldflags -buildid=00000000000000000000/00000000000000000000/00000000000000000000/00000000000000000000</pre>
 {{ end }}
 {{ define "script" }}{{ end }}
 `

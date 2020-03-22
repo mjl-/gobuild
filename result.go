@@ -230,11 +230,14 @@ func serveBuildIndex(w http.ResponseWriter, r *http.Request, req request, result
 	}
 
 	args := map[string]interface{}{
-		"Success":        success,
-		"Req":            req,
-		"GoversionLinks": goversionLinks,
-		"TargetLinks":    targetLinks,
-		"Mod":            resp,
+		"Success":          success,
+		"Req":              req,
+		"GoversionLinks":   goversionLinks,
+		"TargetLinks":      targetLinks,
+		"Mod":              resp,
+		"GoProxy":          config.GoProxy,
+		"DownloadFilename": req.downloadFilename(),
+		"ShortMod":         req.Mod[:len(req.Mod)-1],
 
 		// Whether we will do SSE request for updates.
 		"InProgress": !success && output == "",
@@ -243,16 +246,15 @@ func serveBuildIndex(w http.ResponseWriter, r *http.Request, req request, result
 		"Output": output,
 
 		// Below only meaningful when "success".
-		"SHA256":           result.SHA256,
-		"Sum":              bsum,
-		"DownloadFilename": req.downloadFilename(),
-		"Filesize":         fmt.Sprintf("%.1f MB", float64(result.Filesize)/(1024*1024)),
-		"FilesizeGz":       fmt.Sprintf("%.1f MB", float64(result.FilesizeGz)/(1024*1024)),
-		"Start":            result.Start.Format("2006-01-02 15:04:05"),
-		"BuildWallTimeMS":  fmt.Sprintf("%d", result.BuildWallTime/time.Millisecond),
-		"SystemTimeMS":     fmt.Sprintf("%d", result.SystemTime/time.Millisecond),
-		"UserTimeMS":       fmt.Sprintf("%d", result.UserTime/time.Millisecond),
-		"PkgGoDevURL":      pkgGoDevURL,
+		"SHA256":          fmt.Sprintf("%x", result.SHA256),
+		"Sum":             bsum,
+		"Filesize":        fmt.Sprintf("%.1f MB", float64(result.Filesize)/(1024*1024)),
+		"FilesizeGz":      fmt.Sprintf("%.1f MB", float64(result.FilesizeGz)/(1024*1024)),
+		"Start":           result.Start.Format("2006-01-02 15:04:05"),
+		"BuildWallTimeMS": fmt.Sprintf("%d", result.BuildWallTime/time.Millisecond),
+		"SystemTimeMS":    fmt.Sprintf("%d", result.SystemTime/time.Millisecond),
+		"UserTimeMS":      fmt.Sprintf("%d", result.UserTime/time.Millisecond),
+		"PkgGoDevURL":     pkgGoDevURL,
 	}
 	err := buildTemplate.Execute(w, args)
 	if err != nil {

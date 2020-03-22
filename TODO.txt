@@ -1,0 +1,23 @@
+- Have multiple machines (ideally different goos & goarch, also different user, workdir) do a build in parallel, require/test the results are the same.
+
+- Should not strip entire buildid. I think it was needed in the past. Might need rules for some older Go versions that do need it.
+
+- Perhaps move goos-goarch-goversion to the end of URL again. And sum as well.
+- Test with repo's with uppercase characters. Goproxy should uppercase-encode them, Azure -> !azure
+- See how major version changes work. We will specify eg /v2/ at the end of the go module name.
+- See if builds with replaces in go.mod can work.
+- Do a test with replacing placeholder 0000 requirements with a replace statement with actual version numbers. Perhaps goproxy will grok that.
+- Look at running with TLS cert.
+- Look at security. Escaping, requests we make, rate limiting, logging, privsep.
+
+- Create a transparency log with builds.
+
+- Write tests.
+- Better/more useful instrumentation.
+- Cache responses from goproxy? So we don't misbehave towards it.
+- Perhaps understand "/..." package syntax (or similar, for URL) to build all commands in a module or package dir
+- Cleanup dir in go/pkg/mod/ after fetching/building, saves disk space. And we won't redownload too often. We could also periodically remove dirs with atime older than 1 hour. Will help if people build one module for different goversion/goos/goarch.
+- Could remove binaries after a period of inactivity. We can still keep the hash. And if the binary is requested again, just calculate it.
+- When resolving URLs with both goversion and modversion as "latest", do a single redirect?
+- On pages that link to other builds that were successful, link to /z/ URLs, not /x/. Saves redirects.
+- Handle more versions in URL, like @master, @commitid, etc?
