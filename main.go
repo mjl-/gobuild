@@ -17,6 +17,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/mjl-/sconf"
@@ -46,7 +47,7 @@ var (
 
 	config = struct {
 		BaseURL   string `sconf-doc:"Used to make full URLs in the web pages."`
-		GoProxy   string `sconf-doc:"URL to proxy, make sure it ends with a slash!."`
+		GoProxy   string `sconf-doc:"URL to proxy."`
 		DataDir   string `sconf-doc:"Directory where builds.txt and all builds files (binary, log, sha256) are stored."`
 		SDKDir    string `sconf-doc:"Directory where SDKs (go toolchains) are installed."`
 		HomeDir   string `sconf-doc:"Directory set as home directory during builds. Go caches will be created there."`
@@ -168,6 +169,12 @@ func serve(args []string) {
 		if err != nil {
 			log.Fatalf("parsing config file: %v", err)
 		}
+	}
+	if !strings.HasSuffix(config.BaseURL, "/") {
+		config.BaseURL += "/"
+	}
+	if !strings.HasSuffix(config.GoProxy, "/") {
+		config.GoProxy += "/"
 	}
 
 	var err error
