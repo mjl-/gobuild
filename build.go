@@ -4,11 +4,12 @@ import (
 	"bytes"
 	"compress/gzip"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
-	"net/http"
 	"os"
 	"os/exec"
 	"path"
@@ -17,8 +18,11 @@ import (
 	"time"
 )
 
+var errTempFailure = errors.New("temporary failure")
+
 type buildJSON struct {
 	V             string // "v0"
+	Sum           string // Sum is the saw-base64-url encoded 20-byte prefix of the SHA256 sum.
 	SHA256        []byte
 	Filesize      int64
 	FilesizeGz    int64
@@ -34,45 +38,38 @@ type buildJSON struct {
 	Dir           string
 }
 
-func build(w http.ResponseWriter, r *http.Request, req request) (result *buildJSON, tmpFail bool) {
-	start := time.Now()
-
-	err := ensureSDK(req.Goversion)
-	if err != nil {
-		failf(w, "missing toolchain %q: %v", req.Goversion, err)
-		return nil, true
-	}
-
+func ensureGobin(req request) (string, error) {
 	gobin := path.Join(config.SDKDir, req.Goversion, "bin/go")
 	if !path.IsAbs(gobin) {
 		gobin = path.Join(workdir, gobin)
 	}
-	_, err = os.Stat(gobin)
+	_, err := os.Stat(gobin)
 	if err != nil {
-		failf(w, "unknown toolchain %q: %v", req.Goversion, err)
-		return nil, true
+		return "", fmt.Errorf("unknown toolchain %q: %v", req.Goversion, err)
+	}
+	return gobin, nil
+}
+
+func prepareBuild(req request) error {
+	err := ensureSDK(req.Goversion)
+	if err != nil {
+		return fmt.Errorf("missing toolchain %q: %v", req.Goversion, err)
 	}
 
-	dir, err := ioutil.TempDir("", "gobuild")
+	gobin, err := ensureGobin(req)
 	if err != nil {
-		failf(w, "tempdir for build: %v", err)
-		return nil, true
+		return err
 	}
-	defer os.RemoveAll(dir)
 
 	modDir, getOutput, err := ensureModule(gobin, req.Mod, req.Version)
 	if err != nil {
-		// Fetching the code failed. We report it back to the user immediately. We don't
-		// store these results. Perhaps the user is trying to build something that was
-		// uploaded just now, and not yet available in the go module proxy.
-		ufailf(w, "error fetching module from goproxy: %v\n\n# output from go get:\n%s", err, string(getOutput))
-		return nil, true
+		return fmt.Errorf("error fetching module from goproxy: %v\n\n# output from go get:\n%s", err, string(getOutput))
 	}
 
 	pkgDir := modDir + "/" + req.Dir
 
 	// Check if package is a main package, resulting in an executable when built.
-	cmd := exec.CommandContext(r.Context(), gobin, "list", "-f", "{{.Name}}")
+	cmd := exec.Command(gobin, "list", "-f", "{{.Name}}")
 	cmd.Dir = pkgDir
 	cmd.Env = []string{
 		fmt.Sprintf("GOPROXY=%s", config.GoProxy),
@@ -81,22 +78,37 @@ func build(w http.ResponseWriter, r *http.Request, req request) (result *buildJS
 	}
 	nameOutput, err := cmd.CombinedOutput()
 	if err != nil {
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		w.WriteHeader(http.StatusBadRequest)
-		fmt.Fprintf(w, "400 - error finding package name; perhaps package does not exist?")
-		w.Write(nameOutput) // nothing to do for errors
-		return nil, true
+		return fmt.Errorf("error finding package name; perhaps package does not exist: %v\n\n# output from go list:\n%s", err, string(nameOutput))
 	}
 	if string(nameOutput) != "main\n" {
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		w.WriteHeader(http.StatusBadRequest)
-		fmt.Fprintf(w, "400 - not package main, building would not result in executable binary")
-		return nil, true
+		return fmt.Errorf("not package main, building would not result in executable binary")
 	}
+	return nil
+}
+
+func build(req request) (result *buildJSON, err error) {
+	start := time.Now()
+
+	gobin, err := ensureGobin(req)
+	if err != nil {
+		return nil, fmt.Errorf("ensuring go version is available: %v (%w)", err, errTempFailure)
+	}
+
+	modDir, getOutput, err := ensureModule(gobin, req.Mod, req.Version)
+	if err != nil {
+		return nil, fmt.Errorf("error fetching module from goproxy: %v (%w)\n\n# output from go get:\n%s", err, errTempFailure, string(getOutput))
+	}
+	pkgDir := modDir + "/" + req.Dir
+
+	dir, err := ioutil.TempDir("", "gobuild")
+	if err != nil {
+		return nil, fmt.Errorf("tempdir for build: %v (%w)", err, errTempFailure)
+	}
+	defer os.RemoveAll(dir)
 
 	lname := dir + "/bin/" + req.filename()
 	os.Mkdir(filepath.Dir(lname), 0775) // failures will be caught later
-	cmd = exec.CommandContext(r.Context(), gobin, "build", "-mod=readonly", "-o", lname, "-x", "-v", "-trimpath", "-ldflags", "-buildid=00000000000000000000/00000000000000000000/00000000000000000000/00000000000000000000")
+	cmd := exec.Command(gobin, "build", "-mod=readonly", "-o", lname, "-x", "-v", "-trimpath", "-ldflags", "-buildid=00000000000000000000/00000000000000000000/00000000000000000000/00000000000000000000")
 	cmd.Env = []string{
 		fmt.Sprintf("GOPROXY=%s", config.GoProxy),
 		"GO111MODULE=on",
@@ -115,18 +127,16 @@ func build(w http.ResponseWriter, r *http.Request, req request) (result *buildJS
 		}
 		err := saveFailure(req, err.Error()+"\n\n"+string(output), start, sysTime, userTime)
 		if err != nil {
-			failf(w, "storing results of failure: %v", err)
-			return nil, true
+			return nil, fmt.Errorf("storing results of failure: %v (%w)", err, errTempFailure)
 		}
-		return nil, false
+		return nil, err
 	}
 
 	result, err = saveFiles(req, output, lname, start, cmd.ProcessState.SystemTime(), cmd.ProcessState.UserTime())
 	if err != nil {
-		failf(w, "storing results: %v", err)
-		return nil, true
+		return nil, fmt.Errorf("storing results of build: %v (%w)", err, errTempFailure)
 	}
-	return result, false
+	return result, nil
 }
 
 func saveFailure(req request, output string, start time.Time, systemTime, userTime time.Duration) error {
@@ -155,6 +165,7 @@ func saveFailure(req request, output string, start time.Time, systemTime, userTi
 
 	buildResult := buildJSON{
 		"v0",
+		"",
 		nil, // Marks failure.
 		0,
 		0,
@@ -209,6 +220,7 @@ func saveFiles(req request, output []byte, lname string, start time.Time, system
 
 	buildResult := buildJSON{
 		"v0",
+		base64.RawURLEncoding.EncodeToString(sha256[:20]),
 		sha256,
 		size,
 		0, // filled in below

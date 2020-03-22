@@ -50,6 +50,7 @@ a { color: #007d9c; }
 .buildlink.unsupported.active { color: white; background-color: #aaa; }
 .success { color: #14ae14; }
 .failure { color: #d34826; }
+.pending { color: #207ef2; }
 .output { margin-left: calc(-50vw + 25rem); width: calc(100vw - 2rem); }
 		</style>
 	</head>
@@ -57,6 +58,7 @@ a { color: #007d9c; }
 		<div style="margin:1rem">
 {{ template "content" . }}
 		</div>
+{{ template "script" . }}
 	</body>
 </html>
 {{ end }}
@@ -71,7 +73,7 @@ const buildTemplateString = `
 		{{ .Req.Mod }}@{{ .Req.Version }}/{{ .Req.Dir }}<br/>
 		{{ .Req.Goos }}/{{ .Req.Goarch }} {{ .Req.Goversion }}
 		{{ if .Success}}<br/>{{ .Sum }}{{ end }}
-		{{ if .Success }}<span class="success">✓</span>{{ else }}<span class="failure">❌</span>{{ end }}
+		{{ if .Success }}<span class="success">✓</span>{{ else if .InProgress }}<span class="pending">⌛</span>{{ else }}<span class="failure">❌</span>{{ end }}
 	</h1>
 
 {{ if .Success }}
@@ -99,6 +101,12 @@ const buildTemplateString = `
 		<li>Documentation at <a href="{{ .PkgGoDevURL }}">pkg.go.dev</a></li>
 	</ul>
 
+{{ else if .InProgress }}
+	<h2>Progress <img style="visibility: hidden; width: 32px; height: 32px;" id="dance" src="/img/gopher-dance-long.gif" title="Dancing gopher, by Ego Elbre, CC0" /></h2>
+	<div id="progress">
+		<p>Connecting to server to request build and receive updates...</p>
+		<p>If your browser has JavaScript disabled, or does not support server-sent events (SSE), follor this <a href="dl">download link</a> to trigger a build.</p>
+	</div>
 {{ else }}
 	<h2>Error</h2>
 	<div class="output">
@@ -127,6 +135,124 @@ const buildTemplateString = `
 	{{ range .TargetLinks }}	<div><a href="/x/{{ .Path }}" class="buildlink{{ if .Active }} active{{ end }} ">{{ .Goos }}/{{ .Goarch }}</a>{{ if .Available }} {{ if .Success }}<span class="success">✓</span>{{ else }}<span class="failure">❌</span>{{ end }}{{ end }}</div>{{ end }}
 	</div>
 {{ end }}
+{{ define "script" }}
+	{{ if .InProgress }}
+	<script>
+(function() {
+	function show(e) { e.style.visibility = 'visible' }
+	function hide(e) { e.style.display = 'hidden'; }
+	function text(s) { return document.createTextNode(s) }
+	function elem(tag) {
+		const e = document.createElement(tag)
+		for (let i = 1; i < arguments.length; i++) {
+			let a = arguments[i]
+			if (typeof a === 'string') {
+				a = text(a)
+			}
+			e.appendChild(a)
+		}
+		return e
+	}
+
+	const progress = document.getElementById('progress')
+	function display() {
+		while (progress.firstChild) {
+			progress.removeChild(progress.firstChild)
+		}
+		var args = Array.prototype.slice.call(arguments)
+		args.unshift('div')
+		const e = elem.apply(undefined, args)
+		progress.appendChild(e)
+	}
+
+	if (!window.EventSource) {
+		console.log('cannot request build and receive updates, browser does not support server-sent events (SSE)?')
+		return
+	}
+
+	const dance = document.getElementById('dance')
+
+	var requestBuildWithUpdates = function() {
+		const src = new EventSource('events')
+		src.addEventListener('update', function(e) {
+			const update = JSON.parse(e.data)
+			switch (update.Kind) {
+			case 'QueuePosition':
+				show(dance)
+				if (update.QueuePosition === 0) {
+					display('Build in progress, hang in there!')
+				} else if (update.QueuePosition === 1) {
+					display('Waiting in queue, 1 build before yours...')
+				} else {
+					display('Waiting in queue, ' + update.QueuePosition + ' builds before yours...')
+				}
+				break;
+			case 'TempFailed':
+				hide(dance)
+				display(
+					elem('p', 'Build failed, temporary failure, try again later.'),
+					elem('h3', 'Output'),
+					elem('div.output',
+						elem('pre', update.Error),
+					),
+				)
+				break;
+			case 'PermFailed':
+				{
+					hide(dance)
+					const link = elem('a', 'build failure output log')
+					link.setAttribute('href', 'log')
+
+					display(
+						elem('p',
+							'Build failed. See ',
+							link,
+							' for details.',
+						),
+						elem('h3', 'Output'),
+						elem('div.output',
+							elem('pre', update.Error),
+						),
+					)
+				}
+				break;
+			case 'Success':
+				{
+					hide(dance)
+					const resultsURL = '/z/' + update.Result.Sum + location.pathname.substring(2)
+					const link = elem('a', 'build results page')
+					link.setAttribute('href', resultsURL)
+
+					display(
+						elem('p', 'Build successful, redirecting to ', link, '.')
+					)
+					src.close()
+					location.href = resultsURL
+				}
+				break;
+			default:
+				console.log('unknown update kind')
+			}
+		})
+		src.addEventListener('open', function(e) {
+			display(elem('p', 'Connected! Waiting for updates...'))
+		})
+		src.addEventListener('error', function(e) {
+			const reconnect = elem('a', 'Reconnect')
+			a.setAttribute('href', '#')
+			reconnect.addEventListener('click', function(e) {
+				e.preventDefault()
+				requestBuildWithUpdates()
+			})
+			display(elem('p', 'Connection to backend failed. ', reconnect, '.'))
+		})
+	}
+
+	requestBuildWithUpdates()
+})()
+	</script>
+	{{ end }}
+{{ end }}
 `
 
 const moduleTemplateString = `
@@ -139,6 +265,7 @@ const moduleTemplateString = `
 {{ range .Mains }}		<li><a href="{{ .Link }}">{{ .Name }}</a></li>{{ end }}
 	</ul>
 {{ end }}
+{{ define "script" }}{{ end }}
 `
 
 const homeTemplateString = `
@@ -187,4 +314,5 @@ const homeTemplateString = `
 		<p>Gobuild looks up modules through the go proxy. That's why shorthand versions like "@v1" don't resolve.</p>
 		<p>Code is available at <a href="https://github.com/mjl-/gobuild">github.com/mjl-/gobuild</a>, under MIT-license, feedback welcome.</p>
 {{ end }}
+{{ define "script" }}{{ end }}
 `

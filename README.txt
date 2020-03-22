@@ -26,14 +26,19 @@ Toolchains are in ./sdk/.
 
 # Todo
 
-- Do in-process coordination between goroutines so we don't do the same build for different requests.
-- Keep a queue of builds that are being requested. If we don't have a module/version/package build ready, we return an HTML page saying the build will be created. The page connects with SSE to register the desire for the build, and to stay up to date on the build schedule. If we leave the page, your position in the queue is dropped. We can perhaps do runtime.NumCPU()+1 builds at the same time.
-
 - Should not strip entire buildid. I think it was needed in the past. Might need rules for some older Go versions that do need it.
 
+- Test with repo's with uppercase characters. Goproxy should uppercase-encode them, Azure -> !azure
+- See how major version changes work. We will specify eg /v2/ at the end of the go module name.
+- See if builds with replaces in go.mod can work.
+- Do a test with replacing placeholder 0000 requirements with a replace statement with actual version numbers. Perhaps goproxy will grok that.
+
 - Create a transparency log with builds.
+- Have multiple machines (ideally different goos & goarch, also different user, workdir) do a build in parallel, require/test the results are the same.
 
 - Write tests.
 - Could handle more versions, like @master, @commitid, etc.
 - Cache responses from goproxy?
 - Handle special characters in modules/versions/package paths.
+- Perhaps understand "/..." package syntax to build all commands in a module or package dir
+- Cleanup dir in go/pkg/mod/ after fetching/building, saves disk space. And we won't redownload too often. We could also periodically remove dirs with atime older than 1 hour. Will help if people build one module for different goversion/goos/goarch.

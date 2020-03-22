@@ -22,29 +22,7 @@ func readRecentBuilds() {
 	}
 	defer f.Close()
 
-	fi, err := f.Stat()
-	if err != nil {
-		log.Printf("stat: %v", err)
-		return
-	}
-	offset := fi.Size()
-	if offset > 1024 {
-		offset = 1024
-	}
-	offset, err = f.Seek(-offset, 2)
-	if err != nil {
-		log.Printf("seek: %v", err)
-		return
-	}
-
 	b := bufio.NewReader(f)
-	if offset > 0 {
-		_, err = b.ReadString('\n')
-		if err != nil {
-			log.Printf("discard first line: %v", err)
-			return
-		}
-	}
 	l := []string{}
 	targetUse := map[string]int{}
 	for {

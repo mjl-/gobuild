@@ -45,17 +45,19 @@ var (
 	}
 
 	config = struct {
-		BaseURL string `sconf-doc:"Used to make full URLs in the web pages."`
-		GoProxy string `sconf-doc:"URL to proxy, make sure it ends with a slash!."`
-		DataDir string `sconf-doc:"Directory where builds.txt and all builds files (binary, log, sha256) are stored."`
-		SDKDir  string `sconf-doc:"Directory where SDKs (go toolchains) are installed."`
-		HomeDir string `sconf-doc:"Directory set as home directory during builds. Go caches will be created there."`
+		BaseURL   string `sconf-doc:"Used to make full URLs in the web pages."`
+		GoProxy   string `sconf-doc:"URL to proxy, make sure it ends with a slash!."`
+		DataDir   string `sconf-doc:"Directory where builds.txt and all builds files (binary, log, sha256) are stored."`
+		SDKDir    string `sconf-doc:"Directory where SDKs (go toolchains) are installed."`
+		HomeDir   string `sconf-doc:"Directory set as home directory during builds. Go caches will be created there."`
+		MaxBuilds int    `sconf-doc:"Maximum concurrent builds. Default (0) uses NumCPU+1."`
 	}{
 		"http://localhost:8000/",
 		"https://proxy.golang.org/",
 		"data",
 		"sdk",
 		"home",
+		0,
 	}
 )
 
@@ -188,6 +190,8 @@ func serve(args []string) {
 
 	readRecentBuilds()
 
+	go coordinateBuilds()
+
 	http.Handle("/metrics", promhttp.Handler())
 
 	mux := http.NewServeMux()
@@ -201,6 +205,10 @@ func serve(args []string) {
 	mux.HandleFunc("/m/", promhttp.InstrumentHandlerDuration(metricHTTPModuleRequestDuration, http.HandlerFunc(serveModules)))
 	mux.HandleFunc("/x/", promhttp.InstrumentHandlerDuration(metricHTTPBuildRequestDuration, http.HandlerFunc(serveBuilds)))
 	mux.HandleFunc("/z/", promhttp.InstrumentHandlerDuration(metricHTTPResultRequestDuration, http.HandlerFunc(serveResults)))
+	mux.HandleFunc("/img/gopher-dance-long.gif", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/gif")
+		w.Write(fileGopherDanceLongGif) // nothing to do for errors
+	})
 	mux.HandleFunc("/", serveHome)
 	log.Printf("listening on %s and %s", *listenAddress, *listenAdmin)
 	go func() {

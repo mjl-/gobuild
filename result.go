@@ -17,6 +17,11 @@ import (
 )
 
 func serveResults(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "GET" {
+		http.Error(w, "405 - Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
 	t := strings.SplitN(r.URL.Path[3:], "/", 2)
 	if len(t) != 2 || t[1] == "" {
 		http.NotFound(w, r)
@@ -68,7 +73,7 @@ func serveResults(w http.ResponseWriter, r *http.Request) {
 		serveLog(w, r, lpath+"/log.gz")
 	case pageSha256:
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		w.Write([]byte(buildResult.SHA256)) // nothing to do for errors
+		fmt.Fprintf(w, "%x\n", buildResult.SHA256) // nothing to do for errors
 	case pageDownloadRedirect:
 		p := "/z/" + bsum + "/" + req.destdir() + req.downloadFilename()
 		http.Redirect(w, r, p, http.StatusFound)
@@ -94,6 +99,7 @@ func serveResults(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// serveBuildIndex serves the HTML page for a build that has either failed or in pending (under /x/), or has succeeded (under /z/).
 func serveBuildIndex(w http.ResponseWriter, r *http.Request, req request, result *buildJSON) {
 	destdir := req.destdir()
 	lpath := path.Join(config.DataDir, destdir)
@@ -149,14 +155,19 @@ func serveBuildIndex(w http.ResponseWriter, r *http.Request, req request, result
 		c <- response{nil, l}
 	}()
 
+	// Non-emptiness means we'll serve the error page instead of doing a SSE request for events.
 	var output string
+
 	if result == nil {
 		buf, err := readGzipFile(lpath + "/log.gz")
 		if err != nil {
-			failf(w, "reading log.gz: %v", err)
-			return
+			if !os.IsNotExist(err) {
+				failf(w, "reading log.gz: %v", err)
+				return
+			}
+		} else {
+			output = string(buf)
 		}
-		output = string(buf)
 	}
 
 	type goversionLink struct {
@@ -192,6 +203,9 @@ func serveBuildIndex(w http.ResponseWriter, r *http.Request, req request, result
 		targetLinks = append(targetLinks, targetLink{target.Goos, target.Goarch, p, false, false, p == destdir})
 	}
 
+	pkgGoDevURL := fmt.Sprintf("https://pkg.go.dev/%s@%s/%s", req.Mod, req.Version, req.Dir)
+	pkgGoDevURL = pkgGoDevURL[:len(pkgGoDevURL)-1] + "?tab=doc"
+
 	resp := <-c
 
 	availableBuilds.Lock()
@@ -206,16 +220,13 @@ func serveBuildIndex(w http.ResponseWriter, r *http.Request, req request, result
 	}
 	availableBuilds.Unlock()
 
-	pkgGoDevURL := fmt.Sprintf("https://pkg.go.dev/%s@%s/%s", req.Mod, req.Version, req.Dir)
-	pkgGoDevURL = pkgGoDevURL[:len(pkgGoDevURL)-1] + "?tab=doc"
-
 	success := result != nil
 
 	var bsum string
 	if success {
 		bsum = base64.RawURLEncoding.EncodeToString(result.SHA256[:20])
 	} else {
-		result = &buildJSON{}
+		result = &buildJSON{} // for easier code below, we always dereference
 	}
 
 	args := map[string]interface{}{
@@ -225,10 +236,13 @@ func serveBuildIndex(w http.ResponseWriter, r *http.Request, req request, result
 		"TargetLinks":    targetLinks,
 		"Mod":            resp,
 
-		// Next only set when !success.
+		// Whether we will do SSE request for updates.
+		"InProgress": !success && output == "",
+
+		// Non-empty on failure.
 		"Output": output,
 
-		// Below only set when successful.
+		// Below only meaningful when "success".
 		"SHA256":           result.SHA256,
 		"Sum":              bsum,
 		"DownloadFilename": req.downloadFilename(),

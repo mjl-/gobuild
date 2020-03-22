@@ -23,9 +23,10 @@ const (
 	pageDownload
 	pageDownloadGz
 	pageBuildJSON
+	pageEvents
 )
 
-var pageNames = []string{"index", "log", "sha256", "dlredir", "download", "downloadgz", "buildjson"}
+var pageNames = []string{"index", "log", "sha256", "dlredir", "download", "downloadgz", "buildjson", "events"}
 
 func (p page) String() string {
 	return pageNames[p]
@@ -62,6 +63,8 @@ func (r request) pagePart() string {
 		return r.downloadFilename() + ".gz"
 	case pageBuildJSON:
 		return "build.json"
+	case pageEvents:
+		return "events"
 	default:
 		panic("missing case")
 	}
@@ -83,7 +86,7 @@ func (r request) downloadFilename() string {
 	return fmt.Sprintf("%s-%s-%s%s", r.filename(), r.Version, r.Goversion, ext)
 }
 
-// we'll get paths like linux-amd64-go1.13/example.com/user/repo/@version/cmd/dir/{log,sha256,dl,<name>,<name>.gz,build.json}
+// we'll get paths like linux-amd64-go1.13/example.com/user/repo/@version/cmd/dir/{log,sha256,dl,<name>,<name>.gz,build.json, events}
 func parsePath(s string) (r request, hint string, ok bool) {
 	t := strings.SplitN(s, "/", 2)
 	if len(t) != 2 {
@@ -115,6 +118,9 @@ func parsePath(s string) (r request, hint string, ok bool) {
 	case strings.HasSuffix(s, "/build.json"):
 		r.Page = pageBuildJSON
 		s = s[:len(s)-len("/build.json")]
+	case strings.HasSuffix(s, "/events"):
+		r.Page = pageEvents
+		s = s[:len(s)-len("/events")]
 	default:
 		t := strings.Split(s, "/")
 		downloadName = t[len(t)-1]
@@ -176,6 +182,11 @@ func ufailf(w http.ResponseWriter, format string, args ...interface{}) {
 }
 
 func serveBuilds(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "GET" {
+		http.Error(w, "405 - Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
 	req, hint, ok := parsePath(r.URL.Path[3:])
 	if !ok {
 		if hint != "" {
@@ -217,41 +228,7 @@ func serveBuilds(w http.ResponseWriter, r *http.Request) {
 	destdir := req.destdir()
 	lpath := path.Join(config.DataDir, destdir)
 
-	// Presence of log.gz file indicates if a build was done before, whether successful or failed.
-	_, err := os.Stat(lpath + "/log.gz")
-	if err != nil {
-		if !os.IsNotExist(err) {
-			failf(w, "stat path: %v", err)
-			return
-		}
-
-		metricBuilds.WithLabelValues(req.Goos, req.Goarch, req.Goversion).Inc()
-		result, tmpFail := build(w, r, req)
-		if result == nil && tmpFail {
-			return
-		}
-		p := fmt.Sprintf("%s-%s-%s/%s@%s/%s", req.Goos, req.Goarch, req.Goversion, req.Mod, req.Version, req.Dir)
-		if result == nil {
-			metricBuildErrors.WithLabelValues(req.Goos, req.Goarch, req.Goversion).Inc()
-		} else {
-			var fp string
-			if ok {
-				fp = "/" + base64.RawURLEncoding.EncodeToString(result.SHA256[:20]) + "/" + p
-			} else {
-				fp = "/x/" + p
-			}
-			recentBuilds.Lock()
-			recentBuilds.paths = append(recentBuilds.paths, fp)
-			if len(recentBuilds.paths) > 10 {
-				recentBuilds.paths = recentBuilds.paths[len(recentBuilds.paths)-10:]
-			}
-			recentBuilds.Unlock()
-		}
-		availableBuilds.Lock()
-		availableBuilds.index[p] = ok
-		availableBuilds.Unlock()
-	}
-
+	// If build.json exists, we have a successful build.
 	bf, err := os.Open(lpath + "/build.json")
 	if err == nil {
 		defer bf.Close()
@@ -272,15 +249,137 @@ func serveBuilds(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Show failed build to user, for the pages where that works.
-	switch req.Page {
-	case pageLog:
-		serveLog(w, r, lpath+"/log.gz")
-	case pageIndex:
-		serveBuildIndex(w, r, req, nil)
-	default:
-		http.Error(w, "400 - bad request, build failed", http.StatusBadRequest)
+	// If log.gz exists, we have a failed build.
+	_, err = os.Stat(lpath + "/log.gz")
+	if err != nil && !os.IsNotExist(err) {
+		failf(w, "stat path: %v", err)
+		return
 	}
+	if err == nil {
+		// Show failed build to user, for the pages where that works.
+		switch req.Page {
+		case pageLog:
+			serveLog(w, r, lpath+"/log.gz")
+		case pageIndex:
+			serveBuildIndex(w, r, req, nil)
+		default:
+			http.Error(w, "400 - bad request, build failed", http.StatusBadRequest)
+		}
+		return
+	}
+
+	// No build yet, we need one.
+
+	// We always attempt to set up the build. This checks with the goproxy that the
+	// module and package exist, and seems like it has a chance to compile.
+	err = prepareBuild(req)
+	if err != nil {
+		failf(w, "preparing build: %v", err)
+		return
+	}
+
+	// We serve the index page immediately. It makes an SSE-request to the /events
+	// endpoint to register a request for the build and to receive updates.
+	if req.Page == pageIndex {
+		serveBuildIndex(w, r, req, nil)
+		return
+	}
+
+	eventc := make(chan buildUpdate, 100)
+	registerBuild(req, eventc)
+
+	ctx := r.Context()
+
+	switch req.Page {
+	case pageEvents:
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			log.Println("ResponseWriter not a http.Flusher")
+			failf(w, "internal error: cannot stream updates")
+			return
+		}
+
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		_, err := w.Write([]byte(": keepalive\n\n"))
+		if err != nil {
+			return
+		}
+		flusher.Flush()
+
+	loop:
+		for {
+			select {
+			case <-ctx.Done():
+				break loop
+			case update := <-eventc:
+				_, err = w.Write(update.msg)
+				flusher.Flush()
+				if update.done || err != nil {
+					break loop
+				}
+			}
+		}
+		unregisterBuild(req, eventc)
+	default:
+		for {
+			select {
+			case <-ctx.Done():
+				unregisterBuild(req, eventc)
+				return
+			case update := <-eventc:
+				if !update.done {
+					continue
+				}
+				unregisterBuild(req, eventc)
+
+				if req.Page == pageLog {
+					serveLog(w, r, lpath+"/log.gz")
+					return
+				}
+
+				if update.err != nil {
+					failf(w, "build failed: %v", update.err)
+					return
+				}
+
+				// Redirect to the permanent URLs that include the hash.
+				bsum := base64.RawURLEncoding.EncodeToString(update.result.SHA256[:20])
+				p := fmt.Sprintf("/z/%s/%s-%s-%s/%s@%s/%s%s", bsum, req.Goos, req.Goarch, req.Goversion, req.Mod, req.Version, req.Dir, req.pagePart())
+				http.Redirect(w, r, p, http.StatusFound)
+				return
+			}
+		}
+	}
+}
+
+func goBuild(req request) (*buildJSON, error) {
+	p := fmt.Sprintf("%s-%s-%s/%s@%s/%s", req.Goos, req.Goarch, req.Goversion, req.Mod, req.Version, req.Dir)
+
+	metricBuilds.WithLabelValues(req.Goos, req.Goarch, req.Goversion).Inc()
+	result, err := build(req)
+	ok := err == nil
+	availableBuilds.Lock()
+	availableBuilds.index[p] = ok
+	availableBuilds.Unlock()
+	if err != nil {
+		metricBuildErrors.WithLabelValues(req.Goos, req.Goarch, req.Goversion).Inc()
+		return nil, err
+	}
+
+	var fp string
+	if ok {
+		fp = "/" + base64.RawURLEncoding.EncodeToString(result.SHA256[:20]) + "/" + p
+	} else {
+		fp = "/x/" + p
+	}
+	recentBuilds.Lock()
+	recentBuilds.paths = append(recentBuilds.paths, fp)
+	if len(recentBuilds.paths) > 10 {
+		recentBuilds.paths = recentBuilds.paths[len(recentBuilds.paths)-10:]
+	}
+	recentBuilds.Unlock()
+	return result, nil
 }
 
 func serveLog(w http.ResponseWriter, r *http.Request, p string) {
