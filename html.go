@@ -43,6 +43,7 @@ body, input, button { font-size: 17px; }
 h1 { font-size: 1.5rem; }
 h2 { font-size: 1.25rem; }
 a { color: #007d9c; }
+pre { font-size: .9rem; }
 .buildlink { padding: 0 .2rem; display: inline-block; }
 .buildlink.unsupported { color: #aaa; }
 .buildlink.active { padding: .1rem .2rem; border-radius: .2rem; color: white; background-color: #007d9c; }
@@ -51,6 +52,7 @@ a { color: #007d9c; }
 .failure { color: #d34826; }
 .pending { color: #207ef2; }
 .output { margin-left: calc(-50vw + 25rem); width: calc(100vw - 2rem); }
+.prewrap { white-space: pre-wrap; }
 		</style>
 	</head>
 	<body>
@@ -95,19 +97,6 @@ const buildTemplateString = `
 		<li>Built on {{ .Start }}, in {{ .BuildWallTimeMS }}ms; sys {{ .SystemTimeMS }}ms, user {{ .UserTimeMS }}ms.</li>
 		<li>Documentation at <a href="{{ .PkgGoDevURL }}">pkg.go.dev</a></li>
 	</ul>
-
-	<h2>Reproduce</h2>
-<pre style="font-size: .9rem">tmpdir=$(mktemp -d)
-cd $tmpdir
-GO111MODULE=on GOPROXY={{ .GoProxy }} {{ .Req.Goversion }} get -d -v {{ .ShortMod }}@{{ .Req.Version }}
-cd $HOME/go/pkg/mod/{{ .ShortMod }}@{{ .Req.Version }}/{{ .Req.Dir }}
-GO111MODULE=on GOPROXY={{ .GoProxy }} CGO_ENABLED=0 GOOS={{ .Req.Goos }} GOARCH={{ .Req.Goarch }} \
-	{{ .Req.Goversion }} build -mod=readonly -o $tmpdir/{{ .DownloadFilename }} -x -v -trimpath \
-	-ldflags -buildid=00000000000000000000/00000000000000000000/00000000000000000000/00000000000000000000
-sha256sum $tmpdir/{{ .DownloadFilename }}
-# should be: {{ .SHA256 }}
-</pre>
-
 {{ else if .InProgress }}
 	<h2>Progress <img style="visibility: hidden; width: 32px; height: 32px;" id="dance" src="/img/gopher-dance-long.gif" title="Dancing gopher, by Ego Elbre, CC0" /></h2>
 	<div id="progress">
@@ -117,11 +106,24 @@ sha256sum $tmpdir/{{ .DownloadFilename }}
 {{ else }}
 	<h2>Error</h2>
 	<div class="output">
-		<pre>
+		<pre class="prewrap">
 {{ .Output }}
 		</pre>
 	</div>
 {{ end }}
+
+	<h2>Reproduce</h2>
+	<p>You should be able to reproduce this build with the commands below.</p>
+<pre>tmpdir=$(mktemp -d)
+cd $tmpdir
+GO111MODULE=on GOPROXY={{ .GoProxy }} {{ .Req.Goversion }} get -d -v {{ .ShortMod }}@{{ .Req.Version }}
+cd $HOME/go/pkg/mod/{{ .ShortMod }}@{{ .Req.Version }}/{{ .Req.Dir }}
+GO111MODULE=on GOPROXY={{ .GoProxy }} CGO_ENABLED=0 GOOS={{ .Req.Goos }} GOARCH={{ .Req.Goarch }} \
+	{{ .Req.Goversion }} build -mod=readonly -o $tmpdir/{{ .DownloadFilename }} -x -v -trimpath \
+	-ldflags -buildid=00000000000000000000/00000000000000000000/00000000000000000000/00000000000000000000
+sha256sum $tmpdir/{{ .DownloadFilename }}
+{{ if .SHA256 }}# should be: {{ .SHA256 }}{{ end }}
+</pre>
 
 	<div style="width: 32%; display: inline-block; vertical-align: top">
 		<h2>Module versions</h2>
@@ -147,12 +149,14 @@ sha256sum $tmpdir/{{ .DownloadFilename }}
 	<script>
 (function() {
 	function show(e) { e.style.visibility = 'visible' }
-	function hide(e) { e.style.display = 'hidden'; }
+	function hide(e) { e.style.visibility = 'hidden' }
 	function text(s) { return document.createTextNode(s) }
 	function elem(tag) {
 		const t = tag.split('.')
 		const e = document.createElement(t.shift())
-		e.className = t.join(' ')
+		if (t.length > 0) {
+			e.className = t.join(' ')
+		}
 		for (let i = 1; i < arguments.length; i++) {
 			let a = arguments[i]
 			if (typeof a === 'string') {
@@ -200,11 +204,10 @@ sha256sum $tmpdir/{{ .DownloadFilename }}
 				hide(dance)
 				display(
 					elem('p', 'Build failed, temporary failure, try again later.'),
-					elem('h3', 'Output'),
-					elem('div.output',
-						elem('pre', update.Error),
-					),
+					elem('h3', 'Error'),
+					elem('pre.prewrap', update.Error),
 				)
+				src.close()
 				break;
 			case 'PermFailed':
 				{
@@ -218,11 +221,10 @@ sha256sum $tmpdir/{{ .DownloadFilename }}
 							link,
 							' for details.',
 						),
-						elem('h3', 'Output'),
-						elem('div.output',
-							elem('pre', update.Error),
-						),
+						elem('h3', 'Error'),
+						elem('pre.prewrap', update.Error),
 					)
+					src.close()
 				}
 				break;
 			case 'Success':
@@ -244,11 +246,16 @@ sha256sum $tmpdir/{{ .DownloadFilename }}
 			}
 		})
 		src.addEventListener('open', function(e) {
+			show(dance)
 			display(elem('p', 'Connected! Waiting for updates...'))
 		})
 		src.addEventListener('error', function(e) {
+			hide(dance)
+			if (src) {
+				src.close()
+			}
 			const reconnect = elem('a', 'Reconnect')
-			a.setAttribute('href', '#')
+			reconnect.setAttribute('href', '#')
 			reconnect.addEventListener('click', function(e) {
 				e.preventDefault()
 				requestBuildWithUpdates()
@@ -323,7 +330,7 @@ const homeTemplateString = `
 		<p>Gobuild looks up modules through the go proxy. That's why shorthand versions like "@v1" don't resolve.</p>
 		<p>Code is available at <a href="https://github.com/mjl-/gobuild">github.com/mjl-/gobuild</a>, under MIT-license, feedback welcome.</p>
 		<p>To build, gobuild executes:</p>
-<pre style="font-size:.9rem">tmpdir=$(mktemp -d)
+<pre>tmpdir=$(mktemp -d)
 cd $tmpdir
 GO111MODULE=on GOPROXY=https://proxy.golang.org/ $goversion get -d -v $module@$version
 cd $HOME/go/pkg/mod/$module@$version/$path

@@ -38,17 +38,19 @@ var (
 	}
 
 	config = struct {
-		GoProxy   string `sconf-doc:"URL to proxy."`
-		DataDir   string `sconf-doc:"Directory where builds.txt and all builds files (binary, log, sha256) are stored."`
-		SDKDir    string `sconf-doc:"Directory where SDKs (go toolchains) are installed."`
-		HomeDir   string `sconf-doc:"Directory set as home directory during builds. Go caches will be created there."`
-		MaxBuilds int    `sconf-doc:"Maximum concurrent builds. Default (0) uses NumCPU+1."`
+		GoProxy      string   `sconf-doc:"URL to proxy."`
+		DataDir      string   `sconf-doc:"Directory where builds.txt and all builds files (binary, log, sha256) are stored."`
+		SDKDir       string   `sconf-doc:"Directory where SDKs (go toolchains) are installed."`
+		HomeDir      string   `sconf-doc:"Directory set as home directory during builds. Go caches will be created there."`
+		MaxBuilds    int      `sconf-doc:"Maximum concurrent builds. Default (0) uses NumCPU+1."`
+		VerifierURLs []string `sconf-doc:"URLs of other gobuild instances that are asked to perform the same build. Gobuild requires all of them to create the same binary for a successful build. Ideally, these instances differ in goos, goarch, user id and name, home and work directories."`
 	}{
 		"https://proxy.golang.org/",
 		"data",
 		"sdk",
 		"home",
 		0,
+		nil,
 	}
 )
 
@@ -162,6 +164,11 @@ func serve(args []string) {
 	}
 	if !strings.HasSuffix(config.GoProxy, "/") {
 		config.GoProxy += "/"
+	}
+	for i, url := range config.VerifierURLs {
+		if !strings.HasSuffix(url, "/") {
+			config.VerifierURLs[i] += "/"
+		}
 	}
 
 	var err error

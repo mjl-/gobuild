@@ -362,10 +362,12 @@ func goBuild(req request) (*buildJSON, error) {
 
 	metricBuilds.WithLabelValues(req.Goos, req.Goarch, req.Goversion).Inc()
 	result, err := build(req)
-	ok := err == nil
-	availableBuilds.Lock()
-	availableBuilds.index[p] = ok
-	availableBuilds.Unlock()
+	ok := err == nil && result != nil
+	if err == nil || !errors.Is(err, errTempFailure) {
+		availableBuilds.Lock()
+		availableBuilds.index[p] = ok
+		availableBuilds.Unlock()
+	}
 	if err != nil {
 		metricBuildErrors.WithLabelValues(req.Goos, req.Goarch, req.Goversion).Inc()
 		return nil, err

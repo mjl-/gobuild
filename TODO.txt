@@ -1,8 +1,6 @@
-- Have multiple machines (ideally different goos & goarch, also different user, workdir) do a build in parallel, require/test the results are the same.
-
 - Should not strip entire buildid. I think it was needed in the past. Might need rules for some older Go versions that do need it.
 
-- Perhaps move goos-goarch-goversion to the end of URL again. And sum as well.
+- Perhaps move goos-goarch-goversion to the end of URL again. And sum as well. Don't require / at end of module.
 - Test with repo's with uppercase characters. Goproxy should uppercase-encode them, Azure -> !azure
 - See how major version changes work. We will specify eg /v2/ at the end of the go module name.
 - See if builds with replaces in go.mod can work.
@@ -21,3 +19,5 @@
 - When resolving URLs with both goversion and modversion as "latest", do a single redirect?
 - On pages that link to other builds that were successful, link to /z/ URLs, not /x/. Saves redirects.
 - Handle more versions in URL, like @master, @commitid, etc?
+- Do not make module cache readonly when goversion >= 1.14, with -modcacherw.
+- Try to make this work on windows.

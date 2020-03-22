@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"net/http"
 	"os"
 	"os/exec"
 	"path"
@@ -106,6 +107,48 @@ func build(req request) (result *buildJSON, err error) {
 	}
 	defer os.RemoveAll(dir)
 
+	// Launch goroutines to let them build the same code and return their build.json.
+	// After our build, we'll verify if we all had the same result. If our build fails,
+	// we'll just ignore these results, and let the remote builds continue. They will
+	// not cancel the build anyway.
+
+	type remoteBuild struct {
+		verifyURL string
+		err       error
+		result    *buildJSON
+	}
+
+	verifyResult := make(chan remoteBuild, len(config.VerifierURLs))
+	verifyPath := "x/" + req.destdir() + "/build.json"
+
+	verify := func(verifierBaseURL string) (*buildJSON, error) {
+		verifyURL := verifierBaseURL + verifyPath
+		resp, err := http.Get(verifyURL)
+		if err != nil {
+			return nil, fmt.Errorf("%w: http request: %v", errServer, err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != 200 {
+			return nil, fmt.Errorf("%w: http error response: %s", errRemote, resp.Status)
+		}
+		var result buildJSON
+		err = json.NewDecoder(resp.Body).Decode(&result)
+		if err != nil {
+			return nil, fmt.Errorf("parsing build.json: %v", err)
+		}
+		return &result, nil
+	}
+
+	for _, verifierBaseURL := range config.VerifierURLs {
+		go func(verifierBaseURL string) {
+			result, err := verify(verifierBaseURL)
+			if err != nil {
+				err = fmt.Errorf("verifying with %s: %w", verifierBaseURL, err)
+			}
+			verifyResult <- remoteBuild{verifierBaseURL, err, result}
+		}(verifierBaseURL)
+	}
+
 	lname := dir + "/bin/" + req.filename()
 	os.Mkdir(filepath.Dir(lname), 0775) // failures will be caught later
 	cmd := exec.Command(gobin, "build", "-mod=readonly", "-o", lname, "-x", "-v", "-trimpath", "-ldflags", "-buildid=00000000000000000000/00000000000000000000/00000000000000000000/00000000000000000000")
@@ -132,9 +175,47 @@ func build(req request) (result *buildJSON, err error) {
 		return nil, err
 	}
 
-	result, err = saveFiles(req, output, lname, start, cmd.ProcessState.SystemTime(), cmd.ProcessState.UserTime())
+	elapsed := time.Since(start)
+
+	var tmpdir string
+	result, tmpdir, err = saveFiles(req, output, lname, start, elapsed, cmd.ProcessState.SystemTime(), cmd.ProcessState.UserTime())
+	defer func() {
+		if tmpdir != "" {
+			os.RemoveAll(tmpdir)
+		}
+	}()
 	if err != nil {
 		return nil, fmt.Errorf("storing results of build: %v (%w)", err, errTempFailure)
+	}
+
+	matchesFrom := []string{}
+	mismatches := []string{}
+	for n := len(config.VerifierURLs); n > 0; n-- {
+		vr := <-verifyResult
+		if vr.err != nil {
+			return nil, fmt.Errorf("build at verifier failed: %v (%w)", vr.err, errTempFailure)
+		}
+		if result.Sum == vr.result.Sum {
+			matchesFrom = append(matchesFrom, vr.verifyURL)
+		} else {
+			mismatches = append(mismatches, fmt.Sprintf("%s got %s", vr.verifyURL, vr.result.Sum))
+		}
+	}
+	if len(mismatches) > 0 {
+		return nil, fmt.Errorf("build mismatches, we and %d others got %s, but %s (%w)", len(matchesFrom), result.Sum, strings.Join(mismatches, ", "), errTempFailure)
+	}
+
+	finalDir := path.Join(config.DataDir, req.destdir())
+	os.MkdirAll(path.Dir(finalDir), 0775) // failures will be caught later
+	err = os.Rename(tmpdir, finalDir)
+	if err != nil {
+		return nil, err
+	}
+	tmpdir = ""
+
+	err = appendBuildsTxt(result)
+	if err != nil {
+		return nil, err
 	}
 	return result, nil
 }
@@ -163,7 +244,7 @@ func saveFailure(req request, output string, start time.Time, systemTime, userTi
 	}
 	tmpdir = ""
 
-	buildResult := buildJSON{
+	buildResult := &buildJSON{
 		"v0",
 		"",
 		nil, // Marks failure.
@@ -184,39 +265,35 @@ func saveFailure(req request, output string, start time.Time, systemTime, userTi
 	return err
 }
 
-func saveFiles(req request, output []byte, lname string, start time.Time, systemTime, userTime time.Duration) (*buildJSON, error) {
+func saveFiles(req request, output []byte, lname string, start time.Time, elapsed, systemTime, userTime time.Duration) (*buildJSON, string, error) {
 	of, err := os.Open(lname)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	defer of.Close()
 
 	fi, err := of.Stat()
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	size := fi.Size()
 
 	h := sha256.New()
 	_, err = io.Copy(h, of)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	sha256 := h.Sum(nil)
 	_, err = of.Seek(0, io.SeekStart)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	tmpdir, err := ioutil.TempDir(config.DataDir, "success")
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
-	defer func() {
-		if tmpdir != "" {
-			os.RemoveAll(tmpdir)
-		}
-	}()
+	// note: tmpdir is removed by caller!
 
 	buildResult := buildJSON{
 		"v0",
@@ -225,7 +302,7 @@ func saveFiles(req request, output []byte, lname string, start time.Time, system
 		size,
 		0, // filled in below
 		start,
-		time.Since(start),
+		elapsed,
 		systemTime,
 		userTime,
 		req.Goversion,
@@ -238,42 +315,29 @@ func saveFiles(req request, output []byte, lname string, start time.Time, system
 
 	err = writeGz(tmpdir+"/log.gz", bytes.NewReader(output))
 	if err != nil {
-		return nil, err
+		return nil, tmpdir, err
 	}
 
 	binGz := tmpdir + "/" + req.downloadFilename() + ".gz"
 	err = writeGz(binGz, of)
 	if err != nil {
-		return nil, err
+		return nil, tmpdir, err
 	}
 	fi, err = os.Stat(binGz)
 	if err != nil {
-		return nil, err
+		return nil, tmpdir, err
 	}
 	buildResult.FilesizeGz = fi.Size()
 
 	buf, err := json.Marshal(buildResult)
 	if err != nil {
-		return nil, fmt.Errorf("%w: marshal build.json: %v", errServer, err)
+		return nil, tmpdir, fmt.Errorf("%w: marshal build.json: %v", errServer, err)
 	}
 	err = ioutil.WriteFile(tmpdir+"/build.json", buf, 0664)
 	if err != nil {
-		return nil, err
+		return nil, tmpdir, err
 	}
-
-	finalDir := path.Join(config.DataDir, req.destdir())
-	os.MkdirAll(path.Dir(finalDir), 0775) // failures will be caught later
-	err = os.Rename(tmpdir, finalDir)
-	if err != nil {
-		return nil, err
-	}
-	tmpdir = ""
-
-	err = appendBuildsTxt(buildResult)
-	if err != nil {
-		return nil, err
-	}
-	return &buildResult, nil
+	return &buildResult, tmpdir, nil
 }
 
 func writeGz(path string, src io.Reader) error {
@@ -300,7 +364,7 @@ func writeGz(path string, src io.Reader) error {
 	return err
 }
 
-func appendBuildsTxt(b buildJSON) error {
+func appendBuildsTxt(b *buildJSON) error {
 	bf, err := os.OpenFile(path.Join(config.DataDir, "builds.txt"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		return err

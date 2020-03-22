@@ -97,7 +97,8 @@ func coordinateBuilds() {
 			} else {
 				msg = buildUpdateMsg{Kind: kindPermFail, Error: err.Error()}.json()
 			}
-			updatec <- buildUpdate{req: req, done: true, err: err, result: result, msg: msg}
+			update := buildUpdate{req: req, done: true, err: err, result: result, msg: msg}
+			updatec <- update
 		}()
 	}
 

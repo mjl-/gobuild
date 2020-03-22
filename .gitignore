@@ -1,4 +1,6 @@
 gobuild
+gobuild.exe
 data/
 home/
 sdk/
+local/
