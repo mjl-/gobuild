@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/mjl-/httpinfo"
 	"github.com/mjl-/sconf"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
@@ -197,6 +198,7 @@ func serve(args []string) {
 	go coordinateBuilds()
 
 	http.Handle("/metrics", promhttp.Handler())
+	http.Handle("/info", httpinfo.NewHandler(httpinfo.CodeVersion{}, nil))
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/robots.txt", func(w http.ResponseWriter, r *http.Request) {
