@@ -151,7 +151,7 @@ func build(req request) (result *buildJSON, err error) {
 
 	lname := dir + "/bin/" + req.filename()
 	os.Mkdir(filepath.Dir(lname), 0775) // failures will be caught later
-	cmd := exec.Command(gobin, "build", "-mod=readonly", "-o", lname, "-x", "-v", "-trimpath", "-ldflags=-buildid=0/0/0/0")
+	cmd := exec.Command(gobin, "build", "-mod=readonly", "-o", lname, "-x", "-v", "-trimpath", "-ldflags=-buildid=")
 	cmd.Env = []string{
 		fmt.Sprintf("GOPROXY=%s", config.GoProxy),
 		"GO111MODULE=on",

@@ -120,7 +120,7 @@ GO111MODULE=on GOPROXY={{ .GoProxy }} {{ .Req.Goversion }} get -d -v {{ .ShortMo
 cd $HOME/go/pkg/mod/{{ .ShortMod }}@{{ .Req.Version }}/{{ .Req.Dir }}
 GO19CONCURRENTCOMPILATION=0 GO111MODULE=on GOPROXY={{ .GoProxy }} CGO_ENABLED=0 GOOS={{ .Req.Goos }} GOARCH={{ .Req.Goarch }} \
 	{{ .Req.Goversion }} build -mod=readonly -o $tmpdir/{{ .DownloadFilename }} -x -v -trimpath \
-	-ldflags -buildid=0/0/0/0
+	-ldflags=-buildid=
 sha256sum $tmpdir/{{ .DownloadFilename }}
 {{ if .SHA256 }}# should be: {{ .SHA256 }}{{ end }}
 </pre>
@@ -336,7 +336,7 @@ GO111MODULE=on GOPROXY=https://proxy.golang.org/ $goversion get -d -v $module@$v
 cd $HOME/go/pkg/mod/$module@$version/$path
 GO19CONCURRENTCOMPILATION=0 GO111MODULE=on GOPROXY=https://proxy.golang.org/ CGO_ENABLED=0 GOOS=$goos GOARCH=$goarch \
 	$goversion build -mod=readonly -o $tmpdir/$name -x -v -trimpath \
-	-ldflags -buildid=0/0/0/0</pre>
+	-ldflags=-buildid=</pre>
 {{ end }}
 {{ define "script" }}{{ end }}
 `
