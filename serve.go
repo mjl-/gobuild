@@ -375,7 +375,7 @@ func goBuild(req request) (*buildJSON, error) {
 
 	var fp string
 	if ok {
-		fp = "/" + base64.RawURLEncoding.EncodeToString(result.SHA256[:20]) + "/" + p
+		fp = "/z/" + base64.RawURLEncoding.EncodeToString(result.SHA256[:20]) + "/" + p
 	} else {
 		fp = "/x/" + p
 	}
