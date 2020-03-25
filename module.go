@@ -25,8 +25,10 @@ func serveModules(w http.ResponseWriter, r *http.Request) {
 	}
 
 	mod := r.URL.Path[len("/m/"):]
-	if !strings.HasSuffix(mod, "/") {
-		mod += "/"
+	if strings.HasSuffix(mod, "/") {
+		mod = strings.TrimRight(mod, "/")
+		http.Redirect(w, r, "/m/"+mod, http.StatusFound)
+		return
 	}
 
 	info, err := resolveModuleLatest(r.Context(), mod)
@@ -63,8 +65,16 @@ func serveModules(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(mainDirs) == 1 {
-		link := fmt.Sprintf("/x/%s-%s-%s/%s@%s/%s", goos, goarch, goversion, mod, info.Version, mainDirs[0])
-		http.Redirect(w, r, link, http.StatusFound)
+		req := request{
+			Mod:       mod,
+			Version:   info.Version,
+			Dir:       mainDirs[0],
+			Goos:      goos,
+			Goarch:    goarch,
+			Goversion: goversion,
+			Page:      pageIndex,
+		}
+		http.Redirect(w, r, req.urlPath(), http.StatusFound)
 		return
 	}
 
@@ -74,11 +84,19 @@ func serveModules(w http.ResponseWriter, r *http.Request) {
 	}
 	mainPkgs := []mainPkg{}
 	for _, md := range mainDirs {
-		link := fmt.Sprintf("/x/%s-%s-%s/%s@%s/%s", goos, goarch, goversion, mod, info.Version, md)
+		req := request{
+			Mod:       mod,
+			Version:   info.Version,
+			Dir:       md,
+			Goos:      goos,
+			Goarch:    goarch,
+			Goversion: goversion,
+			Page:      pageIndex,
+		}
 		if md == "" {
 			md = "/"
 		}
-		mainPkgs = append(mainPkgs, mainPkg{link, md})
+		mainPkgs = append(mainPkgs, mainPkg{req.urlPath(), md})
 	}
 	args := struct {
 		Module  string

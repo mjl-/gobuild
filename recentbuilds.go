@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"encoding/base64"
 	"encoding/hex"
-	"fmt"
 	"io"
 	"log"
 	"os"
@@ -37,21 +36,27 @@ func readRecentBuilds() {
 					return
 				}
 
-				p := fmt.Sprintf("%s-%s-%s/%s@%s/%s", t[8], t[9], t[10], t[11], t[12], t[13])
-				var fp string
-				if t[1] == "x" {
-					fp = "/x/" + p
-				} else {
+				req := request{
+					Mod:       t[11],
+					Version:   t[12],
+					Dir:       t[13],
+					Goos:      t[8],
+					Goarch:    t[9],
+					Goversion: t[10],
+					Page:      pageIndex,
+				}
+				if t[1] != "x" {
 					sha256, err := hex.DecodeString(t[1])
 					if err != nil {
 						log.Printf("bad hex sha256 %q: %v", t[1], err)
 						return
 					}
-					sum := base64.RawURLEncoding.EncodeToString(sha256[:20])
-					fp = "/z/" + sum + "/" + p
+					sum := "0" + base64.RawURLEncoding.EncodeToString(sha256[:20])
+					req.Sum = sum
 				}
-				l = append(l, fp)
-				availableBuilds.index[p] = t[1] != "x"
+
+				l = append(l, req.urlPath())
+				availableBuilds.index[req.buildIndexRequest().urlPath()] = req.Sum != ""
 				targetUse[t[8]+"/"+t[9]]++
 			default:
 				log.Printf("bad line, starts with %q", t[0])

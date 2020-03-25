@@ -23,7 +23,7 @@ var errTempFailure = errors.New("temporary failure")
 
 type buildJSON struct {
 	V             string // "v0"
-	Sum           string // Sum is the saw-base64-url encoded 20-byte prefix of the SHA256 sum.
+	Sum           string // Sum is the versioned raw-base64-url encoded 20-byte prefix of the SHA256 sum. For v0, it starts with "0".
 	SHA256        []byte
 	Filesize      int64
 	FilesizeGz    int64
@@ -119,7 +119,9 @@ func build(req request) (result *buildJSON, err error) {
 	}
 
 	verifyResult := make(chan remoteBuild, len(config.VerifierURLs))
-	verifyPath := "x/" + req.destdir() + "/build.json"
+	breq := req.buildRequest()
+	breq.Page = pageBuildJSON
+	verifyPath := breq.urlPath()
 
 	verify := func(verifierBaseURL string) (*buildJSON, error) {
 		verifyURL := verifierBaseURL + verifyPath
@@ -206,7 +208,7 @@ func build(req request) (result *buildJSON, err error) {
 		return nil, fmt.Errorf("build mismatches, we and %d others got %s, but %s (%w)", len(matchesFrom), result.Sum, strings.Join(mismatches, ", "), errTempFailure)
 	}
 
-	finalDir := path.Join(config.DataDir, req.destdir())
+	finalDir := path.Join(config.DataDir, req.storeDir())
 	os.MkdirAll(path.Dir(finalDir), 0775) // failures will be caught later
 	err = os.Rename(tmpdir, finalDir)
 	if err != nil {
@@ -237,7 +239,7 @@ func saveFailure(req request, output string, start time.Time, systemTime, userTi
 		return err
 	}
 
-	finalDir := path.Join(config.DataDir, req.destdir())
+	finalDir := path.Join(config.DataDir, req.storeDir())
 	os.MkdirAll(path.Dir(finalDir), 0775) // failures will be caught later
 	err = os.Rename(tmpdir, finalDir)
 	if err != nil {
@@ -298,7 +300,7 @@ func saveFiles(req request, output []byte, lname string, start time.Time, elapse
 
 	buildResult := buildJSON{
 		"v0",
-		base64.RawURLEncoding.EncodeToString(sha256[:20]),
+		"0" + base64.RawURLEncoding.EncodeToString(sha256[:20]),
 		sha256,
 		size,
 		0, // filled in below

@@ -17,7 +17,7 @@ func resolveModuleLatest(ctx context.Context, module string) (*modVersion, error
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	u := fmt.Sprintf("%s%s@latest", config.GoProxy, module)
+	u := fmt.Sprintf("%s%s/@latest", config.GoProxy, module)
 	mreq, err := http.NewRequestWithContext(ctx, "GET", u, nil)
 	if err != nil {
 		return nil, fmt.Errorf("%w: preparing goproxy http request: %v", errServer, err)

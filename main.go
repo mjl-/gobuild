@@ -32,7 +32,7 @@ var (
 	// won't trigger a build but will return quickly. The value indicates if the build was successful.
 	availableBuilds = struct {
 		sync.Mutex
-		index map[string]bool // keys are: goos-goarch-goversion/mod@version/dir
+		index map[string]bool // keys are urlPaths of build index requests, eg /b/mod@version/dir/goos-goarch-goversion/
 	}{
 		sync.Mutex{},
 		map[string]bool{},
@@ -44,7 +44,7 @@ var (
 		SDKDir       string   `sconf-doc:"Directory where SDKs (go toolchains) are installed."`
 		HomeDir      string   `sconf-doc:"Directory set as home directory during builds. Go caches will be created there."`
 		MaxBuilds    int      `sconf-doc:"Maximum concurrent builds. Default (0) uses NumCPU+1."`
-		VerifierURLs []string `sconf-doc:"URLs of other gobuild instances that are asked to perform the same build. Gobuild requires all of them to create the same binary for a successful build. Ideally, these instances differ in goos, goarch, user id and name, home and work directories."`
+		VerifierURLs []string `sconf:"optional" sconf-doc:"URLs of other gobuild instances that are asked to perform the same build. Gobuild requires all of them to create the same binary for a successful build. Ideally, these instances differ in goos, goarch, user id and name, home and work directories."`
 	}{
 		"https://proxy.golang.org/",
 		"data",
@@ -167,8 +167,8 @@ func serve(args []string) {
 		config.GoProxy += "/"
 	}
 	for i, url := range config.VerifierURLs {
-		if !strings.HasSuffix(url, "/") {
-			config.VerifierURLs[i] += "/"
+		if strings.HasSuffix(url, "/") {
+			config.VerifierURLs[i] = config.VerifierURLs[i][:len(config.VerifierURLs[i])-1]
 		}
 	}
 
@@ -203,14 +203,14 @@ func serve(args []string) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/robots.txt", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain")
-		fmt.Fprint(w, "User-agent: *\nDisallow: /x/\n")
+		fmt.Fprint(w, "User-agent: *\nDisallow: /b/\n")
 	})
 	mux.HandleFunc("/builds.txt", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, path.Join(config.DataDir, "builds.txt"))
 	})
 	mux.HandleFunc("/m/", promhttp.InstrumentHandlerDuration(metricHTTPModuleRequestDuration, http.HandlerFunc(serveModules)))
-	mux.HandleFunc("/x/", promhttp.InstrumentHandlerDuration(metricHTTPBuildRequestDuration, http.HandlerFunc(serveBuilds)))
-	mux.HandleFunc("/z/", promhttp.InstrumentHandlerDuration(metricHTTPResultRequestDuration, http.HandlerFunc(serveResults)))
+	mux.HandleFunc("/b/", promhttp.InstrumentHandlerDuration(metricHTTPBuildRequestDuration, http.HandlerFunc(serveBuild)))
+	mux.HandleFunc("/r/", promhttp.InstrumentHandlerDuration(metricHTTPResultRequestDuration, http.HandlerFunc(serveResult)))
 	mux.HandleFunc("/img/gopher-dance-long.gif", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "image/gif")
 		w.Write(fileGopherDanceLongGif) // nothing to do for errors

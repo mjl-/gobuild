@@ -16,25 +16,13 @@ import (
 	"time"
 )
 
-func serveResults(w http.ResponseWriter, r *http.Request) {
+func serveResult(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "GET" {
 		http.Error(w, "405 - Method Not Allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	t := strings.SplitN(r.URL.Path[3:], "/", 2)
-	if len(t) != 2 || t[1] == "" {
-		http.NotFound(w, r)
-		return
-	}
-	bsum, urlPath := t[0], t[1]
-	sum, err := base64.RawURLEncoding.DecodeString(bsum)
-	if err != nil || len(sum) != 20 {
-		http.NotFound(w, r)
-		return
-	}
-
-	req, hint, ok := parsePath(urlPath)
+	req, hint, ok := parsePath(r.URL.Path)
 	if !ok {
 		if hint != "" {
 			http.Error(w, fmt.Sprintf("404 - File Not Found\n\n%s\n", hint), http.StatusNotFound)
@@ -44,8 +32,7 @@ func serveResults(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	destdir := req.destdir()
-	lpath := path.Join(config.DataDir, destdir)
+	lpath := path.Join(config.DataDir, req.storeDir())
 
 	bf, err := os.Open(lpath + "/build.json")
 	if err == nil {
@@ -55,15 +42,55 @@ func serveResults(w http.ResponseWriter, r *http.Request) {
 	if err == nil {
 		err = json.NewDecoder(bf).Decode(&buildResult)
 	}
-	if err != nil && os.IsNotExist(err) || err == nil && bytes.Equal(buildResult.SHA256, []byte{'x'}) {
+	if err == nil && bytes.Equal(buildResult.SHA256, []byte{'x'}) {
 		http.NotFound(w, r)
 		return
 	}
-	if err != nil {
+	if err != nil && !os.IsNotExist(err) {
 		failf(w, "%w: reading build.json: %v", errServer, err)
 		return
 	}
-	if base64.RawURLEncoding.EncodeToString(buildResult.SHA256[:20]) != bsum {
+	if err != nil {
+		// Before attempting to build, check we don't have a failed build already.
+		_, err = os.Stat(lpath + "/log.gz")
+		if err == nil {
+			http.NotFound(w, r)
+			return
+		}
+
+		// Attempt to build.
+		err = prepareBuild(req)
+		if err != nil {
+			failf(w, "preparing build: %w", err)
+			return
+		}
+
+		eventc := make(chan buildUpdate, 100)
+		registerBuild(req, eventc)
+		ctx := r.Context()
+
+	loop:
+		for {
+			select {
+			case <-ctx.Done():
+				unregisterBuild(req, eventc)
+				break loop
+			case update := <-eventc:
+				if !update.done {
+					continue
+				}
+				unregisterBuild(req, eventc)
+				if update.err != nil {
+					failf(w, "build failed: %w", update.err)
+					return
+				}
+				buildResult = *update.result
+				break loop
+			}
+		}
+	}
+
+	if "0"+base64.RawURLEncoding.EncodeToString(buildResult.SHA256[:20]) != req.Sum {
 		http.NotFound(w, r)
 		return
 	}
@@ -75,8 +102,9 @@ func serveResults(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		fmt.Fprintf(w, "%x\n", buildResult.SHA256) // nothing to do for errors
 	case pageDownloadRedirect:
-		p := "/z/" + bsum + "/" + req.destdir() + req.downloadFilename()
-		http.Redirect(w, r, p, http.StatusFound)
+		dreq := req
+		dreq.Page = pageDownload
+		http.Redirect(w, r, dreq.urlPath(), http.StatusFound)
 	case pageDownload:
 		p := path.Join(lpath, req.downloadFilename()+".gz")
 		f, err := os.Open(p)
@@ -93,20 +121,21 @@ func serveResults(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		json.NewEncoder(w).Encode(buildResult) // nothing to do for errors
 	case pageIndex:
-		serveBuildIndex(w, r, req, &buildResult)
+		serveIndex(w, r, req, &buildResult)
 	default:
 		failf(w, "%w: unknown page %v", errServer, req.Page)
 	}
 }
 
-// serveBuildIndex serves the HTML page for a build that has either failed or in pending (under /x/), or has succeeded (under /z/).
-func serveBuildIndex(w http.ResponseWriter, r *http.Request, req request, result *buildJSON) {
-	destdir := req.destdir()
-	lpath := path.Join(config.DataDir, destdir)
+// serveIndex serves the HTML page for a build/result, that has either failed or is
+// pending under /b/, or has succeeded under /r/.
+func serveIndex(w http.ResponseWriter, r *http.Request, req request, result *buildJSON) {
+	urlPath := req.buildRequest().urlPath()
+	lpath := path.Join(config.DataDir, req.storeDir())
 
 	type versionLink struct {
 		Version   string
-		Path      string
+		URLPath   string
 		Available bool
 		Success   bool
 		Active    bool
@@ -119,7 +148,7 @@ func serveBuildIndex(w http.ResponseWriter, r *http.Request, req request, result
 	go func() {
 		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 		defer cancel()
-		u := fmt.Sprintf("%s%s@v/list", config.GoProxy, req.Mod)
+		u := fmt.Sprintf("%s%s/@v/list", config.GoProxy, req.Mod)
 		mreq, err := http.NewRequestWithContext(ctx, "GET", u, nil)
 		if err != nil {
 			c <- response{fmt.Errorf("%w: preparing new http request: %v", errServer, err), nil}
@@ -143,8 +172,10 @@ func serveBuildIndex(w http.ResponseWriter, r *http.Request, req request, result
 		l := []versionLink{}
 		for _, s := range strings.Split(string(buf), "\n") {
 			if s != "" {
-				p := fmt.Sprintf("%s-%s-%s/%s@%s/%s", req.Goos, req.Goarch, req.Goversion, req.Mod, s, req.Dir)
-				link := versionLink{s, p, false, false, p == destdir}
+				vreq := req.buildRequest()
+				vreq.Version = s
+				p := vreq.urlPath()
+				link := versionLink{s, p, false, false, p == urlPath}
 				l = append(l, link)
 			}
 		}
@@ -172,7 +203,7 @@ func serveBuildIndex(w http.ResponseWriter, r *http.Request, req request, result
 
 	type goversionLink struct {
 		Goversion string
-		Path      string
+		URLPath   string
 		Available bool
 		Success   bool
 		Supported bool
@@ -181,26 +212,33 @@ func serveBuildIndex(w http.ResponseWriter, r *http.Request, req request, result
 	goversionLinks := []goversionLink{}
 	supported, remaining := installedSDK()
 	for _, goversion := range supported {
-		p := fmt.Sprintf("%s-%s-%s/%s@%s/%s", req.Goos, req.Goarch, goversion, req.Mod, req.Version, req.Dir)
-		goversionLinks = append(goversionLinks, goversionLink{goversion, p, false, false, true, p == destdir})
+		gvreq := req.buildRequest()
+		gvreq.Goversion = goversion
+		p := gvreq.urlPath()
+		goversionLinks = append(goversionLinks, goversionLink{goversion, p, false, false, true, p == urlPath})
 	}
 	for _, goversion := range remaining {
-		p := fmt.Sprintf("%s-%s-%s/%s@%s/%s", req.Goos, req.Goarch, goversion, req.Mod, req.Version, req.Dir)
-		goversionLinks = append(goversionLinks, goversionLink{goversion, p, false, false, false, p == destdir})
+		gvreq := req.buildRequest()
+		gvreq.Goversion = goversion
+		p := gvreq.urlPath()
+		goversionLinks = append(goversionLinks, goversionLink{goversion, p, false, false, false, p == urlPath})
 	}
 
 	type targetLink struct {
 		Goos      string
 		Goarch    string
-		Path      string
+		URLPath   string
 		Available bool
 		Success   bool
 		Active    bool
 	}
 	targetLinks := []targetLink{}
 	for _, target := range targets {
-		p := fmt.Sprintf("%s-%s-%s/%s@%s/%s", target.Goos, target.Goarch, req.Goversion, req.Mod, req.Version, req.Dir)
-		targetLinks = append(targetLinks, targetLink{target.Goos, target.Goarch, p, false, false, p == destdir})
+		treq := req.buildRequest()
+		treq.Goos = target.Goos
+		treq.Goarch = target.Goarch
+		p := treq.urlPath()
+		targetLinks = append(targetLinks, targetLink{target.Goos, target.Goarch, p, false, false, p == urlPath})
 	}
 
 	pkgGoDevURL := fmt.Sprintf("https://pkg.go.dev/%s@%s/%s", req.Mod, req.Version, req.Dir)
@@ -210,13 +248,13 @@ func serveBuildIndex(w http.ResponseWriter, r *http.Request, req request, result
 
 	availableBuilds.Lock()
 	for i, link := range goversionLinks {
-		goversionLinks[i].Success, goversionLinks[i].Available = availableBuilds.index[link.Path]
+		goversionLinks[i].Success, goversionLinks[i].Available = availableBuilds.index[link.URLPath]
 	}
 	for i, link := range targetLinks {
-		targetLinks[i].Success, targetLinks[i].Available = availableBuilds.index[link.Path]
+		targetLinks[i].Success, targetLinks[i].Available = availableBuilds.index[link.URLPath]
 	}
 	for i, link := range resp.VersionLinks {
-		resp.VersionLinks[i].Success, resp.VersionLinks[i].Available = availableBuilds.index[link.Path]
+		resp.VersionLinks[i].Success, resp.VersionLinks[i].Available = availableBuilds.index[link.URLPath]
 	}
 	availableBuilds.Unlock()
 
@@ -224,7 +262,7 @@ func serveBuildIndex(w http.ResponseWriter, r *http.Request, req request, result
 
 	var bsum string
 	if success {
-		bsum = base64.RawURLEncoding.EncodeToString(result.SHA256[:20])
+		bsum = "0" + base64.RawURLEncoding.EncodeToString(result.SHA256[:20])
 	} else {
 		result = &buildJSON{} // for easier code below, we always dereference
 	}
@@ -237,7 +275,6 @@ func serveBuildIndex(w http.ResponseWriter, r *http.Request, req request, result
 		"Mod":              resp,
 		"GoProxy":          config.GoProxy,
 		"DownloadFilename": req.downloadFilename(),
-		"ShortMod":         req.Mod[:len(req.Mod)-1],
 
 		// Whether we will do SSE request for updates.
 		"InProgress": !success && output == "",

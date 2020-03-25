@@ -8,7 +8,7 @@ import (
 )
 
 func ensureModule(gobin, module, version string) (string, []byte, error) {
-	modDir := homedir + "/go/pkg/mod/" + module[:len(module)-1] + "@" + version
+	modDir := homedir + "/go/pkg/mod/" + module + "@" + version
 
 	_, err := os.Stat(modDir)
 	if err == nil {
@@ -33,7 +33,7 @@ func fetchModule(gobin, module, version string) ([]byte, error) {
 	}
 	defer os.RemoveAll(dir)
 
-	cmd := exec.Command(gobin, "get", "-d", "-v", module[:len(module)-1]+"@"+version)
+	cmd := exec.Command(gobin, "get", "-d", "-v", module+"@"+version)
 	cmd.Dir = dir
 	cmd.Env = []string{
 		fmt.Sprintf("GOPROXY=%s", config.GoProxy),

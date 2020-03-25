@@ -56,7 +56,7 @@ pre { font-size: .9rem; }
 		</style>
 	</head>
 	<body>
-		<div style="margin:1rem">
+		<div style="margin:1rem 1rem 3rem 1rem">
 {{ template "content" . }}
 		</div>
 {{ template "script" . }}
@@ -67,7 +67,7 @@ pre { font-size: .9rem; }
 `
 
 const buildTemplateString = `
-{{ define "title" }}{{ .Req.Mod }}@{{ .Req.Version }}/{{ .Req.Dir }} - {{ .Req.Goos }}/{{ .Req.Goarch }} {{ .Req.Goversion }} - gobuild{{ end }}
+{{ define "title" }}{{ .Req.Mod }}@{{ .Req.Version }}/{{ .Req.Dir }} - {{ .Req.Goos }}/{{ .Req.Goarch }} {{ .Req.Goversion }}{{ if .Success}} - {{ .Sum }}{{ end }}{{ end }}
 {{ define "content" }}
 	<p><a href="/">&lt; Home</a></p>
 	<h1>
@@ -93,7 +93,7 @@ const buildTemplateString = `
 	<h2>More</h2>
 	<ul>
 		<li><a href="log">Build log</a></li>
-		<li><a href="/x/{{ .Req.Goos }}-{{ .Req.Goarch }}-latest/{{ .Req.Mod }}@latest/{{ .Req.Dir }}">{{ .Req.Goos }}-{{ .Req.Goarch }}-<b>latest</b>/{{ .Req.Mod }}@<b>latest</b>/{{ .Req.Dir }}</a> (<a href="/x/{{ .Req.Goos }}-{{ .Req.Goarch }}-latest/{{ .Req.Mod }}@latest/{{ .Req.Dir }}dl">direct download</a>)</li>
+		<li><a href="/b/{{ .Req.Mod }}@latest/{{ .Req.Dir }}{{ .Req.Goos }}-{{ .Req.Goarch }}-latest/">{{ .Req.Mod }}@<b>latest</b>/{{ .Req.Dir }}{{ .Req.Goos }}-{{ .Req.Goarch }}-<b>latest</b>/</a> (<a href="/b/{{ .Req.Mod }}@latest/{{ .Req.Dir }}{{ .Req.Goos }}-{{ .Req.Goarch }}-latest/dl">direct download</a>)</li>
 		<li>Built on {{ .Start }}, in {{ .BuildWallTimeMS }}ms; sys {{ .SystemTimeMS }}ms, user {{ .UserTimeMS }}ms.</li>
 		<li>Documentation at <a href="{{ .PkgGoDevURL }}">pkg.go.dev</a></li>
 	</ul>
@@ -116,11 +116,11 @@ const buildTemplateString = `
 	<p>You should be able to reproduce this build with the commands below.</p>
 <pre>tmpdir=$(mktemp -d)
 cd $tmpdir
-GO111MODULE=on GOPROXY={{ .GoProxy }} {{ .Req.Goversion }} get -d -v {{ .ShortMod }}@{{ .Req.Version }}
-cd $HOME/go/pkg/mod/{{ .ShortMod }}@{{ .Req.Version }}/{{ .Req.Dir }}
-GO19CONCURRENTCOMPILATION=0 GO111MODULE=on GOPROXY={{ .GoProxy }} CGO_ENABLED=0 GOOS={{ .Req.Goos }} GOARCH={{ .Req.Goarch }} \
-	{{ .Req.Goversion }} build -mod=readonly -o $tmpdir/{{ .DownloadFilename }} -x -v -trimpath \
-	-ldflags=-buildid=
+GO111MODULE=on GOPROXY={{ .GoProxy }} {{ .Req.Goversion }} get -d -v {{ .req.Mod }}@{{ .Req.Version }}
+cd $HOME/go/pkg/mod/{{ .Req.Mod }}@{{ .Req.Version }}/{{ .Req.Dir }}
+GO19CONCURRENTCOMPILATION=0 GO111MODULE=on GOPROXY={{ .GoProxy }} \
+	CGO_ENABLED=0 GOOS={{ .Req.Goos }} GOARCH={{ .Req.Goarch }} \
+	{{ .Req.Goversion }} build -mod=readonly -o $tmpdir/{{ .DownloadFilename }} -x -v -trimpath -ldflags=-buildid=
 sha256sum $tmpdir/{{ .DownloadFilename }}
 {{ if .SHA256 }}# should be: {{ .SHA256 }}{{ end }}
 </pre>
@@ -130,18 +130,18 @@ sha256sum $tmpdir/{{ .DownloadFilename }}
 	{{ if .Mod.Err }}
 		<div>error: {{ .Mod.Err }}</div>
 	{{ else }}
-	{{ range .Mod.VersionLinks }}	<div><a href="/x/{{ .Path }}" class="buildlink{{ if .Active }} active{{ end }} ">{{ .Version }}</a>{{ if .Available }} {{ if .Success }}<span class="success">✓</span>{{ else }}<span class="failure">❌</span>{{ end }}{{ end }}</div>{{ end }}
+	{{ range .Mod.VersionLinks }}	<div><a href="{{ .URLPath }}" class="buildlink{{ if .Active }} active{{ end }} ">{{ .Version }}</a>{{ if .Available }} {{ if .Success }}<span class="success">✓</span>{{ else }}<span class="failure">❌</span>{{ end }}{{ end }}</div>{{ end }}
 	{{ end }}
 	</div>
 
 	<div style="width: 32%; display: inline-block; vertical-align: top">
 		<h2>Go versions</h2>
-	{{ range .GoversionLinks }}	<div><a href="/x/{{ .Path }}" class="buildlink{{ if .Active }} active{{ end }} {{ if not .Supported }} unsupported{{ end }}">{{ .Goversion }}</a>{{ if .Available }} {{ if .Success }}<span class="success">✓</span>{{ else }}<span class="failure">❌</span>{{ end }}{{ end }}</div>{{ end }}
+	{{ range .GoversionLinks }}	<div><a href="{{ .URLPath }}" class="buildlink{{ if .Active }} active{{ end }} {{ if not .Supported }} unsupported{{ end }}">{{ .Goversion }}</a>{{ if .Available }} {{ if .Success }}<span class="success">✓</span>{{ else }}<span class="failure">❌</span>{{ end }}{{ end }}</div>{{ end }}
 	</div>
 
 	<div style="width: 32%; display: inline-block; vertical-align: top">
 		<h2>Targets</h2>
-	{{ range .TargetLinks }}	<div><a href="/x/{{ .Path }}" class="buildlink{{ if .Active }} active{{ end }} ">{{ .Goos }}/{{ .Goarch }}</a>{{ if .Available }} {{ if .Success }}<span class="success">✓</span>{{ else }}<span class="failure">❌</span>{{ end }}{{ end }}</div>{{ end }}
+	{{ range .TargetLinks }}	<div><a href="{{ .URLPath }}" class="buildlink{{ if .Active }} active{{ end }} ">{{ .Goos }}/{{ .Goarch }}</a>{{ if .Available }} {{ if .Success }}<span class="success">✓</span>{{ else }}<span class="failure">❌</span>{{ end }}{{ end }}</div>{{ end }}
 	</div>
 {{ end }}
 {{ define "script" }}
@@ -230,7 +230,7 @@ sha256sum $tmpdir/{{ .DownloadFilename }}
 			case 'Success':
 				{
 					hide(dance)
-					const resultsURL = '/z/' + update.Result.Sum + location.pathname.substring(2)
+					const resultsURL = '/r/' + location.pathname.substring(3) + update.Result.Sum + '/'
 					const link = elem('a', 'build results page')
 					link.setAttribute('href', resultsURL)
 
@@ -272,7 +272,7 @@ sha256sum $tmpdir/{{ .DownloadFilename }}
 `
 
 const moduleTemplateString = `
-{{ define "title" }}{{ .Module }}@{{ .Version }} - gobuild{{ end }}
+{{ define "title" }}{{ .Module }}@{{ .Version }}{{ end }}
 {{ define "content" }}
 	<p><a href="/">&lt; Home</a></p>
 	<h1>{{ .Module }}@{{ .Version }}</h1>
@@ -288,9 +288,9 @@ const homeTemplateString = `
 {{ define "title" }}Gobuild: Reproducible binaries for the go module proxy{{ end }}
 {{ define "content" }}
 		<h1>Gobuild: reproducible binaries with the go module proxy</h1>
-		<p>Gobuild deterministically compiles Go code available through the Go module proxy, and returns the binary.</p>
+		<p>Gobuild deterministically compiles programs written in Go that are available through the Go module proxy, and returns the binary.</p>
 
-		<p>The <a href="https://proxy.golang.org/">Go module proxy</a> ensures source code stays available, and you are likely to get the same code each time you fetch it. Gobuild aims to achieve the same for binaries.</p>
+		<p>The <a href="https://proxy.golang.org/">Go module proxy</a> ensures source code stays available, and you are highly likely to get the same code each time you fetch it. Gobuild aims to do the same for binaries.</p>
 
 		<h2>Try a module</h2>
 		<form onsubmit="location.href = '/m/' + moduleName.value; return false" method="GET" action="/m/">
@@ -308,35 +308,35 @@ const homeTemplateString = `
 
 		<h2>URLs</h2>
 		<blockquote style="color:#666; white-space: nowrap">
-			<div>/m/<span style="color:#111">&lt;module&gt;</span>/</div>
-			<div>/x/<span style="color:#111">&lt;goos&gt;</span>-<span style="color:#111">&lt;goarch&gt;</span>-<span style="color:#111">&lt;goversion&gt;</span>/<span style="color:#111">&lt;module&gt;</span>/@<span style="color:#111">&lt;version&gt;</span>/<span style="color:#111">&lt;package&gt;</span>/</div>
-			<div>/z/<span style="color:#111">&lt;sum&gt;</span>/<span style="color:#111">&lt;goos&gt;</span>-<span style="color:#111">&lt;goarch&gt;</span>-<span style="color:#111">&lt;goversion&gt;</span>/<span style="color:#111">&lt;module&gt;</span>/@<span style="color:#111">&lt;version&gt;</span>/<span style="color:#111">&lt;package&gt;</span>/</div>
+			<div>/m/<span style="color:#111">&lt;module&gt;</span></div>
+			<div>/b/<span style="color:#111">&lt;module&gt;</span>@<span style="color:#111">&lt;version&gt;</span>/<span style="color:#111">&lt;package&gt;</span>/<span style="color:#111">&lt;goos&gt;</span>-<span style="color:#111">&lt;goarch&gt;</span>-<span style="color:#111">&lt;goversion&gt;</span>/</div>
+			<div>/r/<span style="color:#111">&lt;module&gt;</span>@<span style="color:#111">&lt;version&gt;</span>/<span style="color:#111">&lt;package&gt;</span>/<span style="color:#111">&lt;goos&gt;</span>-<span style="color:#111">&lt;goarch&gt;</span>-<span style="color:#111">&lt;goversion&gt;</span>/<span style="color:#111">&lt;sum&gt;</span>/</div>
 		</blockquote>
 
 		<h3>Examples</h3>
 		<blockquote style="color:#666; white-space: nowrap">
-			<a href="/m/github.com/mjl-/gobuild/">/m/github.com/mjl-/gobuild/</a><br/>
-			<a href="/x/linux-amd64-latest/github.com/mjl-/sherpa/@latest/cmd/sherpaclient/">/x/linux-amd64-latest/github.com/mjl-/sherpa/@latest/cmd/sherpaclient/</a><br/>
-			<a href="/z/zzYj4cIecfWqaL30rNkiJ3e1v5A/linux-amd64-go1.14.1/github.com/mjl-/sherpa/@v0.6.0/cmd/sherpaclient/">/z/zzYj4cIecfWqaL30rNkiJ3e1v5A/linux-amd64-go1.14.1/github.com/mjl-/sherpa/@v0.6.0/cmd/sherpaclient/</a>
+			<a href="/m/github.com/mjl-/gobuild">/m/github.com/mjl-/gobuild</a><br/>
+			<a href="/b/github.com/mjl-/sherpa@latest/cmd/sherpaclient/linux-amd64-latest/">/b/github.com/mjl-/sherpa@latest/cmd/sherpaclient/linux-amd64-latest/</a><br/>
+			<a href="/r/github.com/mjl-/sherpa@v0.6.0/cmd/sherpaclient/linux-amd64-go1.14.1/0rLhZFgnc9hme13PhUpIvNw08LEk/">/r/github.com/mjl-/sherpa@v0.6.0/cmd/sherpaclient/linux-amd64-go1.14.1/0rLhZFgnc9hme13PhUpIvNw08LEk/</a>
 		</blockquote>
 
 		<p>The first URL fetches the requested Go module, and redirects to a URL of the second form.</p>
-		<p>The second URL starts a build for the requested parameters. When finished, it redirects to a URL of the third form.</p>
-		<p>The third URL is for a successful build. The URL includes the hash, the raw-base64-url-encoded 20-byte sha256-prefix. The page has links to download the binary, get the build output log file, and cross references to builds of the same package with different module versions, goversion, goos, goarch.</p>
-		<p>You need not and cannot refresh a build, because they are reproducible.</p>
+		<p>The second URL first resolves "latest" for the module and Go version with a redirect. Then starts a build for the requested parameters if needed. When finished, it redirects to a URL of the third kind.</p>
+		<p>The third URL represents a successful build. The URL includes the sum: The versioned raw-base64-url-encoded 20-byte sha256-prefix. The page links to the binary, the build output log file, and to builds of the same package with different module versions, goversions, goos/goarch.</p>
+		<p>You need not and cannot refresh a build: they would give the same result.</p>
 
 		<h2>More</h2>
-		<p>Only "go build" is run. No of "go test", "go generate", build tags, cgo, custom compile/link flags, makefiles, etc.</p>
-		<p>Gobuild looks up modules through the go proxy. That's why shorthand versions like "@v1" don't resolve.</p>
+		<p>Only "go build" is run. None of "go test", "go generate", build tags, cgo, custom compile/link flags, makefiles, etc.</p>
+		<p>Gobuild looks up module versions through the go proxy. That's why shorthand versions like "@v1" don't resolve.</p>
 		<p>Code is available at <a href="https://github.com/mjl-/gobuild">github.com/mjl-/gobuild</a>, under MIT-license, feedback welcome.</p>
 		<p>To build, gobuild executes:</p>
 <pre>tmpdir=$(mktemp -d)
 cd $tmpdir
 GO111MODULE=on GOPROXY=https://proxy.golang.org/ $goversion get -d -v $module@$version
 cd $HOME/go/pkg/mod/$module@$version/$path
-GO19CONCURRENTCOMPILATION=0 GO111MODULE=on GOPROXY=https://proxy.golang.org/ CGO_ENABLED=0 GOOS=$goos GOARCH=$goarch \
-	$goversion build -mod=readonly -o $tmpdir/$name -x -v -trimpath \
-	-ldflags=-buildid=</pre>
+GO19CONCURRENTCOMPILATION=0 GO111MODULE=on GOPROXY=https://proxy.golang.org/ \
+	CGO_ENABLED=0 GOOS=$goos GOARCH=$goarch \
+	$goversion build -mod=readonly -o $tmpdir/$name -x -v -trimpath -ldflags=-buildid=</pre>
 {{ end }}
 {{ define "script" }}{{ end }}
 `

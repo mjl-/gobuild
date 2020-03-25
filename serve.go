@@ -37,18 +37,47 @@ func (p page) String() string {
 }
 
 type request struct {
-	Mod         string // Ends with slash, eg github.com/mjl-/gobuild/
-	Version     string // Either explicit version like "v0.1.2", or "latest".
-	Dir         string // Either empty, or ending with a slash.
-	Goos        string
-	Goarch      string
-	Goversion   string // Eg "go1.14.1" or "latest".
-	Page        page
-	DownloadSum string
+	Mod       string // Eg github.com/mjl-/gobuild
+	Version   string // Either explicit version like "v0.1.2", or "latest".
+	Dir       string // Either empty, or ending with a slash.
+	Goos      string
+	Goarch    string
+	Goversion string // Eg "go1.14.1" or "latest".
+	Page      page
+	Sum       string // If set, indicates a request on /r/.
 }
 
-func (r request) destdir() string {
+// buildRequest returns a request that points to a /b/ URL, leaving page intact.
+func (r request) buildRequest() request {
+	r.Sum = ""
+	return r
+}
+
+func (r request) buildIndexRequest() request {
+	r.Page = pageIndex
+	r.Sum = ""
+	return r
+}
+
+// local directory where results are stored.
+func (r request) storeDir() string {
 	return fmt.Sprintf("%s-%s-%s/%s@%s/%s", r.Goos, r.Goarch, r.Goversion, r.Mod, r.Version, r.Dir)
+}
+
+// Path in URL for this request.
+func (r request) urlPath() string {
+	var kind string
+	if r.Sum == "" {
+		kind = "b"
+	} else {
+		kind = "r"
+	}
+	s := fmt.Sprintf("/%s/%s@%s/%s%s-%s-%s/", kind, r.Mod, r.Version, r.Dir, r.Goos, r.Goarch, r.Goversion)
+	if r.Sum != "" {
+		s += r.Sum + "/"
+	}
+	s += r.pagePart()
+	return s
 }
 
 func (r request) pagePart() string {
@@ -81,7 +110,7 @@ func (r request) filename() string {
 	return path.Base(r.Mod)
 }
 
-// name of file the http user-agent (browser) will save the file as.
+// Name of file the http user-agent (browser) will save the file as.
 func (r request) downloadFilename() string {
 	ext := ""
 	if r.Goos == "windows" {
@@ -90,20 +119,10 @@ func (r request) downloadFilename() string {
 	return fmt.Sprintf("%s-%s-%s%s", r.filename(), r.Version, r.Goversion, ext)
 }
 
-// we'll get paths like linux-amd64-go1.13/example.com/user/repo/@version/cmd/dir/{log,sha256,dl,<name>,<name>.gz,build.json, events}
+// We'll get paths like /[br]/github.com/mjl-/sherpa@v0.6.0/cmd/sherpaclient/linux-amd64-go1.14.1/0rLhZFgnc9hme13PhUpIvNw08LEk/{log,sha256,dl,<name>,<name>.gz,build.json, events}
 func parsePath(s string) (r request, hint string, ok bool) {
-	t := strings.SplitN(s, "/", 2)
-	if len(t) != 2 {
-		return
-	}
-	s = t[1]
-	tt := strings.Split(t[0], "-")
-	if len(tt) != 3 {
-		return
-	}
-	r.Goos = tt[0]
-	r.Goarch = tt[1]
-	r.Goversion = tt[2]
+	withSum := strings.HasPrefix(s, "/r/")
+	s = s[len("/X/"):]
 
 	var downloadName string
 	switch {
@@ -113,7 +132,7 @@ func parsePath(s string) (r request, hint string, ok bool) {
 	case strings.HasSuffix(s, "/log"):
 		r.Page = pageLog
 		s = s[:len(s)-len("/log")]
-	case strings.HasSuffix(s, "sha256"):
+	case strings.HasSuffix(s, "/sha256"):
 		r.Page = pageSha256
 		s = s[:len(s)-len("/sha256")]
 	case strings.HasSuffix(s, "/dl"):
@@ -138,27 +157,55 @@ func parsePath(s string) (r request, hint string, ok bool) {
 		// indeed valid for this filename.
 	}
 
-	// We are left parsing eg:
-	// - example.com/user/repo/@version/cmd/dir
-	// - example.com/user/repo/@version
-	t = strings.SplitN(s, "@", 2)
+	// Remaining: example.com/user/repo@version/cmd/dir/goos-goarch-goversion/sum
+	t := strings.SplitN(s, "@", 2)
 	if len(t) != 2 {
-		hint = `Perhaps a missing "@" version in URL?`
+		hint = "Perhaps missing @version?"
 		return
 	}
 	r.Mod = t[0]
-	if !strings.HasSuffix(r.Mod, "/") {
-		hint = "Perhaps a missing / at end of module?"
+	s = t[1]
+
+	// Remaining: version/cmd/dir/linux-amd64-go1.13/sum
+	t = strings.Split(s, "/")
+	var sum string
+	if withSum {
+		if len(t) < 3 {
+			hint = "Perhaps missing sum?"
+			return
+		}
+		sum = t[len(t)-1]
+		if !strings.HasPrefix(sum, "0") {
+			hint = "Perhaps malformed or misversioned sum?"
+			return
+		}
+		xsum, err := base64.RawURLEncoding.DecodeString(sum[1:])
+		if err != nil || len(xsum) != 20 {
+			hint = "Perhaps malformed sum?"
+			return
+		}
+		r.Sum = sum
+		t = t[:len(t)-1]
+	}
+	if len(t) < 2 {
+		hint = "Perhaps missing version or goos-goarch-goversion?"
 		return
 	}
-	s = t[1]
-	t = strings.SplitN(s, "/", 2)
+	tt := strings.Split(t[len(t)-1], "-")
+	if len(tt) != 3 {
+		hint = "Perhaps bad goos-goarch-goversion?"
+		return
+	}
+	r.Goos = tt[0]
+	r.Goarch = tt[1]
+	r.Goversion = tt[2]
+	t = t[:len(t)-1]
 	r.Version = t[0]
-	if len(t) == 2 {
-		r.Dir = t[1] + "/"
+	r.Dir = strings.Join(t[1:], "/")
+	if r.Dir != "" {
+		r.Dir += "/"
 	}
 
-	hint = "Perhaps a missing / at end of package?"
 	switch r.Page {
 	case pageDownload:
 		if r.downloadFilename() != downloadName {
@@ -185,13 +232,13 @@ func failf(w http.ResponseWriter, format string, args ...interface{}) {
 	http.Error(w, "400 - "+msg, http.StatusBadRequest)
 }
 
-func serveBuilds(w http.ResponseWriter, r *http.Request) {
+func serveBuild(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "GET" {
 		http.Error(w, "405 - Method Not Allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	req, hint, ok := parsePath(r.URL.Path[3:])
+	req, hint, ok := parsePath(r.URL.Path)
 	if !ok {
 		if hint != "" {
 			http.Error(w, fmt.Sprintf("404 - File Not Found\n\n%s\n", hint), http.StatusNotFound)
@@ -211,8 +258,9 @@ func serveBuilds(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		goversion := supported[0]
-		p := fmt.Sprintf("/x/%s-%s-%s/%s@%s/%s%s", req.Goos, req.Goarch, goversion, req.Mod, req.Version, req.Dir, req.pagePart())
-		http.Redirect(w, r, p, http.StatusFound)
+		vreq := req
+		vreq.Goversion = goversion
+		http.Redirect(w, r, vreq.urlPath(), http.StatusFound)
 		return
 	}
 
@@ -224,13 +272,13 @@ func serveBuilds(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		p := fmt.Sprintf("/x/%s-%s-%s/%s@%s/%s%s", req.Goos, req.Goarch, req.Goversion, req.Mod, info.Version, req.Dir, req.pagePart())
-		http.Redirect(w, r, p, http.StatusFound)
+		mreq := req
+		mreq.Version = info.Version
+		http.Redirect(w, r, mreq.urlPath(), http.StatusFound)
 		return
 	}
 
-	destdir := req.destdir()
-	lpath := path.Join(config.DataDir, destdir)
+	lpath := path.Join(config.DataDir, req.storeDir())
 
 	// If build.json exists, we have a successful build.
 	bf, err := os.Open(lpath + "/build.json")
@@ -247,9 +295,9 @@ func serveBuilds(w http.ResponseWriter, r *http.Request) {
 	}
 	if err == nil {
 		// Redirect to the permanent URLs that include the hash.
-		bsum := base64.RawURLEncoding.EncodeToString(buildResult.SHA256[:20])
-		p := fmt.Sprintf("/z/%s/%s-%s-%s/%s@%s/%s%s", bsum, req.Goos, req.Goarch, req.Goversion, req.Mod, req.Version, req.Dir, req.pagePart())
-		http.Redirect(w, r, p, http.StatusFound)
+		rreq := req
+		rreq.Sum = "0" + base64.RawURLEncoding.EncodeToString(buildResult.SHA256[:20])
+		http.Redirect(w, r, rreq.urlPath(), http.StatusFound)
 		return
 	}
 
@@ -265,7 +313,7 @@ func serveBuilds(w http.ResponseWriter, r *http.Request) {
 		case pageLog:
 			serveLog(w, r, lpath+"/log.gz")
 		case pageIndex:
-			serveBuildIndex(w, r, req, nil)
+			serveIndex(w, r, req, nil)
 		default:
 			http.Error(w, "400 - bad request, build failed", http.StatusBadRequest)
 		}
@@ -285,7 +333,7 @@ func serveBuilds(w http.ResponseWriter, r *http.Request) {
 	// We serve the index page immediately. It makes an SSE-request to the /events
 	// endpoint to register a request for the build and to receive updates.
 	if req.Page == pageIndex {
-		serveBuildIndex(w, r, req, nil)
+		serveIndex(w, r, req, nil)
 		return
 	}
 
@@ -348,24 +396,28 @@ func serveBuilds(w http.ResponseWriter, r *http.Request) {
 				}
 
 				// Redirect to the permanent URLs that include the hash.
-				bsum := base64.RawURLEncoding.EncodeToString(update.result.SHA256[:20])
-				p := fmt.Sprintf("/z/%s/%s-%s-%s/%s@%s/%s%s", bsum, req.Goos, req.Goarch, req.Goversion, req.Mod, req.Version, req.Dir, req.pagePart())
-				http.Redirect(w, r, p, http.StatusFound)
+				rreq := req
+				rreq.Sum = "0" + base64.RawURLEncoding.EncodeToString(update.result.SHA256[:20])
+				http.Redirect(w, r, rreq.urlPath(), http.StatusFound)
 				return
 			}
 		}
 	}
 }
 
+// goBuild performs the actual build. This is called from coordinate.go, not too
+// many at a time.
 func goBuild(req request) (*buildJSON, error) {
-	p := fmt.Sprintf("%s-%s-%s/%s@%s/%s", req.Goos, req.Goarch, req.Goversion, req.Mod, req.Version, req.Dir)
+	bu := req.buildIndexRequest().urlPath()
 
 	metricBuilds.WithLabelValues(req.Goos, req.Goarch, req.Goversion).Inc()
+
 	result, err := build(req)
+
 	ok := err == nil && result != nil
 	if err == nil || !errors.Is(err, errTempFailure) {
 		availableBuilds.Lock()
-		availableBuilds.index[p] = ok
+		availableBuilds.index[bu] = ok
 		availableBuilds.Unlock()
 	}
 	if err != nil {
@@ -373,11 +425,11 @@ func goBuild(req request) (*buildJSON, error) {
 		return nil, err
 	}
 
-	var fp string
+	fp := bu
 	if ok {
-		fp = "/z/" + base64.RawURLEncoding.EncodeToString(result.SHA256[:20]) + "/" + p
-	} else {
-		fp = "/x/" + p
+		rreq := req.buildIndexRequest()
+		rreq.Sum = "0" + base64.RawURLEncoding.EncodeToString(result.SHA256[:20])
+		fp = rreq.urlPath()
 	}
 	recentBuilds.Lock()
 	recentBuilds.paths = append(recentBuilds.paths, fp)
