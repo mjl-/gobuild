@@ -36,9 +36,9 @@
 // 	tmpdir=$(mktemp -d)
 // 	GO111MODULE=on GOPROXY=https://proxy.golang.org/ go get -d -v $module@$version
 // 	cd $HOME/go/pkg/mod/$module@$version/$path
-// 	GO111MODULE=on GOPROXY=https://proxy.golang.org/ CGO_ENABLED=0 GOOS=$goos GOARCH=$goarch \
+// 	GO19CONCURRENTCOMPILATION=0 GO111MODULE=on GOPROXY=https://proxy.golang.org/ CGO_ENABLED=0 GOOS=$goos GOARCH=$goarch \
 //		go build -mod=readonly -o $tmpdir/$name -x -v -trimpath \
-//		-ldflags -buildid=00000000000000000000/00000000000000000000/00000000000000000000/00000000000000000000
+//		-ldflags -buildid=0/0/0/0
 //
 // Running
 //

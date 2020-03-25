@@ -118,9 +118,9 @@ const buildTemplateString = `
 cd $tmpdir
 GO111MODULE=on GOPROXY={{ .GoProxy }} {{ .Req.Goversion }} get -d -v {{ .ShortMod }}@{{ .Req.Version }}
 cd $HOME/go/pkg/mod/{{ .ShortMod }}@{{ .Req.Version }}/{{ .Req.Dir }}
-GO111MODULE=on GOPROXY={{ .GoProxy }} CGO_ENABLED=0 GOOS={{ .Req.Goos }} GOARCH={{ .Req.Goarch }} \
+GO19CONCURRENTCOMPILATION=0 GO111MODULE=on GOPROXY={{ .GoProxy }} CGO_ENABLED=0 GOOS={{ .Req.Goos }} GOARCH={{ .Req.Goarch }} \
 	{{ .Req.Goversion }} build -mod=readonly -o $tmpdir/{{ .DownloadFilename }} -x -v -trimpath \
-	-ldflags -buildid=00000000000000000000/00000000000000000000/00000000000000000000/00000000000000000000
+	-ldflags -buildid=0/0/0/0
 sha256sum $tmpdir/{{ .DownloadFilename }}
 {{ if .SHA256 }}# should be: {{ .SHA256 }}{{ end }}
 </pre>
@@ -334,9 +334,9 @@ const homeTemplateString = `
 cd $tmpdir
 GO111MODULE=on GOPROXY=https://proxy.golang.org/ $goversion get -d -v $module@$version
 cd $HOME/go/pkg/mod/$module@$version/$path
-GO111MODULE=on GOPROXY=https://proxy.golang.org/ CGO_ENABLED=0 GOOS=$goos GOARCH=$goarch \
+GO19CONCURRENTCOMPILATION=0 GO111MODULE=on GOPROXY=https://proxy.golang.org/ CGO_ENABLED=0 GOOS=$goos GOARCH=$goarch \
 	$goversion build -mod=readonly -o $tmpdir/$name -x -v -trimpath \
-	-ldflags -buildid=00000000000000000000/00000000000000000000/00000000000000000000/00000000000000000000</pre>
+	-ldflags -buildid=0/0/0/0</pre>
 {{ end }}
 {{ define "script" }}{{ end }}
 `
