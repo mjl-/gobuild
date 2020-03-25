@@ -163,12 +163,12 @@ func build(req request) (result *buildJSON, err error) {
 	}
 	cmd.Dir = pkgDir
 	output, err := cmd.CombinedOutput()
+	var sysTime, userTime time.Duration
+	if cmd.ProcessState != nil {
+		sysTime = cmd.ProcessState.SystemTime()
+		userTime = cmd.ProcessState.UserTime()
+	}
 	if err != nil {
-		var sysTime, userTime time.Duration
-		if cmd.ProcessState != nil {
-			sysTime = cmd.ProcessState.SystemTime()
-			userTime = cmd.ProcessState.UserTime()
-		}
 		err := saveFailure(req, err.Error()+"\n\n"+string(output), start, sysTime, userTime)
 		if err != nil {
 			return nil, fmt.Errorf("storing results of failure: %v (%w)", err, errTempFailure)
@@ -179,7 +179,7 @@ func build(req request) (result *buildJSON, err error) {
 	elapsed := time.Since(start)
 
 	var tmpdir string
-	result, tmpdir, err = saveFiles(req, output, lname, start, elapsed, cmd.ProcessState.SystemTime(), cmd.ProcessState.UserTime())
+	result, tmpdir, err = saveFiles(req, output, lname, start, elapsed, sysTime, userTime)
 	defer func() {
 		if tmpdir != "" {
 			os.RemoveAll(tmpdir)
