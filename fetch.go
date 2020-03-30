@@ -8,7 +8,7 @@ import (
 )
 
 func ensureModule(gobin, module, version string) (string, []byte, error) {
-	modDir := homedir + "/go/pkg/mod/" + module + "@" + version
+	modDir := homedir + "/go/pkg/mod/" + goproxyEscape(module) + "@" + goproxyEscape(version)
 
 	_, err := os.Stat(modDir)
 	if err == nil {

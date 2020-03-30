@@ -131,7 +131,12 @@ func build(req request) (result *buildJSON, err error) {
 		}
 		defer resp.Body.Close()
 		if resp.StatusCode != 200 {
-			return nil, fmt.Errorf("%w: http error response: %s", errRemote, resp.Status)
+			buf, err := ioutil.ReadAll(resp.Body)
+			msg := string(buf)
+			if err != nil {
+				msg = fmt.Sprintf("reading error message: %v", err)
+			}
+			return nil, fmt.Errorf("%w: http error response: %s:\n%s", errRemote, resp.Status, msg)
 		}
 		var result buildJSON
 		err = json.NewDecoder(resp.Body).Decode(&result)

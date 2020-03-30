@@ -148,7 +148,7 @@ func serveIndex(w http.ResponseWriter, r *http.Request, req request, result *bui
 	go func() {
 		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 		defer cancel()
-		u := fmt.Sprintf("%s%s/@v/list", config.GoProxy, req.Mod)
+		u := fmt.Sprintf("%s%s/@v/list", config.GoProxy, goproxyEscape(req.Mod))
 		mreq, err := http.NewRequestWithContext(ctx, "GET", u, nil)
 		if err != nil {
 			c <- response{fmt.Errorf("%w: preparing new http request: %v", errServer, err), nil}
