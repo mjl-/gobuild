@@ -74,7 +74,7 @@ func coordinateBuilds() {
 		// finished, and give late arrivals the concluding update.
 		final *buildUpdate
 	}
-	builds := map[request]*wipBuild{}
+	builds := map[request]*wipBuild{} // Index by request for build, index page.
 
 	active := 0
 	maxBuilds := config.MaxBuilds
@@ -122,10 +122,11 @@ func coordinateBuilds() {
 	for {
 		select {
 		case br := <-coordinate.register:
-			b, ok := builds[br.req]
+			breq := br.req.buildIndexRequest()
+			b, ok := builds[breq]
 			if !ok {
 				b = &wipBuild{nil, nil}
-				builds[br.req] = b
+				builds[breq] = b
 			}
 			b.events = append(b.events, br.eventc)
 			if b.final != nil {
@@ -135,9 +136,9 @@ func coordinateBuilds() {
 
 			if !ok {
 				if active < maxBuilds {
-					startBuild(br.req, b)
+					startBuild(breq, b)
 				} else {
-					waiting = append(waiting, br.req)
+					waiting = append(waiting, breq)
 				}
 			}
 			update := buildUpdate{
@@ -147,7 +148,8 @@ func coordinateBuilds() {
 			br.eventc <- update
 
 		case br := <-coordinate.unregister:
-			b := builds[br.req]
+			breq := br.req.buildIndexRequest()
+			b := builds[breq]
 			l := []chan buildUpdate{}
 			for _, c := range b.events {
 				if c != br.eventc {
@@ -159,11 +161,12 @@ func coordinateBuilds() {
 			}
 			b.events = l
 			if len(b.events) == 0 && b.final != nil {
-				delete(builds, br.req)
+				delete(builds, breq)
 			}
 
 		case update := <-updatec:
-			b := builds[update.req]
+			breq := update.req.buildIndexRequest()
+			b := builds[breq]
 			for _, c := range b.events {
 				// We don't want to block. Slow clients/readers may not get all updates, better than blocking.
 				select {
@@ -177,7 +180,7 @@ func coordinateBuilds() {
 			b.final = &update
 			active--
 			if len(b.events) == 0 {
-				delete(builds, update.req)
+				delete(builds, breq)
 			}
 			for len(waiting) > 0 {
 				req := waiting[0]
