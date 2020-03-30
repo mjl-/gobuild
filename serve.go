@@ -2,231 +2,191 @@ package main
 
 import (
 	"compress/gzip"
-	"encoding/base64"
-	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"path"
+	"path/filepath"
 	"strings"
+	"sync"
+
+	"github.com/mjl-/httpinfo"
+	"github.com/mjl-/sconf"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+)
+
+var (
+	workdir string
+	homedir string
+
+	recentBuilds struct {
+		sync.Mutex
+		paths []string
+	}
+
+	// We keep a map of available builds, so we can show in links in UI that navigating
+	// won't trigger a build but will return quickly. The value indicates if the build was successful.
+	availableBuilds = struct {
+		sync.Mutex
+		index map[string]bool // keys are urlPaths of build index requests, eg /b/mod@version/dir/goos-goarch-goversion/
+	}{
+		sync.Mutex{},
+		map[string]bool{},
+	}
+
+	config = struct {
+		GoProxy      string   `sconf-doc:"URL to proxy."`
+		DataDir      string   `sconf-doc:"Directory where builds.txt and all builds files (binary, log, sha256) are stored."`
+		SDKDir       string   `sconf-doc:"Directory where SDKs (go toolchains) are installed."`
+		HomeDir      string   `sconf-doc:"Directory set as home directory during builds. Go caches will be created there."`
+		MaxBuilds    int      `sconf-doc:"Maximum concurrent builds. Default (0) uses NumCPU+1."`
+		VerifierURLs []string `sconf:"optional" sconf-doc:"URLs of other gobuild instances that are asked to perform the same build. Gobuild requires all of them to create the same binary for a successful build. Ideally, these instances differ in goos, goarch, user id and name, home and work directories."`
+	}{
+		"https://proxy.golang.org/",
+		"data",
+		"sdk",
+		"home",
+		0,
+		nil,
+	}
+)
+
+var (
+	metricBuilds = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "gobuild_builds_total",
+			Help: "Number of builds.",
+		},
+		[]string{"goos", "goarch", "goversion"},
+	)
+	metricBuildErrors = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "gobuild_build_errors_total",
+			Help: "Number of errors during builds.",
+		},
+		[]string{"goos", "goarch", "goversion"},
+	)
+	metricRequestsTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "gobuild_requests_total",
+			Help: "Number of requests per page.",
+		},
+		[]string{"page"},
+	)
+	metricHTTPModuleRequestDuration = promauto.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "gobuild_http_module_request_duration_seconds",
+			Help:    "Duration of requests on module endpoint in seconds.",
+			Buckets: []float64{0.1, 0.25, 0.5, 1, 2, 4, 8, 16, 32, 64, 128},
+		},
+		[]string{"code", "method"},
+	)
+	metricHTTPBuildRequestDuration = promauto.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "gobuild_http_build_request_duration_seconds",
+			Help:    "Duration of requests on build endpoint in seconds.",
+			Buckets: []float64{0.1, 0.25, 0.5, 1, 2, 4, 8, 16, 32, 64, 128},
+		},
+		[]string{"code", "method"},
+	)
+	metricHTTPResultRequestDuration = promauto.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "gobuild_http_result_request_duration_seconds",
+			Help:    "Duration of requests on result endpoint in seconds.",
+			Buckets: []float64{0.1, 0.25, 0.5, 1, 2, 4, 8, 16, 32, 64, 128},
+		},
+		[]string{"code", "method"},
+	)
 )
 
 var errRemote = errors.New("remote")
 var errServer = errors.New("server error")
 
-type page int
-
-const (
-	pageIndex page = iota
-	pageLog
-	pageSha256
-	pageDownloadRedirect
-	pageDownload
-	pageDownloadGz
-	pageBuildJSON
-	pageEvents
-)
-
-var pageNames = []string{"index", "log", "sha256", "dlredir", "download", "downloadgz", "buildjson", "events"}
-
-func (p page) String() string {
-	return pageNames[p]
-}
-
-type request struct {
-	Mod       string // Eg github.com/mjl-/gobuild
-	Version   string // Either explicit version like "v0.1.2", or "latest".
-	Dir       string // Either empty, or ending with a slash.
-	Goos      string
-	Goarch    string
-	Goversion string // Eg "go1.14.1" or "latest".
-	Page      page
-	Sum       string // If set, indicates a request on /r/.
-}
-
-func (r request) isBuild() bool {
-	return r.Sum == ""
-}
-
-// buildRequest returns a request that points to a /b/ URL, leaving page intact.
-func (r request) buildRequest() request {
-	r.Sum = ""
-	return r
-}
-
-func (r request) buildIndexRequest() request {
-	r.Page = pageIndex
-	r.Sum = ""
-	return r
-}
-
-// local directory where results are stored.
-func (r request) storeDir() string {
-	return fmt.Sprintf("%s-%s-%s/%s@%s/%s", r.Goos, r.Goarch, r.Goversion, r.Mod, r.Version, r.Dir)
-}
-
-// Path in URL for this request.
-func (r request) urlPath() string {
-	var kind string
-	if r.Sum == "" {
-		kind = "b"
-	} else {
-		kind = "r"
+func serve(args []string) {
+	serveFlags := flag.NewFlagSet("serve", flag.ExitOnError)
+	listenAddress := serveFlags.String("listen", "localhost:8000", "address to serve on")
+	listenAdmin := serveFlags.String("listenadmin", "localhost:8001", "address to serve admin-related http on")
+	serveFlags.Usage = func() {
+		log.Println("usage: gobuild serve [flags] [gobuild.conf]")
+		serveFlags.PrintDefaults()
 	}
-	s := fmt.Sprintf("/%s/%s@%s/%s%s-%s-%s/", kind, r.Mod, r.Version, r.Dir, r.Goos, r.Goarch, r.Goversion)
-	if r.Sum != "" {
-		s += r.Sum + "/"
+	serveFlags.Parse(args)
+	args = serveFlags.Args()
+	if len(args) > 1 {
+		serveFlags.Usage()
+		os.Exit(2)
 	}
-	s += r.pagePart()
-	return s
-}
-
-func (r request) pagePart() string {
-	switch r.Page {
-	case pageIndex:
-		return ""
-	case pageLog:
-		return "log"
-	case pageSha256:
-		return "sha256"
-	case pageDownloadRedirect:
-		return "dl"
-	case pageDownload:
-		return r.downloadFilename()
-	case pageDownloadGz:
-		return r.downloadFilename() + ".gz"
-	case pageBuildJSON:
-		return "build.json"
-	case pageEvents:
-		return "events"
-	default:
-		panic("missing case")
-	}
-}
-
-func (r request) filename() string {
-	if r.Dir != "" {
-		return path.Base(r.Dir)
-	}
-	return path.Base(r.Mod)
-}
-
-// Name of file the http user-agent (browser) will save the file as.
-func (r request) downloadFilename() string {
-	ext := ""
-	if r.Goos == "windows" {
-		ext = ".exe"
-	}
-	return fmt.Sprintf("%s-%s-%s%s", r.filename(), r.Version, r.Goversion, ext)
-}
-
-// We'll get paths like /[br]/github.com/mjl-/sherpa@v0.6.0/cmd/sherpaclient/linux-amd64-go1.14.1/0rLhZFgnc9hme13PhUpIvNw08LEk/{log,sha256,dl,<name>,<name>.gz,build.json, events}
-func parseRequest(s string) (r request, hint string, ok bool) {
-	withSum := strings.HasPrefix(s, "/r/")
-	s = s[len("/X/"):]
-
-	var downloadName string
-	switch {
-	case strings.HasSuffix(s, "/"):
-		r.Page = pageIndex
-		s = s[:len(s)-len("/")]
-	case strings.HasSuffix(s, "/log"):
-		r.Page = pageLog
-		s = s[:len(s)-len("/log")]
-	case strings.HasSuffix(s, "/sha256"):
-		r.Page = pageSha256
-		s = s[:len(s)-len("/sha256")]
-	case strings.HasSuffix(s, "/dl"):
-		r.Page = pageDownloadRedirect
-		s = s[:len(s)-len("/dl")]
-	case strings.HasSuffix(s, "/build.json"):
-		r.Page = pageBuildJSON
-		s = s[:len(s)-len("/build.json")]
-	case strings.HasSuffix(s, "/events"):
-		r.Page = pageEvents
-		s = s[:len(s)-len("/events")]
-	default:
-		t := strings.Split(s, "/")
-		downloadName = t[len(t)-1]
-		if strings.HasSuffix(downloadName, ".gz") {
-			r.Page = pageDownloadGz
-		} else {
-			r.Page = pageDownload
+	if len(args) > 0 {
+		err := sconf.ParseFile(args[0], &config)
+		if err != nil {
+			log.Fatalf("parsing config file: %v", err)
 		}
-		s = s[:len(s)-1-len(downloadName)]
-		// After parsing module,version,package below, we'll check if the download name is
-		// indeed valid for this filename.
 	}
-
-	// Remaining: example.com/user/repo@version/cmd/dir/goos-goarch-goversion/sum
-	t := strings.SplitN(s, "@", 2)
-	if len(t) != 2 {
-		hint = "Perhaps missing @version?"
-		return
+	if !strings.HasSuffix(config.GoProxy, "/") {
+		config.GoProxy += "/"
 	}
-	r.Mod = t[0]
-	s = t[1]
-
-	// Remaining: version/cmd/dir/linux-amd64-go1.13/sum
-	t = strings.Split(s, "/")
-	var sum string
-	if withSum {
-		if len(t) < 3 {
-			hint = "Perhaps missing sum?"
-			return
-		}
-		sum = t[len(t)-1]
-		if !strings.HasPrefix(sum, "0") {
-			hint = "Perhaps malformed or misversioned sum?"
-			return
-		}
-		xsum, err := base64.RawURLEncoding.DecodeString(sum[1:])
-		if err != nil || len(xsum) != 20 {
-			hint = "Perhaps malformed sum?"
-			return
-		}
-		r.Sum = sum
-		t = t[:len(t)-1]
-	}
-	if len(t) < 2 {
-		hint = "Perhaps missing version or goos-goarch-goversion?"
-		return
-	}
-	tt := strings.Split(t[len(t)-1], "-")
-	if len(tt) != 3 {
-		hint = "Perhaps bad goos-goarch-goversion?"
-		return
-	}
-	r.Goos = tt[0]
-	r.Goarch = tt[1]
-	r.Goversion = tt[2]
-	t = t[:len(t)-1]
-	r.Version = t[0]
-	r.Dir = strings.Join(t[1:], "/")
-	if r.Dir != "" {
-		r.Dir += "/"
-	}
-
-	switch r.Page {
-	case pageDownload:
-		if r.downloadFilename() != downloadName {
-			return
-		}
-	case pageDownloadGz:
-		if r.downloadFilename()+".gz" != downloadName {
-			return
+	for i, url := range config.VerifierURLs {
+		if strings.HasSuffix(url, "/") {
+			config.VerifierURLs[i] = config.VerifierURLs[i][:len(config.VerifierURLs[i])-1]
 		}
 	}
 
-	if withSum && r.Page == pageEvents {
-		return
+	var err error
+	workdir, err = os.Getwd()
+	if err != nil {
+		log.Fatalln("getwd:", err)
 	}
 
-	ok = true
-	return
+	homedir = config.HomeDir
+	if !path.IsAbs(homedir) {
+		homedir = path.Join(workdir, config.HomeDir)
+	}
+	os.Mkdir(homedir, 0775) // failures will be caught later
+	// We need a clean name: we will be match path prefixes against paths returned by
+	// go tools, that will have evaluated names.
+	homedir, err = filepath.EvalSymlinks(homedir)
+	if err != nil {
+		log.Fatalf("evaluating symlinks in homedir: %v", err)
+	}
+	os.Mkdir(config.SDKDir, 0775)  // may already exist, we'll get errors later
+	os.Mkdir(config.DataDir, 0775) // may already exist, we'll get errors later
+
+	initSDK()
+	readRecentBuilds()
+
+	go coordinateBuilds()
+
+	http.Handle("/metrics", promhttp.Handler())
+	http.Handle("/info", httpinfo.NewHandler(httpinfo.CodeVersion{}, nil))
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/robots.txt", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		fmt.Fprint(w, "User-agent: *\nDisallow: /b/\n")
+	})
+	mux.HandleFunc("/builds.txt", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, path.Join(config.DataDir, "builds.txt"))
+	})
+	mux.HandleFunc("/m/", promhttp.InstrumentHandlerDuration(metricHTTPModuleRequestDuration, http.HandlerFunc(serveModules)))
+	mux.HandleFunc("/b/", promhttp.InstrumentHandlerDuration(metricHTTPBuildRequestDuration, http.HandlerFunc(serveBuild)))
+	mux.HandleFunc("/r/", promhttp.InstrumentHandlerDuration(metricHTTPResultRequestDuration, http.HandlerFunc(serveResult)))
+	mux.HandleFunc("/img/gopher-dance-long.gif", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/gif")
+		w.Write(fileGopherDanceLongGif) // nothing to do for errors
+	})
+	mux.HandleFunc("/", serveHome)
+	log.Printf("listening on %s and %s", *listenAddress, *listenAdmin)
+	go func() {
+		log.Fatalln(http.ListenAndServe(*listenAdmin, nil))
+	}()
+	log.Fatalln(http.ListenAndServe(*listenAddress, mux))
 }
 
 func failf(w http.ResponseWriter, format string, args ...interface{}) {
@@ -238,214 +198,6 @@ func failf(w http.ResponseWriter, format string, args ...interface{}) {
 		return
 	}
 	http.Error(w, "400 - "+msg, http.StatusBadRequest)
-}
-
-func serveBuild(w http.ResponseWriter, r *http.Request) {
-	if r.Method != "GET" {
-		http.Error(w, "405 - Method Not Allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	req, hint, ok := parseRequest(r.URL.Path)
-	if !ok {
-		if hint != "" {
-			http.Error(w, fmt.Sprintf("404 - File Not Found\n\n%s\n", hint), http.StatusNotFound)
-		} else {
-			http.NotFound(w, r)
-		}
-		return
-	}
-
-	metricRequestsTotal.WithLabelValues(req.Page.String())
-
-	// Resolve "latest" goversion with a redirect.
-	if req.Goversion == "latest" {
-		supported, _ := installedSDK()
-		if len(supported) == 0 {
-			http.Error(w, "503 - no go supported toolchains available", http.StatusServiceUnavailable)
-			return
-		}
-		goversion := supported[0]
-		vreq := req
-		vreq.Goversion = goversion
-		http.Redirect(w, r, vreq.urlPath(), http.StatusTemporaryRedirect)
-		return
-	}
-
-	// Resolve "latest" module version with a redirect.
-	if req.Version == "latest" {
-		info, err := resolveModuleLatest(r.Context(), req.Mod)
-		if err != nil {
-			failf(w, "resolving latest for module: %w", err)
-			return
-		}
-
-		mreq := req
-		mreq.Version = info.Version
-		http.Redirect(w, r, mreq.urlPath(), http.StatusTemporaryRedirect)
-		return
-	}
-
-	lpath := path.Join(config.DataDir, req.storeDir())
-
-	// If build.json exists, we have a successful build.
-	bf, err := os.Open(lpath + "/build.json")
-	if err == nil {
-		defer bf.Close()
-	}
-	var buildResult buildJSON
-	if err == nil {
-		err = json.NewDecoder(bf).Decode(&buildResult)
-	}
-	if err != nil && !os.IsNotExist(err) {
-		failf(w, "%w: reading build.json: %v", errServer, err)
-		return
-	}
-	if err == nil {
-		// Redirect to the permanent URLs that include the hash.
-		rreq := req
-		rreq.Sum = "0" + base64.RawURLEncoding.EncodeToString(buildResult.SHA256[:20])
-		http.Redirect(w, r, rreq.urlPath(), http.StatusTemporaryRedirect)
-		return
-	}
-
-	// If log.gz exists, we have a failed build.
-	_, err = os.Stat(lpath + "/log.gz")
-	if err != nil && !os.IsNotExist(err) {
-		failf(w, "%w: stat path: %v", errServer, err)
-		return
-	}
-	if err == nil {
-		// Show failed build to user, for the pages where that works.
-		switch req.Page {
-		case pageLog:
-			serveLog(w, r, lpath+"/log.gz")
-		case pageIndex:
-			serveIndex(w, r, req, nil)
-		default:
-			http.Error(w, "400 - Bad Request - build failed", http.StatusBadRequest)
-		}
-		return
-	}
-
-	// No build yet, we need one.
-
-	// We always attempt to set up the build. This checks with the goproxy that the
-	// module and package exist, and seems like it has a chance to compile.
-	err = prepareBuild(req)
-	if err != nil {
-		failf(w, "preparing build: %w", err)
-		return
-	}
-
-	// We serve the index page immediately. It makes an SSE-request to the /events
-	// endpoint to register a request for the build and to receive updates.
-	if req.Page == pageIndex {
-		serveIndex(w, r, req, nil)
-		return
-	}
-
-	eventc := make(chan buildUpdate, 100)
-	registerBuild(req, eventc)
-
-	ctx := r.Context()
-
-	switch req.Page {
-	case pageEvents:
-		flusher, ok := w.(http.Flusher)
-		if !ok {
-			log.Println("ResponseWriter not a http.Flusher")
-			failf(w, "%w: implementation limitation: cannot stream updates", errServer)
-			return
-		}
-
-		w.Header().Set("Content-Type", "text/event-stream")
-		w.Header().Set("Cache-Control", "no-cache")
-		_, err := w.Write([]byte(": keepalive\n\n"))
-		if err != nil {
-			return
-		}
-		flusher.Flush()
-
-	loop:
-		for {
-			select {
-			case <-ctx.Done():
-				break loop
-			case update := <-eventc:
-				_, err = w.Write(update.msg)
-				flusher.Flush()
-				if update.done || err != nil {
-					break loop
-				}
-			}
-		}
-		unregisterBuild(req, eventc)
-	default:
-		for {
-			select {
-			case <-ctx.Done():
-				unregisterBuild(req, eventc)
-				return
-			case update := <-eventc:
-				if !update.done {
-					continue
-				}
-				unregisterBuild(req, eventc)
-
-				if req.Page == pageLog {
-					serveLog(w, r, lpath+"/log.gz")
-					return
-				}
-
-				if update.err != nil {
-					failf(w, "build failed: %w", update.err)
-					return
-				}
-
-				// Redirect to the permanent URLs that include the hash.
-				rreq := req
-				rreq.Sum = "0" + base64.RawURLEncoding.EncodeToString(update.result.SHA256[:20])
-				http.Redirect(w, r, rreq.urlPath(), http.StatusTemporaryRedirect)
-				return
-			}
-		}
-	}
-}
-
-// goBuild performs the actual build. This is called from coordinate.go, not too
-// many at a time.
-func goBuild(req request) (*buildJSON, error) {
-	bu := req.buildIndexRequest().urlPath()
-
-	metricBuilds.WithLabelValues(req.Goos, req.Goarch, req.Goversion).Inc()
-
-	result, err := build(req)
-
-	ok := err == nil && result != nil
-	if err == nil || !errors.Is(err, errTempFailure) {
-		availableBuilds.Lock()
-		availableBuilds.index[bu] = ok
-		availableBuilds.Unlock()
-	}
-	if err != nil {
-		metricBuildErrors.WithLabelValues(req.Goos, req.Goarch, req.Goversion).Inc()
-		return nil, err
-	}
-
-	fp := bu
-	if ok {
-		rreq := req.buildIndexRequest()
-		rreq.Sum = "0" + base64.RawURLEncoding.EncodeToString(result.SHA256[:20])
-		fp = rreq.urlPath()
-	}
-	recentBuilds.Lock()
-	recentBuilds.paths = append(recentBuilds.paths, fp)
-	if len(recentBuilds.paths) > 10 {
-		recentBuilds.paths = recentBuilds.paths[len(recentBuilds.paths)-10:]
-	}
-	recentBuilds.Unlock()
-	return result, nil
 }
 
 func serveLog(w http.ResponseWriter, r *http.Request, p string) {
@@ -471,20 +223,4 @@ func serveGzipFile(w http.ResponseWriter, r *http.Request, path string, src io.R
 		}
 		io.Copy(w, gzr) // nothing to do for errors
 	}
-}
-
-func acceptsGzip(r *http.Request) bool {
-	s := r.Header.Get("Accept-Encoding")
-	t := strings.Split(s, ",")
-	for _, e := range t {
-		e = strings.TrimSpace(e)
-		tt := strings.Split(e, ";")
-		if len(tt) > 1 && t[1] == "q=0" {
-			continue
-		}
-		if tt[0] == "gzip" {
-			return true
-		}
-	}
-	return false
 }
