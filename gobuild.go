@@ -75,6 +75,9 @@ func prepareBuild(req request) error {
 	cmd.Env = []string{
 		fmt.Sprintf("GOPROXY=%s", config.GoProxy),
 		"GO111MODULE=on",
+		"CGO_ENABLED=0",
+		"GOOS=" + req.Goos,
+		"GOARCH=" + req.Goarch,
 		"HOME=" + homedir,
 	}
 	nameOutput, err := cmd.CombinedOutput()
