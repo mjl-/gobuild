@@ -18,3 +18,4 @@
 - Handle more versions in URL, like @master, @commitid, etc?
 - Do not make module cache readonly when goversion >= 1.14, with -modcacherw.
 - Try to make this work on windows.
+- Find good place to mention one-liner to recreate sum: python3 -c 'import sys, hashlib, base64; print("0" + base64.urlsafe_b64encode(hashlib.sha256(sys.stdin.buffer.read()).digest()[:20]).decode("utf-8").rstrip("="))'
