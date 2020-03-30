@@ -47,6 +47,10 @@ type request struct {
 	Sum       string // If set, indicates a request on /r/.
 }
 
+func (r request) isBuild() bool {
+	return r.Sum == ""
+}
+
 // buildRequest returns a request that points to a /b/ URL, leaving page intact.
 func (r request) buildRequest() request {
 	r.Sum = ""
@@ -120,7 +124,7 @@ func (r request) downloadFilename() string {
 }
 
 // We'll get paths like /[br]/github.com/mjl-/sherpa@v0.6.0/cmd/sherpaclient/linux-amd64-go1.14.1/0rLhZFgnc9hme13PhUpIvNw08LEk/{log,sha256,dl,<name>,<name>.gz,build.json, events}
-func parsePath(s string) (r request, hint string, ok bool) {
+func parseRequest(s string) (r request, hint string, ok bool) {
 	withSum := strings.HasPrefix(s, "/r/")
 	s = s[len("/X/"):]
 
@@ -217,6 +221,10 @@ func parsePath(s string) (r request, hint string, ok bool) {
 		}
 	}
 
+	if withSum && r.Page == pageEvents {
+		return
+	}
+
 	ok = true
 	return
 }
@@ -238,7 +246,7 @@ func serveBuild(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	req, hint, ok := parsePath(r.URL.Path)
+	req, hint, ok := parseRequest(r.URL.Path)
 	if !ok {
 		if hint != "" {
 			http.Error(w, fmt.Sprintf("404 - File Not Found\n\n%s\n", hint), http.StatusNotFound)
@@ -254,13 +262,13 @@ func serveBuild(w http.ResponseWriter, r *http.Request) {
 	if req.Goversion == "latest" {
 		supported, _ := installedSDK()
 		if len(supported) == 0 {
-			http.Error(w, "no go supported toolchains available", http.StatusServiceUnavailable)
+			http.Error(w, "503 - no go supported toolchains available", http.StatusServiceUnavailable)
 			return
 		}
 		goversion := supported[0]
 		vreq := req
 		vreq.Goversion = goversion
-		http.Redirect(w, r, vreq.urlPath(), http.StatusFound)
+		http.Redirect(w, r, vreq.urlPath(), http.StatusTemporaryRedirect)
 		return
 	}
 
@@ -274,7 +282,7 @@ func serveBuild(w http.ResponseWriter, r *http.Request) {
 
 		mreq := req
 		mreq.Version = info.Version
-		http.Redirect(w, r, mreq.urlPath(), http.StatusFound)
+		http.Redirect(w, r, mreq.urlPath(), http.StatusTemporaryRedirect)
 		return
 	}
 
@@ -297,7 +305,7 @@ func serveBuild(w http.ResponseWriter, r *http.Request) {
 		// Redirect to the permanent URLs that include the hash.
 		rreq := req
 		rreq.Sum = "0" + base64.RawURLEncoding.EncodeToString(buildResult.SHA256[:20])
-		http.Redirect(w, r, rreq.urlPath(), http.StatusFound)
+		http.Redirect(w, r, rreq.urlPath(), http.StatusTemporaryRedirect)
 		return
 	}
 
@@ -315,7 +323,7 @@ func serveBuild(w http.ResponseWriter, r *http.Request) {
 		case pageIndex:
 			serveIndex(w, r, req, nil)
 		default:
-			http.Error(w, "400 - bad request, build failed", http.StatusBadRequest)
+			http.Error(w, "400 - Bad Request - build failed", http.StatusBadRequest)
 		}
 		return
 	}
@@ -398,7 +406,7 @@ func serveBuild(w http.ResponseWriter, r *http.Request) {
 				// Redirect to the permanent URLs that include the hash.
 				rreq := req
 				rreq.Sum = "0" + base64.RawURLEncoding.EncodeToString(update.result.SHA256[:20])
-				http.Redirect(w, r, rreq.urlPath(), http.StatusFound)
+				http.Redirect(w, r, rreq.urlPath(), http.StatusTemporaryRedirect)
 				return
 			}
 		}

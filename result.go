@@ -22,7 +22,7 @@ func serveResult(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	req, hint, ok := parsePath(r.URL.Path)
+	req, hint, ok := parseRequest(r.URL.Path)
 	if !ok {
 		if hint != "" {
 			http.Error(w, fmt.Sprintf("404 - File Not Found\n\n%s\n", hint), http.StatusNotFound)
@@ -104,7 +104,7 @@ func serveResult(w http.ResponseWriter, r *http.Request) {
 	case pageDownloadRedirect:
 		dreq := req
 		dreq.Page = pageDownload
-		http.Redirect(w, r, dreq.urlPath(), http.StatusFound)
+		http.Redirect(w, r, dreq.urlPath(), http.StatusTemporaryRedirect)
 	case pageDownload:
 		p := path.Join(lpath, req.downloadFilename()+".gz")
 		f, err := os.Open(p)
@@ -293,6 +293,11 @@ func serveIndex(w http.ResponseWriter, r *http.Request, req request, result *bui
 		"UserTimeMS":      fmt.Sprintf("%d", result.UserTime/time.Millisecond),
 		"PkgGoDevURL":     pkgGoDevURL,
 	}
+
+	if req.isBuild() {
+		w.Header().Set("Cache-Control", "no-store")
+	}
+
 	err := buildTemplate.Execute(w, args)
 	if err != nil {
 		failf(w, "%w: executing template: %v", errServer, err)

@@ -229,7 +229,7 @@ func serveHome(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method != "GET" {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		http.Error(w, "405 - Method Not Allowed", http.StatusMethodNotAllowed)
 		return
 	}
 

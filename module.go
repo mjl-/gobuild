@@ -20,14 +20,14 @@ func serveModules(w http.ResponseWriter, r *http.Request) {
 			http.NotFound(w, r)
 			return
 		}
-		http.Redirect(w, r, "/m/"+m, http.StatusFound)
+		http.Redirect(w, r, "/m/"+m, http.StatusTemporaryRedirect)
 		return
 	}
 
 	mod := r.URL.Path[len("/m/"):]
 	if strings.HasSuffix(mod, "/") {
 		mod = strings.TrimRight(mod, "/")
-		http.Redirect(w, r, "/m/"+mod, http.StatusFound)
+		http.Redirect(w, r, "/m/"+mod, http.StatusTemporaryRedirect)
 		return
 	}
 
@@ -74,7 +74,7 @@ func serveModules(w http.ResponseWriter, r *http.Request) {
 			Goversion: goversion,
 			Page:      pageIndex,
 		}
-		http.Redirect(w, r, req.urlPath(), http.StatusFound)
+		http.Redirect(w, r, req.urlPath(), http.StatusTemporaryRedirect)
 		return
 	}
 
