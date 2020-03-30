@@ -92,8 +92,6 @@ func prepareBuild(req request) error {
 func goBuild(req request) (*buildJSON, error) {
 	bu := req.buildIndexRequest().urlPath()
 
-	metricBuilds.WithLabelValues(req.Goos, req.Goarch, req.Goversion).Inc()
-
 	result, err := build(req)
 
 	ok := err == nil && result != nil
@@ -103,7 +101,6 @@ func goBuild(req request) (*buildJSON, error) {
 		availableBuilds.Unlock()
 	}
 	if err != nil {
-		metricBuildErrors.WithLabelValues(req.Goos, req.Goarch, req.Goversion).Inc()
 		return nil, err
 	}
 
@@ -159,6 +156,11 @@ func build(req request) (result *buildJSON, err error) {
 	verifyPath := breq.urlPath()
 
 	verify := func(verifierBaseURL string) (*buildJSON, error) {
+		t0 := time.Now()
+		defer func() {
+			metricVerifyDuration.WithLabelValues(verifierBaseURL, req.Goos, req.Goarch, req.Goversion).Observe(time.Since(t0).Seconds())
+		}()
+
 		verifyURL := verifierBaseURL + verifyPath
 		resp, err := http.Get(verifyURL)
 		if err != nil {
@@ -166,6 +168,7 @@ func build(req request) (result *buildJSON, err error) {
 		}
 		defer resp.Body.Close()
 		if resp.StatusCode != 200 {
+			metricVerifyErrors.WithLabelValues(verifierBaseURL, req.Goos, req.Goarch, req.Goversion).Inc()
 			buf, err := ioutil.ReadAll(resp.Body)
 			msg := string(buf)
 			if err != nil {
@@ -191,6 +194,8 @@ func build(req request) (result *buildJSON, err error) {
 		}(verifierBaseURL)
 	}
 
+	t0 := time.Now()
+
 	lname := dir + "/bin/" + req.filename()
 	os.Mkdir(filepath.Dir(lname), 0775) // failures will be caught later
 	cmd := exec.Command(gobin, "build", "-mod=readonly", "-o", lname, "-x", "-v", "-trimpath", "-ldflags=-buildid=")
@@ -210,7 +215,9 @@ func build(req request) (result *buildJSON, err error) {
 		sysTime = cmd.ProcessState.SystemTime()
 		userTime = cmd.ProcessState.UserTime()
 	}
+	metricCompileDuration.WithLabelValues(req.Goos, req.Goarch, req.Goversion).Observe(time.Since(t0).Seconds())
 	if err != nil {
+		metricCompileErrors.WithLabelValues(req.Goos, req.Goarch, req.Goversion).Inc()
 		err := saveFailure(req, err.Error()+"\n\n"+string(output), start, sysTime, userTime)
 		if err != nil {
 			return nil, fmt.Errorf("storing results of failure: %v (%w)", err, errTempFailure)

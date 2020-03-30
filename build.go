@@ -9,6 +9,7 @@ import (
 	"os"
 	"path"
 	"strings"
+	"time"
 )
 
 func serveBuild(w http.ResponseWriter, r *http.Request) {
@@ -26,8 +27,7 @@ func serveBuild(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-
-	metricRequestsTotal.WithLabelValues(req.Page.String())
+	defer observePage("build "+req.Page.String(), time.Now())
 
 	// Resolve "latest" goversion with a redirect.
 	if req.Goversion == "latest" {

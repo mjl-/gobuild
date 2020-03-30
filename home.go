@@ -2,9 +2,11 @@ package main
 
 import (
 	"net/http"
+	"time"
 )
 
 func serveHome(w http.ResponseWriter, r *http.Request) {
+	defer observePage("home", time.Now())
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
 		return
@@ -13,8 +15,6 @@ func serveHome(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "405 - Method Not Allowed", http.StatusMethodNotAllowed)
 		return
 	}
-
-	metricRequestsTotal.WithLabelValues("home").Inc()
 
 	recentBuilds.Lock()
 	recents := recentBuilds.paths

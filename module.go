@@ -7,9 +7,12 @@ import (
 	"os/exec"
 	"path"
 	"strings"
+	"time"
 )
 
 func serveModules(w http.ResponseWriter, r *http.Request) {
+	defer observePage("module", time.Now())
+
 	if r.Method != "GET" {
 		http.Error(w, "405 - Method Not Allowed", http.StatusMethodNotAllowed)
 		return

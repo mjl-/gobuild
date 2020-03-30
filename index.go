@@ -34,6 +34,12 @@ func serveIndex(w http.ResponseWriter, r *http.Request, req request, result *bui
 	go func() {
 		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 		defer cancel()
+
+		t0 := time.Now()
+		defer func() {
+			metricGoproxyListDuration.Observe(time.Since(t0).Seconds())
+		}()
+
 		u := fmt.Sprintf("%s%s/@v/list", config.GoProxy, goproxyEscape(req.Mod))
 		mreq, err := http.NewRequestWithContext(ctx, "GET", u, nil)
 		if err != nil {
@@ -46,8 +52,9 @@ func serveIndex(w http.ResponseWriter, r *http.Request, req request, result *bui
 			return
 		}
 		defer resp.Body.Close()
-		if err != nil {
-			c <- response{fmt.Errorf("%w: response from goproxy: %v", errRemote, err), nil}
+		if resp.StatusCode != 200 {
+			metricGoproxyListErrors.WithLabelValues(fmt.Sprintf("%d", resp.StatusCode)).Inc()
+			c <- response{fmt.Errorf("%w: http responss from goproxy: %v", errRemote, resp.Status), nil}
 			return
 		}
 		buf, err := ioutil.ReadAll(resp.Body)

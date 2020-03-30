@@ -14,11 +14,10 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/mjl-/httpinfo"
 	"github.com/mjl-/sconf"
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
@@ -56,54 +55,6 @@ var (
 		0,
 		nil,
 	}
-)
-
-var (
-	metricBuilds = promauto.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "gobuild_builds_total",
-			Help: "Number of builds.",
-		},
-		[]string{"goos", "goarch", "goversion"},
-	)
-	metricBuildErrors = promauto.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "gobuild_build_errors_total",
-			Help: "Number of errors during builds.",
-		},
-		[]string{"goos", "goarch", "goversion"},
-	)
-	metricRequestsTotal = promauto.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "gobuild_requests_total",
-			Help: "Number of requests per page.",
-		},
-		[]string{"page"},
-	)
-	metricHTTPModuleRequestDuration = promauto.NewHistogramVec(
-		prometheus.HistogramOpts{
-			Name:    "gobuild_http_module_request_duration_seconds",
-			Help:    "Duration of requests on module endpoint in seconds.",
-			Buckets: []float64{0.1, 0.25, 0.5, 1, 2, 4, 8, 16, 32, 64, 128},
-		},
-		[]string{"code", "method"},
-	)
-	metricHTTPBuildRequestDuration = promauto.NewHistogramVec(
-		prometheus.HistogramOpts{
-			Name:    "gobuild_http_build_request_duration_seconds",
-			Help:    "Duration of requests on build endpoint in seconds.",
-			Buckets: []float64{0.1, 0.25, 0.5, 1, 2, 4, 8, 16, 32, 64, 128},
-		},
-		[]string{"code", "method"},
-	)
-	metricHTTPResultRequestDuration = promauto.NewHistogramVec(
-		prometheus.HistogramOpts{
-			Name:    "gobuild_http_result_request_duration_seconds",
-			Help:    "Duration of requests on result endpoint in seconds.",
-			Buckets: []float64{0.1, 0.25, 0.5, 1, 2, 4, 8, 16, 32, 64, 128},
-		},
-		[]string{"code", "method"},
-	)
 )
 
 var errRemote = errors.New("remote")
@@ -172,12 +123,14 @@ func serve(args []string) {
 		fmt.Fprint(w, "User-agent: *\nDisallow: /b/\n")
 	})
 	mux.HandleFunc("/builds.txt", func(w http.ResponseWriter, r *http.Request) {
+		defer observePage("builds.txt", time.Now())
 		http.ServeFile(w, r, path.Join(config.DataDir, "builds.txt"))
 	})
-	mux.HandleFunc("/m/", promhttp.InstrumentHandlerDuration(metricHTTPModuleRequestDuration, http.HandlerFunc(serveModules)))
-	mux.HandleFunc("/b/", promhttp.InstrumentHandlerDuration(metricHTTPBuildRequestDuration, http.HandlerFunc(serveBuild)))
-	mux.HandleFunc("/r/", promhttp.InstrumentHandlerDuration(metricHTTPResultRequestDuration, http.HandlerFunc(serveResult)))
+	mux.HandleFunc("/m/", http.HandlerFunc(serveModules))
+	mux.HandleFunc("/b/", http.HandlerFunc(serveBuild))
+	mux.HandleFunc("/r/", http.HandlerFunc(serveResult))
 	mux.HandleFunc("/img/gopher-dance-long.gif", func(w http.ResponseWriter, r *http.Request) {
+		defer observePage("dance", time.Now())
 		w.Header().Set("Content-Type", "image/gif")
 		w.Write(fileGopherDanceLongGif) // nothing to do for errors
 	})

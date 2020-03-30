@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path"
+	"time"
 )
 
 func serveResult(w http.ResponseWriter, r *http.Request) {
@@ -27,6 +28,7 @@ func serveResult(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
+	defer observePage("result "+req.Page.String(), time.Now())
 
 	lpath := path.Join(config.DataDir, req.storeDir())
 

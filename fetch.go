@@ -5,6 +5,7 @@ import (
 	"io/ioutil"
 	"os"
 	"os/exec"
+	"time"
 )
 
 func ensureModule(gobin, module, version string) (string, []byte, error) {
@@ -33,6 +34,10 @@ func fetchModule(gobin, module, version string) ([]byte, error) {
 	}
 	defer os.RemoveAll(dir)
 
+	t0 := time.Now()
+	defer func() {
+		metricGogetDuration.Observe(time.Since(t0).Seconds())
+	}()
 	cmd := exec.Command(gobin, "get", "-d", "-v", module+"@"+version)
 	cmd.Dir = dir
 	cmd.Env = []string{
@@ -42,6 +47,7 @@ func fetchModule(gobin, module, version string) ([]byte, error) {
 	}
 	output, err := cmd.CombinedOutput()
 	if err != nil {
+		metricGogetErrors.Inc()
 		return output, fmt.Errorf("go get: %v", err)
 	}
 	return nil, nil

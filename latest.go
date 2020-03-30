@@ -32,6 +32,11 @@ func resolveModuleLatest(ctx context.Context, module string) (*modVersion, error
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
+	t0 := time.Now()
+	defer func() {
+		metricGoproxyLatestDuration.Observe(time.Since(t0).Seconds())
+	}()
+
 	u := fmt.Sprintf("%s%s/@latest", config.GoProxy, goproxyEscape(module))
 	mreq, err := http.NewRequestWithContext(ctx, "GET", u, nil)
 	if err != nil {
@@ -43,6 +48,7 @@ func resolveModuleLatest(ctx context.Context, module string) (*modVersion, error
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
+		metricGoproxyLatestErrors.WithLabelValues(fmt.Sprintf("%d", resp.StatusCode)).Inc()
 		buf, err := ioutil.ReadAll(resp.Body)
 		msg := string(buf)
 		if err != nil {
