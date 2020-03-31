@@ -51,7 +51,6 @@ var (
 		HTTPS        *struct {
 			ACME struct {
 				Domains []string `sconf-doc:"List of domains to serve HTTPS for and request certificates for with ACME."`
-				URL     string   `sconf:"optional" sconf-doc:"URL to ACME directory, default is the URL to Let's Encrypt."`
 				Email   string   `sconf:"Contact email address to use when requesting certificates through ACME. CAs will contact this address in case of problems or expiry of certificates."`
 				CertDir string   `sconf:"Directory to stored certificates in."`
 			} `sconf-doc:"ACME configuration."`
