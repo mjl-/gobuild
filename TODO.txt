@@ -1,4 +1,4 @@
-- Create a transparency log with builds.
+- Create a transparency log with builds?
 
 - Write tests.
 - Update page title or favicon with success/failure of a build in progress?
@@ -10,6 +10,8 @@
 - Cleanup dir in go/pkg/mod/ after fetching/building, saves disk space. And we won't redownload too often. We could also periodically remove dirs with atime older than 1 hour. Will help if people build one module for different goversion/goos/goarch.
 - Could remove binaries after a period of inactivity. We can still keep the hash. And if the binary is requested again, just calculate it.
 - Should always do a "go get" before a build, not assume that all dependencies were fetched when a local package directory exists.
+- Implement listening on specified list of network addresses for HTTPS, instead of default :443?
+- Show version number of gobuild on the html pages.
 - When resolving URLs with both goversion and modversion as "latest", do a single redirect?
 - On pages that link to other builds that were successful, link to /z/ URLs, not /x/. Saves redirects.
 - Implement privilege separation? Start as root, run all go commands under uid, http server under different uid (perhaps), store the results in a place the go commands cannot touch it.
@@ -17,3 +19,4 @@
 - Do not make module cache readonly when goversion >= 1.14, with -modcacherw.
 - Try to make this work on windows.
 - Find good place to mention one-liner to recreate sum: python3 -c 'import sys, hashlib, base64; print("0" + base64.urlsafe_b64encode(hashlib.sha256(sys.stdin.buffer.read()).digest()[:20]).decode("utf-8").rstrip("="))'
+- Add favicon.
