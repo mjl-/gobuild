@@ -38,7 +38,7 @@ func fetchModule(gobin, module, version string) ([]byte, error) {
 	defer func() {
 		metricGogetDuration.Observe(time.Since(t0).Seconds())
 	}()
-	cmd := exec.Command(gobin, "get", "-d", "-v", module+"@"+version)
+	cmd := exec.Command(gobin, "get", "-d", "-v", "--", module+"@"+version)
 	cmd.Dir = dir
 	cmd.Env = []string{
 		fmt.Sprintf("GOPROXY=%s", config.GoProxy),
