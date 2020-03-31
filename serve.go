@@ -19,6 +19,7 @@ import (
 	"github.com/mjl-/httpinfo"
 	"github.com/mjl-/sconf"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"golang.org/x/crypto/acme/autocert"
 )
 
 var (
@@ -47,12 +48,21 @@ var (
 		HomeDir      string   `sconf-doc:"Directory set as home directory during builds. Go caches will be created there."`
 		MaxBuilds    int      `sconf-doc:"Maximum concurrent builds. Default (0) uses NumCPU+1."`
 		VerifierURLs []string `sconf:"optional" sconf-doc:"URLs of other gobuild instances that are asked to perform the same build. Gobuild requires all of them to create the same binary for a successful build. Ideally, these instances differ in goos, goarch, user id and name, home and work directories."`
+		HTTPS        *struct {
+			ACME struct {
+				Domains []string `sconf-doc:"List of domains to serve HTTPS for and request certificates for with ACME."`
+				URL     string   `sconf:"optional" sconf-doc:"URL to ACME directory, default is the URL to Let's Encrypt."`
+				Email   string   `sconf:"Contact email address to use when requesting certificates through ACME. CAs will contact this address in case of problems or expiry of certificates."`
+				CertDir string   `sconf:"Directory to stored certificates in."`
+			} `sconf-doc:"ACME configuration."`
+		} `sconf:"optional" sconf-doc:"HTTPS configuration, if any."`
 	}{
 		"https://proxy.golang.org/",
 		"data",
 		"sdk",
 		"home",
 		0,
+		nil,
 		nil,
 	}
 )
@@ -62,8 +72,10 @@ var errServer = errors.New("server error")
 
 func serve(args []string) {
 	serveFlags := flag.NewFlagSet("serve", flag.ExitOnError)
-	listenAddress := serveFlags.String("listen", "localhost:8000", "address to serve on")
-	listenAdmin := serveFlags.String("listenadmin", "localhost:8001", "address to serve admin-related http on")
+
+	listenAdmin := serveFlags.String("listen-admin", "localhost:8001", "address to serve admin-related http on")
+	listenHTTP := serveFlags.String("listen-http", "localhost:8000", "address to serve plain http on")
+
 	serveFlags.Usage = func() {
 		log.Println("usage: gobuild serve [flags] [gobuild.conf]")
 		serveFlags.PrintDefaults()
@@ -135,11 +147,34 @@ func serve(args []string) {
 		w.Write(fileGopherDanceLongGif) // nothing to do for errors
 	})
 	mux.HandleFunc("/", serveHome)
-	log.Printf("listening on %s and %s", *listenAddress, *listenAdmin)
-	go func() {
-		log.Fatalln(http.ListenAndServe(*listenAdmin, nil))
-	}()
-	log.Fatalln(http.ListenAndServe(*listenAddress, mux))
+	msg := "listening on"
+	if *listenHTTP != "" {
+		msg += " http " + *listenHTTP
+		go func() {
+			log.Fatal(http.ListenAndServe(*listenHTTP, mux))
+		}()
+	}
+	if config.HTTPS != nil {
+		msg += " https :443"
+		os.MkdirAll(config.HTTPS.ACME.CertDir, 0700) // errors will come up later
+		m := &autocert.Manager{
+			Prompt:     autocert.AcceptTOS,
+			HostPolicy: autocert.HostWhitelist(config.HTTPS.ACME.Domains...),
+			Cache:      autocert.DirCache(config.HTTPS.ACME.CertDir),
+			Email:      config.HTTPS.ACME.Email,
+		}
+		go func() {
+			log.Fatal(http.Serve(m.Listener(), mux))
+		}()
+	}
+	if *listenAdmin != "" {
+		msg += " admin " + *listenAdmin
+		go func() {
+			log.Fatal(http.ListenAndServe(*listenAdmin, nil))
+		}()
+	}
+	log.Print(msg)
+	select {}
 }
 
 func failf(w http.ResponseWriter, format string, args ...interface{}) {

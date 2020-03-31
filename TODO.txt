@@ -1,5 +1,3 @@
-- Implement TLS with golang.org/x/crypto/acme/autocert.
-
 - Create a transparency log with builds.
 
 - Write tests.
