@@ -37,7 +37,7 @@ type buildUpdate struct {
 	done          bool       // If true, build finished, failure or success.
 	err           error      // If not nil, build failed.
 	result        *buildJSON // Only in case of success.
-	queuePosition int        // If 0, no longer waiting but building.
+	queuePosition int        // If 0, no longer queued but building.
 	msg           []byte     // JSON-encoded buildUpdateMsg to write to clients.
 }
 
@@ -81,26 +81,17 @@ func coordinateBuilds() {
 	if maxBuilds == 0 {
 		maxBuilds = runtime.NumCPU() + 1
 	}
-	waiting := []request{}
+
+	// Build requests always go through the queue. We'll pick up the next for which the
+	// output path is available, but only if we are below maxBuilds builds in progress.
+	// Requests are always for build index pages.
+	queue := []request{}
+
+	// Keep track of output paths that are "busy", i.e. currently running builds will output to.
+	// Keys are the result of request.outputPath.
+	pathBusy := map[string]struct{}{}
 
 	updatec := make(chan buildUpdate)
-
-	startBuild := func(req request, b *wipBuild) {
-		active++
-		go func() {
-			result, err := goBuild(req)
-			var msg []byte
-			if err == nil {
-				msg = buildUpdateMsg{Kind: kindSuccess, Result: result}.json()
-			} else if errors.Is(err, errTempFailure) {
-				msg = buildUpdateMsg{Kind: kindTempFail, Error: err.Error()}.json()
-			} else {
-				msg = buildUpdateMsg{Kind: kindPermFail, Error: err.Error()}.json()
-			}
-			update := buildUpdate{req: req, done: true, err: err, result: result, msg: msg}
-			updatec <- update
-		}()
-	}
 
 	intptr := func(i int) *int {
 		return &i
@@ -116,6 +107,50 @@ func coordinateBuilds() {
 			case c <- update:
 			default:
 			}
+		}
+	}
+
+	startBuild := func(req request, b *wipBuild) {
+		active++
+		pathBusy[req.outputPath()] = struct{}{}
+		go func() {
+			result, err := goBuild(req)
+			var msg []byte
+			if err == nil {
+				msg = buildUpdateMsg{Kind: kindSuccess, Result: result}.json()
+			} else if errors.Is(err, errTempFailure) {
+				msg = buildUpdateMsg{Kind: kindTempFail, Error: err.Error()}.json()
+			} else {
+				msg = buildUpdateMsg{Kind: kindPermFail, Error: err.Error()}.json()
+			}
+			update := buildUpdate{req: req, done: true, err: err, result: result, msg: msg}
+			updatec <- update
+		}()
+	}
+
+	kick := func() {
+		if active >= maxBuilds {
+			return
+		}
+
+		for i := 0; i < len(queue); {
+			req := queue[i]
+			if _, busy := pathBusy[req.outputPath()]; busy {
+				i++
+				continue
+			}
+			queue = append(queue[:i], queue[i+1:]...)
+			nb := builds[req]
+			if len(nb.events) == 0 {
+				// All parties interested have gone, don't build.
+				continue
+			}
+			sendPending(nb, 0)
+			startBuild(req, nb)
+			for j, wreq := range queue[i:] {
+				sendPending(builds[wreq], j+1)
+			}
+			break
 		}
 	}
 
@@ -135,15 +170,12 @@ func coordinateBuilds() {
 			}
 
 			if !ok {
-				if active < maxBuilds {
-					startBuild(breq, b)
-				} else {
-					waiting = append(waiting, breq)
-				}
+				queue = append(queue, breq)
+				kick()
 			}
 			update := buildUpdate{
-				queuePosition: len(waiting),
-				msg:           buildUpdateMsg{Kind: kindQueuePosition, QueuePosition: intptr(len(waiting))}.json(),
+				queuePosition: len(queue),
+				msg:           buildUpdateMsg{Kind: kindQueuePosition, QueuePosition: intptr(len(queue))}.json(),
 			}
 			br.eventc <- update
 
@@ -177,26 +209,13 @@ func coordinateBuilds() {
 			if !update.done {
 				continue
 			}
+			delete(pathBusy, breq.outputPath())
 			b.final = &update
 			active--
 			if len(b.events) == 0 {
 				delete(builds, breq)
 			}
-			for len(waiting) > 0 {
-				req := waiting[0]
-				waiting = waiting[1:]
-				nb := builds[req]
-				if len(nb.events) == 0 {
-					// All parties interested have gone, don't build.
-					continue
-				}
-				sendPending(nb, 0)
-				startBuild(req, nb)
-				for i, wreq := range waiting {
-					sendPending(builds[wreq], i+1)
-				}
-				break
-			}
+			kick()
 		}
 	}
 }

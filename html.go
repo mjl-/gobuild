@@ -114,16 +114,12 @@ const buildTemplateString = `
 {{ end }}
 
 	<h2>Reproduce</h2>
-	<p>You should be able to reproduce this build with the commands below.</p>
-<pre>tmpdir=$(mktemp -d)
-cd $tmpdir
-GO111MODULE=on GOPROXY={{ .GoProxy }} {{ .Req.Goversion }} get -d -v {{ .req.Mod }}@{{ .Req.Version }}
-cd $HOME/go/pkg/mod/{{ .Req.Mod }}@{{ .Req.Version }}/{{ .Req.Dir }}
+	<p>To reproduce locally:</p>
+<pre>
 GO19CONCURRENTCOMPILATION=0 GO111MODULE=on GOPROXY={{ .GoProxy }} \
 	CGO_ENABLED=0 GOOS={{ .Req.Goos }} GOARCH={{ .Req.Goarch }} \
-	{{ .Req.Goversion }} build -mod=readonly -o $tmpdir/{{ .DownloadFilename }} -x -v -trimpath -ldflags=-buildid=
-sha256sum $tmpdir/{{ .DownloadFilename }}
-{{ if .SHA256 }}# should be: {{ .SHA256 }}{{ end }}
+	{{ .Req.Goversion }} get -x -v -trimpath -ldflags=-buildid= -- {{ .Req.Mod }}{{ if not (eq .Req.Dir "") }}/{{ .Req.Dir }}{{ end }}@{{ .Req.Version }}
+{{ if .SHA256 }}# sha256 should be: {{ .SHA256 }}{{ end }}
 </pre>
 
 	<div style="width: 32%; display: inline-block; vertical-align: top">
@@ -318,12 +314,12 @@ const homeTemplateString = `
 		<blockquote style="color:#666; white-space: nowrap">
 			<a href="/m/github.com/mjl-/gobuild">/m/github.com/mjl-/gobuild</a><br/>
 			<a href="/b/github.com/mjl-/sherpa@latest/cmd/sherpaclient/linux-amd64-latest/">/b/github.com/mjl-/sherpa@latest/cmd/sherpaclient/linux-amd64-latest/</a><br/>
-			<a href="/r/github.com/mjl-/sherpa@v0.6.0/cmd/sherpaclient/linux-amd64-go1.14.1/0rLhZFgnc9hme13PhUpIvNw08LEk/">/r/github.com/mjl-/sherpa@v0.6.0/cmd/sherpaclient/linux-amd64-go1.14.1/0rLhZFgnc9hme13PhUpIvNw08LEk/</a>
+			<a href="/r/github.com/mjl-/sherpa@v0.6.0/cmd/sherpaclient/linux-amd64-go1.14.1/0m32pSahHbf-fptQdDyWD87GJNXI/">/r/github.com/mjl-/sherpa@v0.6.0/cmd/sherpaclient/linux-amd64-go1.14.1/0m32pSahHbf-fptQdDyWD87GJNXI/</a>
 		</blockquote>
 
 		<p>The first URL fetches the requested Go module, and redirects to a URL of the second form.</p>
 		<p>The second URL first resolves "latest" for the module and Go version with a redirect. Then starts a build for the requested parameters if needed. When finished, it redirects to a URL of the third kind.</p>
-		<p>The third URL represents a successful build. The URL includes the sum: The versioned raw-base64-url-encoded 20-byte sha256-prefix. The page links to the binary, the build output log file, and to builds of the same package with different module versions, goversions, goos/goarch.</p>
+		<p>The third URL represents a successful build. The URL includes the sum: The versioned raw-base64-url-encoded 20-byte prefix of the sha256 sum. The page links to the binary, the build output log file, and to builds of the same package with different module versions, goversions, goos/goarch.</p>
 		<p>You need not and cannot refresh a build: they would give the same result.</p>
 
 		<h2>More</h2>
@@ -331,13 +327,10 @@ const homeTemplateString = `
 		<p>Gobuild looks up module versions through the go proxy. That's why shorthand versions like "@v1" don't resolve.</p>
 		<p>Code is available at <a href="https://github.com/mjl-/gobuild">github.com/mjl-/gobuild</a>, under MIT-license, feedback welcome.</p>
 		<p>To build, gobuild executes:</p>
-<pre>tmpdir=$(mktemp -d)
-cd $tmpdir
-GO111MODULE=on GOPROXY=https://proxy.golang.org/ $goversion get -d -v $module@$version
-cd $HOME/go/pkg/mod/$module@$version/$path
+<pre>
 GO19CONCURRENTCOMPILATION=0 GO111MODULE=on GOPROXY=https://proxy.golang.org/ \
 	CGO_ENABLED=0 GOOS=$goos GOARCH=$goarch \
-	$goversion build -mod=readonly -o $tmpdir/$name -x -v -trimpath -ldflags=-buildid=</pre>
+	$goversion get -trimpath -ldflags=-buildid= -- $module/$package@$version</pre>
 {{ end }}
 {{ define "script" }}{{ end }}
 `

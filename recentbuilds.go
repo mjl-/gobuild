@@ -30,7 +30,7 @@ func readRecentBuilds() {
 			s = s[:len(s)-1]
 			t := strings.Split(s, " ")
 			switch t[0] {
-			case "v0":
+			case "0":
 				if len(t) != 14 {
 					log.Printf("bad line with v0, got %d tokens, expected 14", len(t))
 					return

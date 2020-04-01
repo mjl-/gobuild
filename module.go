@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"net/http"
 	"path"
 	"strings"
@@ -120,7 +119,7 @@ func listMainPackages(gobin string, modDir string) ([]string, error) {
 	cmd := makeCommand(gobin, "list", "-f", "{{.Name}} {{ .Dir }}", "./...")
 	cmd.Dir = modDir
 	cmd.Env = []string{
-		fmt.Sprintf("GOPROXY=%s", config.GoProxy),
+		"GOPROXY=" + config.GoProxy,
 		"GO111MODULE=on",
 		"HOME=" + homedir,
 	}

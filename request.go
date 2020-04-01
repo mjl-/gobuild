@@ -41,6 +41,23 @@ func (r request) isBuild() bool {
 	return r.Sum == ""
 }
 
+// GOBIN-relative name of file created by "go get". Used as key to prevent
+// concurrent builds that would create the same output file. This does not take
+// into account that compiles for the same GOOS/GOARCH as host will just write to
+// $GOBIN.
+func (r request) outputPath() string {
+	var name string
+	if r.Dir != "" {
+		name = path.Base(r.Dir)
+	} else {
+		name = path.Base(r.Mod)
+	}
+	if r.Goos == "windows" {
+		name += ".exe"
+	}
+	return fmt.Sprintf("%s-%s/%s", r.Goos, r.Goarch, name)
+}
+
 // buildRequest returns a request that points to a /b/ URL, leaving page intact.
 func (r request) buildRequest() request {
 	r.Sum = ""
@@ -113,7 +130,7 @@ func (r request) downloadFilename() string {
 	return fmt.Sprintf("%s-%s-%s%s", r.filename(), r.Version, r.Goversion, ext)
 }
 
-// We'll get paths like /[br]/github.com/mjl-/sherpa@v0.6.0/cmd/sherpaclient/linux-amd64-go1.14.1/0rLhZFgnc9hme13PhUpIvNw08LEk/{log,sha256,dl,<name>,<name>.gz,build.json, events}
+// We'll get paths like /[br]/github.com/mjl-/sherpa@v0.6.0/cmd/sherpaclient/linux-amd64-go1.14.1/0m32pSahHbf-fptQdDyWD87GJNXI/{log,sha256,dl,<name>,<name>.gz,build.json, events}
 func parseRequest(s string) (r request, hint string, ok bool) {
 	withSum := strings.HasPrefix(s, "/r/")
 	s = s[len("/X/"):]

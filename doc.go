@@ -20,9 +20,9 @@ redirect. Then starts a build for the requested parameters if needed. When
 finished, it redirects to a URL of the third kind.
 
 The third URL represents a successful build. The URL includes the sum: The
-versioned raw-base64-url-encoded 20-byte sha256-prefix. The page links to the
-binary, the build output log file, and to builds of the same package with
-different module versions, goversions, goos/goarch.
+versioned raw-base64-url-encoded 20-byte prefix of the sha256 sum. The page
+links to the binary, the build output log file, and to builds of the same
+package with different module versions, goversions, goos/goarch.
 
 You need not and cannot refresh a build: they would give the same result.
 
@@ -36,13 +36,9 @@ shorthandversions like "@v1" don't resolve.
 
 To build, gobuild executes:
 
-	tmpdir=$(mktemp -d)
-	cd $tmpdir
-	GO111MODULE=on GOPROXY=https://proxy.golang.org/ $goversion get -d -v $module@$version
-	cd $HOME/go/pkg/mod/$module@$version/$path
 	GO19CONCURRENTCOMPILATION=0 GO111MODULE=on GOPROXY=https://proxy.golang.org/ \
 		CGO_ENABLED=0 GOOS=$goos GOARCH=$goarch \
-		$goversion build -mod=readonly -o $tmpdir/$name -x -v -trimpath -ldflags=-buildid=
+		$goversion get -x -v -trimpath -ldflags=-buildid= -- $module/$package@$version
 
 Running
 

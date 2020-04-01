@@ -14,6 +14,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 )
@@ -21,7 +22,7 @@ import (
 var errTempFailure = errors.New("temporary failure")
 
 type buildJSON struct {
-	V             string // "v0"
+	V             string // "0"
 	Sum           string // Sum is the versioned raw-base64-url encoded 20-byte prefix of the SHA256 sum. For v0, it starts with "0".
 	SHA256        []byte
 	Filesize      int64
@@ -72,7 +73,7 @@ func prepareBuild(req request) error {
 	cmd := makeCommand(gobin, "list", "-f", "{{.Name}}")
 	cmd.Dir = pkgDir
 	cmd.Env = []string{
-		fmt.Sprintf("GOPROXY=%s", config.GoProxy),
+		"GOPROXY=" + config.GoProxy,
 		"GO111MODULE=on",
 		"CGO_ENABLED=0",
 		"GOOS=" + req.Goos,
@@ -129,11 +130,10 @@ func build(req request) (result *buildJSON, err error) {
 		return nil, fmt.Errorf("ensuring go version is available: %v (%w)", err, errTempFailure)
 	}
 
-	modDir, getOutput, err := ensureModule(gobin, req.Mod, req.Version)
+	_, getOutput, err := ensureModule(gobin, req.Mod, req.Version)
 	if err != nil {
 		return nil, fmt.Errorf("error fetching module from goproxy: %v (%w)\n\n# output from go get:\n%s", err, errTempFailure, string(getOutput))
 	}
-	pkgDir := modDir + "/" + req.Dir
 
 	dir, err := ioutil.TempDir("", "gobuild")
 	if err != nil {
@@ -142,9 +142,9 @@ func build(req request) (result *buildJSON, err error) {
 	defer os.RemoveAll(dir)
 
 	// Launch goroutines to let them build the same code and return their build.json.
-	// After our build, we'll verify if we all had the same result. If our build fails,
-	// we'll just ignore these results, and let the remote builds continue. They will
-	// not cancel the build anyway.
+	// After our build, we verify we all had the same result. If our build fails, we
+	// just ignore these results, and let the remote builds continue. They will not
+	// cancel the build anyway.
 
 	type remoteBuild struct {
 		verifyURL string
@@ -198,11 +198,46 @@ func build(req request) (result *buildJSON, err error) {
 
 	t0 := time.Now()
 
-	lname := dir + "/bin/" + req.filename()
-	os.Mkdir(filepath.Dir(lname), 0775) // failures will be caught later
-	cmd := makeCommand(gobin, "build", "-mod=readonly", "-o", lname, "-x", "-v", "-trimpath", "-ldflags=-buildid=")
+	// What to "go get".
+	name := req.Mod
+	if req.Dir != "" {
+		name += "/" + req.Dir
+	}
+	name += "@" + req.Version
+
+	// Path to compiled binary written by go get. We need to use "go get" to get full
+	// module version information in the binary. That isn't possible with "go build".
+	// But only "go build" has an "-o" flag to specify the output. And "go get" won't
+	// build with $GOBIN set.
+	resultPath := filepath.Join(homedir, "go", "bin")
+	if req.Goos != runtime.GOOS || req.Goarch != runtime.GOARCH {
+		resultPath = filepath.Join(resultPath, req.Goos+"_"+req.Goarch)
+	}
+	if req.Dir == "" {
+		resultPath = filepath.Join(resultPath, path.Base(req.Mod))
+	} else {
+		resultPath = filepath.Join(resultPath, path.Base(req.Dir))
+	}
+	// Also cannot set "GOEXE", "go get" does not use it.
+	if req.Goos == "windows" {
+		resultPath += ".exe"
+	}
+
+	// Ensure the file does not exist before trying to create it.
+	// This might be a leftover from some earlier build attempt.
+	err = os.Remove(resultPath)
+	if err != nil && !os.IsNotExist(err) {
+		return nil, fmt.Errorf("attempting to remove preexisting binary: %v (%w)", err, errTempFailure)
+	}
+
+	// Always remove binary from $GOBIN when we're done here. We copied it on success.
+	defer func() {
+		os.Remove(resultPath)
+	}()
+
+	cmd := makeCommand(gobin, "get", "-x", "-v", "-trimpath", "-ldflags=-buildid=", "--", name)
 	cmd.Env = []string{
-		fmt.Sprintf("GOPROXY=%s", config.GoProxy),
+		"GOPROXY=" + config.GoProxy,
 		"GO111MODULE=on",
 		"GO19CONCURRENTCOMPILATION=0",
 		"CGO_ENABLED=0",
@@ -210,7 +245,7 @@ func build(req request) (result *buildJSON, err error) {
 		"GOARCH=" + req.Goarch,
 		"HOME=" + homedir,
 	}
-	cmd.Dir = pkgDir
+	cmd.Dir = dir
 	output, err := cmd.CombinedOutput()
 	var sysTime, userTime time.Duration
 	if cmd.ProcessState != nil {
@@ -229,13 +264,17 @@ func build(req request) (result *buildJSON, err error) {
 
 	elapsed := time.Since(start)
 
-	var tmpdir string
-	result, tmpdir, err = saveFiles(req, output, lname, start, elapsed, sysTime, userTime)
+	tmpdir, err := ioutil.TempDir(config.DataDir, "gobuild")
+	if err != nil {
+		return nil, err
+	}
 	defer func() {
 		if tmpdir != "" {
 			os.RemoveAll(tmpdir)
 		}
 	}()
+
+	result, err = saveFiles(tmpdir, req, output, resultPath, start, elapsed, sysTime, userTime)
 	if err != nil {
 		return nil, fmt.Errorf("storing results of build: %v (%w)", err, errTempFailure)
 	}
@@ -297,7 +336,7 @@ func saveFailure(req request, output string, start time.Time, systemTime, userTi
 	tmpdir = ""
 
 	buildResult := &buildJSON{
-		"v0",
+		"0",
 		"",
 		nil, // Marks failure.
 		0,
@@ -317,38 +356,32 @@ func saveFailure(req request, output string, start time.Time, systemTime, userTi
 	return err
 }
 
-func saveFiles(req request, output []byte, lname string, start time.Time, elapsed, systemTime, userTime time.Duration) (*buildJSON, string, error) {
-	of, err := os.Open(lname)
+func saveFiles(tmpdir string, req request, output []byte, resultPath string, start time.Time, elapsed, systemTime, userTime time.Duration) (*buildJSON, error) {
+	of, err := os.Open(resultPath)
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 	defer of.Close()
 
 	fi, err := of.Stat()
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 	size := fi.Size()
 
 	h := sha256.New()
 	_, err = io.Copy(h, of)
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 	sha256 := h.Sum(nil)
 	_, err = of.Seek(0, io.SeekStart)
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
-
-	tmpdir, err := ioutil.TempDir(config.DataDir, "success")
-	if err != nil {
-		return nil, "", err
-	}
-	// note: tmpdir is removed by caller!
 
 	buildResult := buildJSON{
-		"v0",
+		"0",
 		"0" + base64.RawURLEncoding.EncodeToString(sha256[:20]),
 		sha256,
 		size,
@@ -367,29 +400,29 @@ func saveFiles(req request, output []byte, lname string, start time.Time, elapse
 
 	err = writeGz(tmpdir+"/log.gz", bytes.NewReader(output))
 	if err != nil {
-		return nil, tmpdir, err
+		return nil, err
 	}
 
 	binGz := tmpdir + "/" + req.downloadFilename() + ".gz"
 	err = writeGz(binGz, of)
 	if err != nil {
-		return nil, tmpdir, err
+		return nil, err
 	}
 	fi, err = os.Stat(binGz)
 	if err != nil {
-		return nil, tmpdir, err
+		return nil, err
 	}
 	buildResult.FilesizeGz = fi.Size()
 
 	buf, err := json.Marshal(buildResult)
 	if err != nil {
-		return nil, tmpdir, fmt.Errorf("%w: marshal build.json: %v", errServer, err)
+		return nil, fmt.Errorf("%w: marshal build.json: %v", errServer, err)
 	}
 	err = ioutil.WriteFile(tmpdir+"/build.json", buf, 0664)
 	if err != nil {
-		return nil, tmpdir, err
+		return nil, err
 	}
-	return &buildResult, tmpdir, nil
+	return &buildResult, nil
 }
 
 func writeGz(path string, src io.Reader) error {

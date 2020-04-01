@@ -72,7 +72,7 @@ func serveResult(w http.ResponseWriter, r *http.Request) {
 			select {
 			case <-ctx.Done():
 				unregisterBuild(req, eventc)
-				break loop
+				return
 			case update := <-eventc:
 				if !update.done {
 					continue
