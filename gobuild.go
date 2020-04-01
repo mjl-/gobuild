@@ -12,7 +12,6 @@ import (
 	"io/ioutil"
 	"net/http"
 	"os"
-	"os/exec"
 	"path"
 	"path/filepath"
 	"strings"
@@ -70,7 +69,7 @@ func prepareBuild(req request) error {
 	pkgDir := modDir + "/" + req.Dir
 
 	// Check if package is a main package, resulting in an executable when built.
-	cmd := exec.Command(gobin, "list", "-f", "{{.Name}}")
+	cmd := makeCommand(gobin, "list", "-f", "{{.Name}}")
 	cmd.Dir = pkgDir
 	cmd.Env = []string{
 		fmt.Sprintf("GOPROXY=%s", config.GoProxy),
@@ -201,7 +200,7 @@ func build(req request) (result *buildJSON, err error) {
 
 	lname := dir + "/bin/" + req.filename()
 	os.Mkdir(filepath.Dir(lname), 0775) // failures will be caught later
-	cmd := exec.Command(gobin, "build", "-mod=readonly", "-o", lname, "-x", "-v", "-trimpath", "-ldflags=-buildid=")
+	cmd := makeCommand(gobin, "build", "-mod=readonly", "-o", lname, "-x", "-v", "-trimpath", "-ldflags=-buildid=")
 	cmd.Env = []string{
 		fmt.Sprintf("GOPROXY=%s", config.GoProxy),
 		"GO111MODULE=on",

@@ -1,10 +1,8 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"net/http"
-	"os/exec"
 	"path"
 	"strings"
 	"time"
@@ -58,7 +56,7 @@ func serveModules(w http.ResponseWriter, r *http.Request) {
 
 	goos, goarch := autodetectTarget(r)
 
-	mainDirs, err := listMainPackages(r.Context(), gobin, modDir)
+	mainDirs, err := listMainPackages(gobin, modDir)
 	if err != nil {
 		failf(w, "listing main packages in module: %w", err)
 		return
@@ -116,8 +114,8 @@ func serveModules(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func listMainPackages(ctx context.Context, gobin string, modDir string) ([]string, error) {
-	cmd := exec.CommandContext(ctx, gobin, "list", "-f", "{{.Name}} {{ .Dir }}", "./...")
+func listMainPackages(gobin string, modDir string) ([]string, error) {
+	cmd := makeCommand(gobin, "list", "-f", "{{.Name}} {{ .Dir }}", "./...")
 	cmd.Dir = modDir
 	cmd.Env = []string{
 		fmt.Sprintf("GOPROXY=%s", config.GoProxy),

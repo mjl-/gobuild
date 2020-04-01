@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
-	"os/exec"
 	"time"
 
 	"golang.org/x/mod/module"
@@ -48,7 +47,7 @@ func fetchModule(gobin, mod, version string) ([]byte, error) {
 	defer func() {
 		metricGogetDuration.Observe(time.Since(t0).Seconds())
 	}()
-	cmd := exec.Command(gobin, "get", "-d", "-v", "--", mod+"@"+version)
+	cmd := makeCommand(gobin, "get", "-d", "-v", "--", mod+"@"+version)
 	cmd.Dir = dir
 	cmd.Env = []string{
 		fmt.Sprintf("GOPROXY=%s", config.GoProxy),
