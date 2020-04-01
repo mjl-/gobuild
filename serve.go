@@ -12,6 +12,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -23,8 +24,9 @@ import (
 )
 
 var (
-	workdir string
-	homedir string
+	workdir        string
+	homedir        string
+	gobuildVersion = "(no module)"
 
 	recentBuilds struct {
 		sync.Mutex
@@ -100,6 +102,10 @@ func serve(args []string) {
 		if strings.HasSuffix(url, "/") {
 			config.VerifierURLs[i] = config.VerifierURLs[i][:len(config.VerifierURLs[i])-1]
 		}
+	}
+
+	if buildInfo, ok := debug.ReadBuildInfo(); ok {
+		gobuildVersion = buildInfo.Main.Version
 	}
 
 	var err error

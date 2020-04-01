@@ -21,9 +21,11 @@ func serveHome(w http.ResponseWriter, r *http.Request) {
 	recentBuilds.Unlock()
 
 	var args = struct {
-		Recents []string
+		Recents        []string
+		GobuildVersion string
 	}{
 		recents,
+		gobuildVersion,
 	}
 	err := homeTemplate.Execute(w, args)
 	if err != nil {

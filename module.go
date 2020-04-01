@@ -100,13 +100,15 @@ func serveModules(w http.ResponseWriter, r *http.Request) {
 		mainPkgs = append(mainPkgs, mainPkg{req.urlPath(), md})
 	}
 	args := struct {
-		Module  string
-		Version string
-		Mains   []mainPkg
+		Module         string
+		Version        string
+		Mains          []mainPkg
+		GobuildVersion string
 	}{
 		mod,
 		info.Version,
 		mainPkgs,
+		gobuildVersion,
 	}
 	err = moduleTemplate.Execute(w, args)
 	if err != nil {

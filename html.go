@@ -58,6 +58,7 @@ pre { font-size: .9rem; }
 	<body>
 		<div style="margin:1rem 1rem 3rem 1rem">
 {{ template "content" . }}
+			<div style="text-align: center; margin-top: 2rem; font-size: .85rem; color: #888"><a style="color:#888" href="https://github.com/mjl-/gobuild">gobuild</a> {{ .GobuildVersion }}</div>
 		</div>
 {{ template "script" . }}
 	</body>

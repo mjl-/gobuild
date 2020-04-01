@@ -192,6 +192,7 @@ func serveIndex(w http.ResponseWriter, r *http.Request, req request, result *bui
 		"SystemTimeMS":    fmt.Sprintf("%d", result.SystemTime/time.Millisecond),
 		"UserTimeMS":      fmt.Sprintf("%d", result.UserTime/time.Millisecond),
 		"PkgGoDevURL":     pkgGoDevURL,
+		"GobuildVersion":  gobuildVersion,
 	}
 
 	if req.isBuild() {
