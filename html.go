@@ -294,7 +294,7 @@ const homeTemplateString = `
 
 		<h2>Try a module</h2>
 		<form onsubmit="location.href = '/m/' + moduleName.value; return false" method="GET" action="/m/">
-			<input id="moduleName" name="m" type="text" placeholder="github.com/your/project" style="width:30rem; max-width:75%" />
+			<input id="moduleName" name="m" type="text" placeholder="github.com/your/project containing go.mod" style="width:30rem; max-width:75%" />
 			<button type="submit">Go!</button>
 		</form>
 
