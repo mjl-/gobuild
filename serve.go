@@ -145,6 +145,10 @@ func serve(args []string) {
 		defer observePage("builds.txt", time.Now())
 		http.ServeFile(w, r, path.Join(config.DataDir, "builds.txt"))
 	})
+	mux.HandleFunc("/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/png")
+		w.Write(fileFaviconPng) // nothing to do for errors
+	})
 	mux.HandleFunc("/m/", http.HandlerFunc(serveModules))
 	mux.HandleFunc("/b/", http.HandlerFunc(serveBuild))
 	mux.HandleFunc("/r/", http.HandlerFunc(serveResult))
