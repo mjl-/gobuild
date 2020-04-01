@@ -11,6 +11,9 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"golang.org/x/mod/module"
+	"golang.org/x/mod/semver"
 )
 
 // serveIndex serves the HTML page for a build/result, that has either failed or is
@@ -40,7 +43,12 @@ func serveIndex(w http.ResponseWriter, r *http.Request, req request, result *bui
 			metricGoproxyListDuration.Observe(time.Since(t0).Seconds())
 		}()
 
-		u := fmt.Sprintf("%s%s/@v/list", config.GoProxy, goproxyEscape(req.Mod))
+		modPath, err := module.EscapePath(req.Mod)
+		if err != nil {
+			c <- response{fmt.Errorf("bad module path: %v", err), nil}
+			return
+		}
+		u := fmt.Sprintf("%s%s/@v/list", config.GoProxy, modPath)
 		mreq, err := http.NewRequestWithContext(ctx, "GET", u, nil)
 		if err != nil {
 			c <- response{fmt.Errorf("%w: preparing new http request: %v", errServer, err), nil}
@@ -72,9 +80,8 @@ func serveIndex(w http.ResponseWriter, r *http.Request, req request, result *bui
 				l = append(l, link)
 			}
 		}
-		// todo: do better job of sorting versions; proxy.golang.org doesn't seem to sort them.
 		sort.Slice(l, func(i, j int) bool {
-			return l[j].Version < l[i].Version
+			return semver.Compare(l[i].Version, l[j].Version) > 0
 		})
 		c <- response{nil, l}
 	}()

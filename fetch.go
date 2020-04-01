@@ -6,12 +6,22 @@ import (
 	"os"
 	"os/exec"
 	"time"
+
+	"golang.org/x/mod/module"
 )
 
-func ensureModule(gobin, module, version string) (string, []byte, error) {
-	modDir := homedir + "/go/pkg/mod/" + goproxyEscape(module) + "@" + goproxyEscape(version)
+func ensureModule(gobin, mod, version string) (string, []byte, error) {
+	modPath, err := module.EscapePath(mod)
+	if err != nil {
+		return "", nil, fmt.Errorf("bad module path: %v", err)
+	}
+	modVersion, err := module.EscapeVersion(version)
+	if err != nil {
+		return "", nil, fmt.Errorf("bad module version: %v", err)
+	}
+	modDir := homedir + "/go/pkg/mod/" + modPath + "@" + modVersion
 
-	_, err := os.Stat(modDir)
+	_, err = os.Stat(modDir)
 	if err == nil {
 		return modDir, nil, nil
 	}
@@ -20,14 +30,14 @@ func ensureModule(gobin, module, version string) (string, []byte, error) {
 		return "", nil, fmt.Errorf("%w: checking if module is checked out locally: %v", errServer, err)
 	}
 
-	output, err := fetchModule(gobin, module, version)
+	output, err := fetchModule(gobin, mod, version)
 	if err != nil {
 		return "", output, err
 	}
 	return modDir, nil, nil
 }
 
-func fetchModule(gobin, module, version string) ([]byte, error) {
+func fetchModule(gobin, mod, version string) ([]byte, error) {
 	dir, err := ioutil.TempDir("", "goget")
 	if err != nil {
 		return nil, fmt.Errorf("%w: tempdir for go get: %v", errServer, err)
@@ -38,7 +48,7 @@ func fetchModule(gobin, module, version string) ([]byte, error) {
 	defer func() {
 		metricGogetDuration.Observe(time.Since(t0).Seconds())
 	}()
-	cmd := exec.Command(gobin, "get", "-d", "-v", "--", module+"@"+version)
+	cmd := exec.Command(gobin, "get", "-d", "-v", "--", mod+"@"+version)
 	cmd.Dir = dir
 	cmd.Env = []string{
 		fmt.Sprintf("GOPROXY=%s", config.GoProxy),

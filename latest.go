@@ -7,28 +7,16 @@ import (
 	"io/ioutil"
 	"net/http"
 	"time"
-	"unicode"
-)
 
-// Replace uppercase character with !lowercase as documented in "go help goproxy". In module and version.
-func goproxyEscape(s string) string {
-	var r string
-	for _, c := range s {
-		if unicode.IsUpper(c) {
-			r += "!" + string(unicode.ToLower(c))
-		} else {
-			r += string(c)
-		}
-	}
-	return r
-}
+	"golang.org/x/mod/module"
+)
 
 type modVersion struct {
 	Version string
 	Time    time.Time
 }
 
-func resolveModuleLatest(ctx context.Context, module string) (*modVersion, error) {
+func resolveModuleLatest(ctx context.Context, mod string) (*modVersion, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
@@ -37,7 +25,11 @@ func resolveModuleLatest(ctx context.Context, module string) (*modVersion, error
 		metricGoproxyLatestDuration.Observe(time.Since(t0).Seconds())
 	}()
 
-	u := fmt.Sprintf("%s%s/@latest", config.GoProxy, goproxyEscape(module))
+	modPath, err := module.EscapePath(mod)
+	if err != nil {
+		return nil, fmt.Errorf("bad module path: %v", err)
+	}
+	u := fmt.Sprintf("%s%s/@latest", config.GoProxy, modPath)
 	mreq, err := http.NewRequestWithContext(ctx, "GET", u, nil)
 	if err != nil {
 		return nil, fmt.Errorf("%w: preparing goproxy http request: %v", errServer, err)
