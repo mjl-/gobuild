@@ -152,11 +152,14 @@ func autodetectTarget(r *http.Request) (goos, goarch string) {
 	for _, t := range targets {
 		m0 := strings.Contains(ua, t.Goos)
 		if !m0 && t.Goos == "darwin" {
-			m0 = strings.Contains(ua, "macos")
+			m0 = strings.Contains(ua, "macos") || strings.Contains(ua, "macintosh") || strings.Contains(ua, "mac os x")
 		}
 		m1 := strings.Contains(ua, t.Goarch)
 		if !m1 && t.Goarch == "amd64" {
-			m1 = strings.Contains(ua, "x86_64")
+			m1 = strings.Contains(ua, "x86_64") || strings.Contains(ua, "x86-64") || strings.Contains(ua, "x64; ") || strings.Contains(ua, "win64") || strings.Contains(ua, "wow64")
+		}
+		if !m1 && t.Goarch == "386" {
+			m1 = strings.Contains(ua, "i686") || strings.Contains(ua, "x86; ") || strings.Contains(ua, "win32")
 		}
 		if !m0 && !m1 {
 			continue
