@@ -255,9 +255,9 @@ func build(req request) (result *buildJSON, err error) {
 	metricCompileDuration.WithLabelValues(req.Goos, req.Goarch, req.Goversion).Observe(time.Since(t0).Seconds())
 	if err != nil {
 		metricCompileErrors.WithLabelValues(req.Goos, req.Goarch, req.Goversion).Inc()
-		err := saveFailure(req, err.Error()+"\n\n"+string(output), start, sysTime, userTime)
-		if err != nil {
-			return nil, fmt.Errorf("storing results of failure: %v (%w)", err, errTempFailure)
+		err2 := saveFailure(req, err.Error()+"\n\n"+string(output), start, sysTime, userTime)
+		if err2 != nil {
+			return nil, fmt.Errorf("storing results of failure: %v (%w)", err2, errTempFailure)
 		}
 		return nil, err
 	}
