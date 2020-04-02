@@ -94,7 +94,7 @@ func serveBuild(w http.ResponseWriter, r *http.Request) {
 		case pageIndex:
 			serveIndex(w, r, req, nil)
 		default:
-			http.Error(w, "400 - Bad Request - build failed", http.StatusBadRequest)
+			http.Error(w, "400 - Bad Request - build failed, see index page for details", http.StatusBadRequest)
 		}
 		return
 	}
