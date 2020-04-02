@@ -3,7 +3,7 @@ package main
 import (
 	"encoding/base64"
 	"fmt"
-	"path"
+	"path/filepath"
 	"strings"
 )
 
@@ -48,9 +48,9 @@ func (r request) isBuild() bool {
 func (r request) outputPath() string {
 	var name string
 	if r.Dir != "" {
-		name = path.Base(r.Dir)
+		name = filepath.Base(r.Dir)
 	} else {
-		name = path.Base(r.Mod)
+		name = filepath.Base(r.Mod)
 	}
 	if r.Goos == "windows" {
 		name += ".exe"
@@ -72,7 +72,7 @@ func (r request) buildIndexRequest() request {
 
 // local directory where results are stored.
 func (r request) storeDir() string {
-	return fmt.Sprintf("%s-%s-%s/%s@%s/%s", r.Goos, r.Goarch, r.Goversion, r.Mod, r.Version, r.Dir)
+	return filepath.FromSlash(fmt.Sprintf("%s-%s-%s/%s@%s/%s", r.Goos, r.Goarch, r.Goversion, r.Mod, r.Version, r.Dir))
 }
 
 // Path in URL for this request.
@@ -116,9 +116,9 @@ func (r request) pagePart() string {
 
 func (r request) filename() string {
 	if r.Dir != "" {
-		return path.Base(r.Dir)
+		return filepath.Base(r.Dir)
 	}
-	return path.Base(r.Mod)
+	return filepath.Base(r.Mod)
 }
 
 // Name of file the http user-agent (browser) will save the file as.

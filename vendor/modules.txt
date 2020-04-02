@@ -10,7 +10,7 @@ github.com/golang/protobuf/ptypes/duration
 github.com/golang/protobuf/ptypes/timestamp
 # github.com/matttproud/golang_protobuf_extensions v1.0.1
 github.com/matttproud/golang_protobuf_extensions/pbutil
-# github.com/mjl-/goreleases v0.0.1
+# github.com/mjl-/goreleases v0.0.2
 ## explicit
 github.com/mjl-/goreleases
 # github.com/mjl-/httpinfo v0.0.2

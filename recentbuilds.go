@@ -7,14 +7,14 @@ import (
 	"io"
 	"log"
 	"os"
-	"path"
+	"path/filepath"
 	"sort"
 	"strings"
 )
 
 // Reading recent builds is best-effort...
 func readRecentBuilds() {
-	f, err := os.Open(path.Join(config.DataDir, "builds.txt"))
+	f, err := os.Open(filepath.Join(config.DataDir, "builds.txt"))
 	if err != nil {
 		log.Printf("open: %v", err)
 		return
@@ -32,7 +32,7 @@ func readRecentBuilds() {
 			switch t[0] {
 			case "0":
 				if len(t) != 14 {
-					log.Printf("bad line with v0, got %d tokens, expected 14", len(t))
+					log.Printf("bad line with v 0, got %d tokens, expected 14", len(t))
 					return
 				}
 

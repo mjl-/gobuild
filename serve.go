@@ -10,7 +10,6 @@ import (
 	"net/http"
 	_ "net/http/pprof"
 	"os"
-	"path"
 	"path/filepath"
 	"runtime/debug"
 	"strings"
@@ -115,8 +114,8 @@ func serve(args []string) {
 	}
 
 	homedir = config.HomeDir
-	if !path.IsAbs(homedir) {
-		homedir = path.Join(workdir, config.HomeDir)
+	if !filepath.IsAbs(homedir) {
+		homedir = filepath.Join(workdir, config.HomeDir)
 	}
 	os.Mkdir(homedir, 0775) // failures will be caught later
 	// We need a clean name: we will be match path prefixes against paths returned by
@@ -143,7 +142,7 @@ func serve(args []string) {
 	})
 	mux.HandleFunc("/builds.txt", func(w http.ResponseWriter, r *http.Request) {
 		defer observePage("builds.txt", time.Now())
-		http.ServeFile(w, r, path.Join(config.DataDir, "builds.txt"))
+		http.ServeFile(w, r, filepath.Join(config.DataDir, "builds.txt"))
 	})
 	mux.HandleFunc("/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "image/png")

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"path/filepath"
 	"time"
 
 	"golang.org/x/mod/module"
@@ -18,7 +19,7 @@ func ensureModule(gobin, mod, version string) (string, []byte, error) {
 	if err != nil {
 		return "", nil, fmt.Errorf("bad module version: %v", err)
 	}
-	modDir := homedir + "/go/pkg/mod/" + modPath + "@" + modVersion
+	modDir := filepath.Join(homedir, "go", "pkg", "mod", filepath.Clean(modPath)+"@"+modVersion)
 
 	_, err = os.Stat(modDir)
 	if err == nil {
@@ -49,11 +50,6 @@ func fetchModule(gobin, mod, version string) ([]byte, error) {
 	}()
 	cmd := makeCommand(gobin, "get", "-d", "-x", "-v", "--", mod+"@"+version)
 	cmd.Dir = dir
-	cmd.Env = []string{
-		"GOPROXY=" + config.GoProxy,
-		"GO111MODULE=on",
-		"HOME=" + homedir,
-	}
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		metricGogetErrors.Inc()

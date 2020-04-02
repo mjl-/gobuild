@@ -12,7 +12,6 @@ import (
 	"io/ioutil"
 	"net/http"
 	"os"
-	"path"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -23,7 +22,7 @@ var errTempFailure = errors.New("temporary failure")
 
 type buildJSON struct {
 	V             string // "0"
-	Sum           string // Sum is the versioned raw-base64-url encoded 20-byte prefix of the SHA256 sum. For v0, it starts with "0".
+	Sum           string // Sum is the versioned raw-base64-url encoded 20-byte prefix of the SHA256 sum. For v 0, it starts with "0".
 	SHA256        []byte
 	Filesize      int64
 	FilesizeGz    int64
@@ -40,9 +39,9 @@ type buildJSON struct {
 }
 
 func ensureGobin(req request) (string, error) {
-	gobin := path.Join(config.SDKDir, req.Goversion, "bin/go")
-	if !path.IsAbs(gobin) {
-		gobin = path.Join(workdir, gobin)
+	gobin := filepath.Join(config.SDKDir, req.Goversion, "bin", "go"+goexe())
+	if !filepath.IsAbs(gobin) {
+		gobin = filepath.Join(workdir, gobin)
 	}
 	_, err := os.Stat(gobin)
 	if err != nil {
@@ -67,19 +66,15 @@ func prepareBuild(req request) error {
 		return fmt.Errorf("error fetching module from goproxy: %w\n\n# output from go get:\n%s", err, string(getOutput))
 	}
 
-	pkgDir := modDir + "/" + req.Dir
+	pkgDir := filepath.Join(modDir, filepath.FromSlash(req.Dir))
 
 	// Check if package is a main package, resulting in an executable when built.
 	cmd := makeCommand(gobin, "list", "-f", "{{.Name}}")
 	cmd.Dir = pkgDir
-	cmd.Env = []string{
-		"GOPROXY=" + config.GoProxy,
-		"GO111MODULE=on",
-		"CGO_ENABLED=0",
-		"GOOS=" + req.Goos,
-		"GOARCH=" + req.Goarch,
-		"HOME=" + homedir,
-	}
+	cmd.Env = append(cmd.Env,
+		"GOOS="+req.Goos,
+		"GOARCH="+req.Goarch,
+	)
 	nameOutput, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("error finding package name; perhaps package does not exist: %v\n\n# output from go list:\n%s", err, string(nameOutput))
@@ -214,9 +209,9 @@ func build(req request) (result *buildJSON, err error) {
 		resultPath = filepath.Join(resultPath, req.Goos+"_"+req.Goarch)
 	}
 	if req.Dir == "" {
-		resultPath = filepath.Join(resultPath, path.Base(req.Mod))
+		resultPath = filepath.Join(resultPath, filepath.Base(req.Mod))
 	} else {
-		resultPath = filepath.Join(resultPath, path.Base(req.Dir))
+		resultPath = filepath.Join(resultPath, filepath.Base(req.Dir))
 	}
 	// Also cannot set "GOEXE", "go get" does not use it.
 	if req.Goos == "windows" {
@@ -236,15 +231,10 @@ func build(req request) (result *buildJSON, err error) {
 	}()
 
 	cmd := makeCommand(gobin, "get", "-x", "-v", "-trimpath", "-ldflags=-buildid=", "--", name)
-	cmd.Env = []string{
-		"GOPROXY=" + config.GoProxy,
-		"GO111MODULE=on",
-		"GO19CONCURRENTCOMPILATION=0",
-		"CGO_ENABLED=0",
-		"GOOS=" + req.Goos,
-		"GOARCH=" + req.Goarch,
-		"HOME=" + homedir,
-	}
+	cmd.Env = append(cmd.Env,
+		"GOOS="+req.Goos,
+		"GOARCH="+req.Goarch,
+	)
 	cmd.Dir = dir
 	output, err := cmd.CombinedOutput()
 	var sysTime, userTime time.Duration
@@ -296,8 +286,8 @@ func build(req request) (result *buildJSON, err error) {
 		return nil, fmt.Errorf("build mismatches, we and %d others got %s, but %s (%w)", len(matchesFrom), result.Sum, strings.Join(mismatches, ", "), errTempFailure)
 	}
 
-	finalDir := path.Join(config.DataDir, req.storeDir())
-	os.MkdirAll(path.Dir(finalDir), 0775) // failures will be caught later
+	finalDir := filepath.Join(config.DataDir, req.storeDir())
+	os.MkdirAll(filepath.Dir(finalDir), 0775) // failures will be caught later
 	err = os.Rename(tmpdir, finalDir)
 	if err != nil {
 		return nil, err
@@ -322,13 +312,13 @@ func saveFailure(req request, output string, start time.Time, systemTime, userTi
 		}
 	}()
 
-	err = writeGz(tmpdir+"/log.gz", strings.NewReader(output))
+	err = writeGz(filepath.Join(tmpdir, "log.gz"), strings.NewReader(output))
 	if err != nil {
 		return err
 	}
 
-	finalDir := path.Join(config.DataDir, req.storeDir())
-	os.MkdirAll(path.Dir(finalDir), 0775) // failures will be caught later
+	finalDir := filepath.Join(config.DataDir, req.storeDir())
+	os.MkdirAll(filepath.Dir(finalDir), 0775) // failures will be caught later
 	err = os.Rename(tmpdir, finalDir)
 	if err != nil {
 		return err
@@ -398,12 +388,12 @@ func saveFiles(tmpdir string, req request, output []byte, resultPath string, sta
 		req.Dir,
 	}
 
-	err = writeGz(tmpdir+"/log.gz", bytes.NewReader(output))
+	err = writeGz(filepath.Join(tmpdir, "log.gz"), bytes.NewReader(output))
 	if err != nil {
 		return nil, err
 	}
 
-	binGz := tmpdir + "/" + req.downloadFilename() + ".gz"
+	binGz := filepath.Join(tmpdir, req.downloadFilename()+".gz")
 	err = writeGz(binGz, of)
 	if err != nil {
 		return nil, err
@@ -418,7 +408,7 @@ func saveFiles(tmpdir string, req request, output []byte, resultPath string, sta
 	if err != nil {
 		return nil, fmt.Errorf("%w: marshal build.json: %v", errServer, err)
 	}
-	err = ioutil.WriteFile(tmpdir+"/build.json", buf, 0664)
+	err = ioutil.WriteFile(filepath.Join(tmpdir, "build.json"), buf, 0664)
 	if err != nil {
 		return nil, err
 	}
@@ -450,7 +440,7 @@ func writeGz(path string, src io.Reader) error {
 }
 
 func appendBuildsTxt(b *buildJSON) error {
-	bf, err := os.OpenFile(path.Join(config.DataDir, "builds.txt"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	bf, err := os.OpenFile(filepath.Join(config.DataDir, "builds.txt"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		return err
 	}
@@ -463,7 +453,7 @@ func appendBuildsTxt(b *buildJSON) error {
 	if b.SHA256 != nil {
 		sum = fmt.Sprintf("%x", b.SHA256)
 	}
-	_, err = fmt.Fprintf(bf, "v0 %s %d %d %d %d %d %d %s %s %s %s %s %s\n", sum, b.Filesize, b.FilesizeGz, b.Start.UnixNano()/int64(time.Millisecond), b.BuildWallTime/time.Millisecond, b.SystemTime/time.Millisecond, b.UserTime/time.Millisecond, b.Goos, b.Goarch, b.Goversion, b.Mod, b.Version, b.Dir)
+	_, err = fmt.Fprintf(bf, "0 %s %d %d %d %d %d %d %s %s %s %s %s %s\n", sum, b.Filesize, b.FilesizeGz, b.Start.UnixNano()/int64(time.Millisecond), b.BuildWallTime/time.Millisecond, b.SystemTime/time.Millisecond, b.UserTime/time.Millisecond, b.Goos, b.Goarch, b.Goversion, b.Mod, b.Version, b.Dir)
 	if err != nil {
 		return err
 	}

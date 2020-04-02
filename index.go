@@ -7,7 +7,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"os"
-	"path"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -20,7 +20,7 @@ import (
 // pending under /b/, or has succeeded under /r/.
 func serveIndex(w http.ResponseWriter, r *http.Request, req request, result *buildJSON) {
 	urlPath := req.buildRequest().urlPath()
-	lpath := path.Join(config.DataDir, req.storeDir())
+	lpath := filepath.Join(config.DataDir, req.storeDir())
 
 	type versionLink struct {
 		Version   string
@@ -90,7 +90,7 @@ func serveIndex(w http.ResponseWriter, r *http.Request, req request, result *bui
 	var output string
 
 	if result == nil {
-		buf, err := readGzipFile(lpath + "/log.gz")
+		buf, err := readGzipFile(filepath.Join(lpath, "log.gz"))
 		if err != nil {
 			if !os.IsNotExist(err) {
 				failf(w, "%w: reading log.gz: %v", errServer, err)

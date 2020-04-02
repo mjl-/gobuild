@@ -9,7 +9,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"os"
-	"path"
+	"path/filepath"
 	"time"
 )
 
@@ -30,9 +30,9 @@ func serveResult(w http.ResponseWriter, r *http.Request) {
 	}
 	defer observePage("result "+req.Page.String(), time.Now())
 
-	lpath := path.Join(config.DataDir, req.storeDir())
+	lpath := filepath.Join(config.DataDir, req.storeDir())
 
-	bf, err := os.Open(lpath + "/build.json")
+	bf, err := os.Open(filepath.Join(lpath, "build.json"))
 	if err == nil {
 		defer bf.Close()
 	}
@@ -50,7 +50,7 @@ func serveResult(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		// Before attempting to build, check we don't have a failed build already.
-		_, err = os.Stat(lpath + "/log.gz")
+		_, err = os.Stat(filepath.Join(lpath, "log.gz"))
 		if err == nil {
 			http.NotFound(w, r)
 			return
@@ -95,7 +95,7 @@ func serveResult(w http.ResponseWriter, r *http.Request) {
 
 	switch req.Page {
 	case pageLog:
-		serveLog(w, r, lpath+"/log.gz")
+		serveLog(w, r, filepath.Join(lpath, "log.gz"))
 	case pageSha256:
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		fmt.Fprintf(w, "%x\n", buildResult.SHA256) // nothing to do for errors
@@ -104,7 +104,7 @@ func serveResult(w http.ResponseWriter, r *http.Request) {
 		dreq.Page = pageDownload
 		http.Redirect(w, r, dreq.urlPath(), http.StatusTemporaryRedirect)
 	case pageDownload:
-		p := path.Join(lpath, req.downloadFilename()+".gz")
+		p := filepath.Join(lpath, req.downloadFilename()+".gz")
 		f, err := os.Open(p)
 		if err != nil {
 			failf(w, "%w: open binary: %v", errServer, err)
@@ -113,7 +113,7 @@ func serveResult(w http.ResponseWriter, r *http.Request) {
 		defer f.Close()
 		serveGzipFile(w, r, p, f)
 	case pageDownloadGz:
-		p := path.Join(lpath, req.downloadFilename()+".gz")
+		p := filepath.Join(lpath, req.downloadFilename()+".gz")
 		http.ServeFile(w, r, p)
 	case pageBuildJSON:
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")

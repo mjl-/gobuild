@@ -2,7 +2,7 @@ package main
 
 import (
 	"net/http"
-	"path"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -42,9 +42,9 @@ func serveModules(w http.ResponseWriter, r *http.Request) {
 		failf(w, "ensuring most recent goversion: %w", err)
 		return
 	}
-	gobin := path.Join(config.SDKDir, goversion, "bin/go")
-	if !path.IsAbs(gobin) {
-		gobin = path.Join(workdir, gobin)
+	gobin := filepath.Join(config.SDKDir, goversion, "bin", "go")
+	if !filepath.IsAbs(gobin) {
+		gobin = filepath.Join(workdir, gobin)
 	}
 
 	modDir, getOutput, err := ensureModule(gobin, mod, info.Version)
@@ -68,7 +68,7 @@ func serveModules(w http.ResponseWriter, r *http.Request) {
 		req := request{
 			Mod:       mod,
 			Version:   info.Version,
-			Dir:       mainDirs[0],
+			Dir:       filepath.ToSlash(mainDirs[0]),
 			Goos:      goos,
 			Goarch:    goarch,
 			Goversion: goversion,
@@ -84,6 +84,7 @@ func serveModules(w http.ResponseWriter, r *http.Request) {
 	}
 	mainPkgs := []mainPkg{}
 	for _, md := range mainDirs {
+		md = filepath.ToSlash(md)
 		req := request{
 			Mod:       mod,
 			Version:   info.Version,
@@ -118,11 +119,6 @@ func serveModules(w http.ResponseWriter, r *http.Request) {
 func listMainPackages(gobin string, modDir string) ([]string, error) {
 	cmd := makeCommand(gobin, "list", "-f", "{{.Name}} {{ .Dir }}", "./...")
 	cmd.Dir = modDir
-	cmd.Env = []string{
-		"GOPROXY=" + config.GoProxy,
-		"GO111MODULE=on",
-		"HOME=" + homedir,
-	}
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return nil, err
@@ -137,12 +133,12 @@ func listMainPackages(gobin string, modDir string) ([]string, error) {
 			r = append(r, "")
 			continue
 		}
-		if !strings.HasPrefix(s, modDir+"/") {
+		if !strings.HasPrefix(s, modDir+string(filepath.Separator)) {
 			continue
 		}
 		s = s[len(modDir)+1:]
 		if s != "" {
-			s += "/"
+			s += string(filepath.Separator)
 		}
 		r = append(r, s)
 	}

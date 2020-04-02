@@ -5,7 +5,7 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
-	"path"
+	"path/filepath"
 	"runtime"
 	"sort"
 	"strconv"
@@ -230,7 +230,7 @@ func ensureSDK(goversion string) error {
 				sdk.fetch.status[goversion] = err
 				return err
 			}
-			err = os.Rename(tmpdir+"/go", path.Join(config.SDKDir, goversion))
+			err = os.Rename(filepath.Join(tmpdir, "go"), filepath.Join(config.SDKDir, goversion))
 			if err != nil {
 				err = fmt.Errorf("%w: putting sdk in place: %v", errServer, err)
 			} else {
@@ -248,4 +248,11 @@ func ensureSDK(goversion string) error {
 	// tried-and-failed.
 	// We may want to ratelimit how often we ask...
 	return fmt.Errorf("goversion not found")
+}
+
+func goexe() string {
+	if runtime.GOOS == "windows" {
+		return ".exe"
+	}
+	return ""
 }

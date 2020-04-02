@@ -7,7 +7,7 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"path"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -57,10 +57,10 @@ func serveBuild(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	lpath := path.Join(config.DataDir, req.storeDir())
+	lpath := filepath.Join(config.DataDir, req.storeDir())
 
 	// If build.json exists, we have a successful build.
-	bf, err := os.Open(lpath + "/build.json")
+	bf, err := os.Open(filepath.Join(lpath, "build.json"))
 	if err == nil {
 		defer bf.Close()
 	}
@@ -81,7 +81,7 @@ func serveBuild(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// If log.gz exists, we have a failed build.
-	_, err = os.Stat(lpath + "/log.gz")
+	_, err = os.Stat(filepath.Join(lpath, "log.gz"))
 	if err != nil && !os.IsNotExist(err) {
 		failf(w, "%w: stat path: %v", errServer, err)
 		return
@@ -90,7 +90,7 @@ func serveBuild(w http.ResponseWriter, r *http.Request) {
 		// Show failed build to user, for the pages where that works.
 		switch req.Page {
 		case pageLog:
-			serveLog(w, r, lpath+"/log.gz")
+			serveLog(w, r, filepath.Join(lpath, "log.gz"))
 		case pageIndex:
 			serveIndex(w, r, req, nil)
 		default:
@@ -165,7 +165,7 @@ func serveBuild(w http.ResponseWriter, r *http.Request) {
 				unregisterBuild(req, eventc)
 
 				if req.Page == pageLog {
-					serveLog(w, r, lpath+"/log.gz")
+					serveLog(w, r, filepath.Join(lpath, "log.gz"))
 					return
 				}
 
