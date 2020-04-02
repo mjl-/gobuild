@@ -16,7 +16,7 @@ github.com/mjl-/goreleases
 # github.com/mjl-/httpinfo v0.0.2
 ## explicit
 github.com/mjl-/httpinfo
-# github.com/mjl-/sconf v0.0.0-20190603191030-08de39cd8a7d
+# github.com/mjl-/sconf v0.0.1
 ## explicit
 github.com/mjl-/sconf
 # github.com/mjl-/xfmt v0.0.0-20190521151243-39d9c00752ce
