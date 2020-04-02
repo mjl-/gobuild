@@ -46,13 +46,6 @@ var (
 		},
 		[]string{"page"},
 	)
-	metricPageErrors = promauto.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "gobuild_page_errors_total",
-			Help: "Number of error reponses for serve page.",
-		},
-		[]string{"page", "error"},
-	)
 
 	metricGogetDuration = promauto.NewHistogram(
 		prometheus.HistogramOpts{
