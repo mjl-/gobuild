@@ -48,7 +48,7 @@ var (
 		SDKDir       string   `sconf-doc:"Directory where SDKs (go toolchains) are installed."`
 		HomeDir      string   `sconf-doc:"Directory set as home directory during builds. Go caches will be created there."`
 		MaxBuilds    int      `sconf-doc:"Maximum concurrent builds. Default (0) uses NumCPU+1."`
-		Run          []string `sconf-doc:"Command and parameters to prefix to invocations of go. For example /usr/bin/nice."`
+		Run          []string `sconf:"optional" sconf-doc:"Command and parameters to prefix to invocations of go. For example /usr/bin/nice."`
 		VerifierURLs []string `sconf:"optional" sconf-doc:"URLs of other gobuild instances that are asked to perform the same build. Gobuild requires all of them to create the same binary for a successful build. Ideally, these instances differ in goos, goarch, user id and name, home and work directories."`
 		HTTPS        *struct {
 			ACME struct {
