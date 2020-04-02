@@ -37,11 +37,13 @@ const htmlTemplateString = `
 		<meta charset="utf-8" />
 		<meta name="viewport" content="width=device-width">
 		<style>
+/*<![CDATA[*/
 * { box-sizing: border-box; }
 body { margin: 0 auto; max-width: 50rem; font-family: Ubuntu, Lato, sans-serif; color: #111; line-height: 1.3; }
 body, input, button { font-size: 17px; }
 h1 { font-size: 1.5rem; }
 h2 { font-size: 1.25rem; }
+h3 { font-size: 1.125rem; }
 a { color: #007d9c; }
 pre { font-size: .9rem; }
 .buildlink { padding: 0 .2rem; display: inline-block; }
@@ -53,6 +55,10 @@ pre { font-size: .9rem; }
 .pending { color: #207ef2; }
 .output { margin-left: calc(-50vw + 25rem); width: calc(100vw - 2rem); }
 .prewrap { white-space: pre-wrap; }
+var:before { content: "<" }
+var:after { content: ">" }
+var { color: #111; font-style: normal; }
+/*]]>*/
 		</style>
 	</head>
 	<body>
@@ -305,9 +311,9 @@ const homeTemplateString = `
 
 		<h2>URLs</h2>
 		<blockquote style="color:#666; white-space: nowrap">
-			<div>/m/<span style="color:#111">&lt;module&gt;</span></div>
-			<div>/b/<span style="color:#111">&lt;module&gt;</span>@<span style="color:#111">&lt;version&gt;</span>/<span style="color:#111">&lt;package&gt;</span>/<span style="color:#111">&lt;goos&gt;</span>-<span style="color:#111">&lt;goarch&gt;</span>-<span style="color:#111">&lt;goversion&gt;</span>/</div>
-			<div>/r/<span style="color:#111">&lt;module&gt;</span>@<span style="color:#111">&lt;version&gt;</span>/<span style="color:#111">&lt;package&gt;</span>/<span style="color:#111">&lt;goos&gt;</span>-<span style="color:#111">&lt;goarch&gt;</span>-<span style="color:#111">&lt;goversion&gt;</span>/<span style="color:#111">&lt;sum&gt;</span>/</div>
+			<div>/m/<var>module</var></div>
+			<div>/b/<var>module</var>@<var>version</var>/<var>package</var>/<var>goos</var>-<var>goarch</var>-<var>goversion</var>/</div>
+			<div>/r/<var>module</var>@<var>version</var>/<var>package</var>/<var>goos</var>-<var>goarch</var>-<var>goversion</var>/<var>sum</var>/</div>
 		</blockquote>
 
 		<h3>Examples</h3>
@@ -317,14 +323,30 @@ const homeTemplateString = `
 			<a href="/r/github.com/mjl-/sherpa@v0.6.0/cmd/sherpaclient/linux-amd64-go1.14.1/0m32pSahHbf-fptQdDyWD87GJNXI/">/r/github.com/mjl-/sherpa@v0.6.0/cmd/sherpaclient/linux-amd64-go1.14.1/0m32pSahHbf-fptQdDyWD87GJNXI/</a>
 		</blockquote>
 
-		<p>The first URL fetches the requested Go module, and redirects to a URL of the second form.</p>
-		<p>The second URL first resolves "latest" for the module and Go version with a redirect. Then starts a build for the requested parameters if needed. When finished, it redirects to a URL of the third kind.</p>
-		<p>The third URL represents a successful build. The URL includes the sum: The versioned raw-base64-url-encoded 20-byte prefix of the sha256 sum. The page links to the binary, the build output log file, and to builds of the same package with different module versions, goversions, goos/goarch.</p>
-		<p>You need not and cannot refresh a build: they would give the same result.</p>
+		<p>The first URL fetches the requested Go module to find the commands (main
+packages). In case of a single command, it redirects to a URL of the second
+form. In case of multiple commands, it lists them, linking to URLs of the second
+form. Links are to the latest module and go versions, and with goos/goarch
+guessed based on user-agent.</p>
+
+		<p>The second URL first resolves "latest" for the module and Go version with a
+redirect. For URLs with explicit versions, it starts a build for the requested
+parameters if no build is available yet. After a successful build, it redirects
+to a URL of the third kind.</p>
+
+		<p>The third URL represents a successful build. The URL includes the sum: The
+versioned raw-base64-url-encoded 20-byte prefix of the sha256 sum. The page
+links to the binary, the build output log file, and to builds of the same
+command with different module versions, goversions, goos/goarch.</p>
+
+		<p>You need not and cannot refresh a successful build: it would yield the same result.</p>
 
 		<h2>More</h2>
 		<p>Only "go build" is run. None of "go test", "go generate", build tags, cgo, custom compile/link flags, makefiles, etc.</p>
 		<p>Gobuild looks up module versions through the go proxy. That's why shorthand versions like "@v1" don't resolve.</p>
+		<p>Gobuild automatically download a Go toolchain (SDK) from https://golang.org/dl/
+when it is referenced. It also periodically queries that page for the latest
+supported releases, for redirecting to the latest supported toolchains.</p>
 		<p>Code is available at <a href="https://github.com/mjl-/gobuild">github.com/mjl-/gobuild</a>, under MIT-license, feedback welcome.</p>
 		<p>To build, gobuild executes:</p>
 <pre>
