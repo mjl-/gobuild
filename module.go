@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -31,7 +32,7 @@ func serveModules(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	info, err := resolveModuleLatest(r.Context(), mod)
+	info, err := resolveModuleLatest(r.Context(), config.GoProxy, mod)
 	if err != nil {
 		failf(w, "resolving latest for module: %w", err)
 		return
@@ -117,11 +118,12 @@ func serveModules(w http.ResponseWriter, r *http.Request) {
 }
 
 func listMainPackages(gobin string, modDir string) ([]string, error) {
-	cmd := makeCommand(gobin, "list", "-f", "{{.Name}} {{ .Dir }}", "./...")
+	cgo := true
+	cmd := makeCommand(cgo, gobin, "list", "-f", "{{.Name}} {{ .Dir }}", "./...")
 	cmd.Dir = modDir
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w\n\n# output from go list:\n%s", err, output)
 	}
 	r := []string{}
 	for _, s := range strings.Split(string(output), "\n") {
@@ -148,8 +150,11 @@ func listMainPackages(gobin string, modDir string) ([]string, error) {
 func autodetectTarget(r *http.Request) (goos, goarch string) {
 	ua := r.Header.Get("User-Agent")
 	ua = strings.ToLower(ua)
+
+	// Because the targets list we range over is sorted by popularity, we
+	// are more likely to guess (partially) right.
 	match := ""
-	for _, t := range targets {
+	for _, t := range targets.get() {
 		m0 := strings.Contains(ua, t.Goos)
 		if !m0 && t.Goos == "darwin" {
 			m0 = strings.Contains(ua, "macos") || strings.Contains(ua, "macintosh") || strings.Contains(ua, "mac os x")
@@ -177,7 +182,8 @@ func autodetectTarget(r *http.Request) (goos, goarch string) {
 		}
 	}
 	if goos == "" || goarch == "" {
-		goos, goarch = targets[0].Goos, targets[0].Goarch
+		t := targets.get()[0]
+		goos, goarch = t.Goos, t.Goarch
 	}
 	return
 }

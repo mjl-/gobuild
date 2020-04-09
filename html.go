@@ -79,8 +79,8 @@ const buildTemplateString = `
 	<p><a href="/">&lt; Home</a></p>
 	<h1>
 		{{ .Req.Mod }}@{{ .Req.Version }}/{{ .Req.Dir }}<br/>
-		{{ .Req.Goos }}/{{ .Req.Goarch }} {{ .Req.Goversion }}
-		{{ if .Success}}<br/>{{ .Sum }}{{ end }}
+		{{ .Req.Goos }}/{{ .Req.Goarch }} {{ .Req.Goversion }}<br/>
+		{{ if .Success}}{{ .Sum }}{{ end }}
 		{{ if .Success }}<span class="success">✓</span>{{ else if .InProgress }}<span class="pending">⌛</span>{{ else }}<span class="failure">❌</span>{{ end }}
 	</h1>
 
@@ -96,6 +96,8 @@ const buildTemplateString = `
 			<td style="padding-left: 1rem">{{ .FilesizeGz }}</td>
 		</tr>
 	</table>
+	<p>To download using the transparency log:</p>
+	<pre style="margin-left:2rem">gobuild get -sum {{ .Sum }} -target {{ .Req.Goos }}/{{ .Req.Goarch }} -goversion {{ .Req.Goversion }} {{ .Req.Mod }}@{{ .Req.Version }}/{{ .Req.Dir }}</pre>
 
 	<h2>More</h2>
 	<ul>
@@ -110,6 +112,10 @@ const buildTemplateString = `
 		<p>Connecting to server to request build and receive updates...</p>
 		<p>If your browser has JavaScript disabled, or does not support server-sent events (SSE), follor this <a href="dl">download link</a> to trigger a build.</p>
 	</div>
+
+	<h2>Download</h2>
+	<p>To download using the transparency log:</p>
+	<pre style="margin-left:2rem">gobuild get -target {{ .Req.Goos }}/{{ .Req.Goarch }} -goversion {{ .Req.Goversion }} {{ .Req.Mod }}@{{ .Req.Version }}/{{ .Req.Dir }}</pre>
 {{ else }}
 	<h2>Error</h2>
 	<div class="output">
@@ -121,7 +127,7 @@ const buildTemplateString = `
 
 	<h2>Reproduce</h2>
 	<p>To reproduce locally:</p>
-<pre>
+<pre style="margin-left:2rem">
 GO19CONCURRENTCOMPILATION=0 GO111MODULE=on GOPROXY={{ .GoProxy }} \
 	CGO_ENABLED=0 GOOS={{ .Req.Goos }} GOARCH={{ .Req.Goarch }} \
 	{{ .Req.Goversion }} get -x -v -trimpath -ldflags=-buildid= -- {{ .Req.Mod }}{{ if not (eq .Req.Dir "") }}/{{ .Req.Dir }}{{ end }}@{{ .Req.Version }}
@@ -133,18 +139,18 @@ GO19CONCURRENTCOMPILATION=0 GO111MODULE=on GOPROXY={{ .GoProxy }} \
 	{{ if .Mod.Err }}
 		<div>error: {{ .Mod.Err }}</div>
 	{{ else }}
-	{{ range .Mod.VersionLinks }}	<div><a href="{{ .URLPath }}" class="buildlink{{ if .Active }} active{{ end }} ">{{ .Version }}</a>{{ if .Available }} {{ if .Success }}<span class="success">✓</span>{{ else }}<span class="failure">❌</span>{{ end }}{{ end }}</div>{{ end }}
+	{{ range .Mod.VersionLinks }}	<div><a href="{{ .URLPath }}" class="buildlink{{ if .Active }} active{{ end }} ">{{ .Version }}</a>{{ if .Success }}<span class="success">✓</span>{{ end }}</div>{{ end }}
 	{{ end }}
 	</div>
 
 	<div style="width: 32%; display: inline-block; vertical-align: top">
 		<h2>Go versions</h2>
-	{{ range .GoversionLinks }}	<div><a href="{{ .URLPath }}" class="buildlink{{ if .Active }} active{{ end }} {{ if not .Supported }} unsupported{{ end }}">{{ .Goversion }}</a>{{ if .Available }} {{ if .Success }}<span class="success">✓</span>{{ else }}<span class="failure">❌</span>{{ end }}{{ end }}</div>{{ end }}
+	{{ range .GoversionLinks }}	<div><a href="{{ .URLPath }}" class="buildlink{{ if .Active }} active{{ end }} {{ if not .Supported }} unsupported{{ end }}">{{ .Goversion }}</a>{{ if .Success }}<span class="success">✓</span>{{ end }}</div>{{ end }}
 	</div>
 
 	<div style="width: 32%; display: inline-block; vertical-align: top">
 		<h2>Targets</h2>
-	{{ range .TargetLinks }}	<div><a href="{{ .URLPath }}" class="buildlink{{ if .Active }} active{{ end }} ">{{ .Goos }}/{{ .Goarch }}</a>{{ if .Available }} {{ if .Success }}<span class="success">✓</span>{{ else }}<span class="failure">❌</span>{{ end }}{{ end }}</div>{{ end }}
+	{{ range .TargetLinks }}	<div><a href="{{ .URLPath }}" class="buildlink{{ if .Active }} active{{ end }} ">{{ .Goos }}/{{ .Goarch }}</a>{{ if .Success }}<span class="success">✓</span>{{ end }}</div>{{ end }}
 	</div>
 {{ end }}
 {{ define "script" }}
@@ -297,9 +303,10 @@ const homeTemplateString = `
 
 		<h2>Try a module</h2>
 		<form onsubmit="location.href = '/m/' + moduleName.value; return false" method="GET" action="/m/">
-			<input id="moduleName" name="m" type="text" placeholder="github.com/your/project containing go.mod" style="width:30rem; max-width:75%" />
+			<input onfocus="modulenote.style.display='block'" id="moduleName" name="m" type="text" placeholder="github.com/your/project containing go.mod" style="width:30rem; max-width:75%" />
 			<button type="submit">Go!</button>
 		</form>
+		<p style="display:none" id="modulenote">Note: Point to the module root, the directory that contains the go.mod file, not a package subdirectory. If your module has multiple main commands, they will be listed.</p>
 
 		<h2>Recent builds</h2>
 		<div style="white-space: nowrap">
@@ -341,18 +348,25 @@ command with different module versions, goversions, goos/goarch.</p>
 
 		<p>You need not and cannot refresh a successful build: it would yield the same result.</p>
 
+		<h2>Transparency log</h2>
+
+		<p>Gobuild maintains a transparency log containing the hashes of all successful builds, similar to the Go module checksum database. Gobuild's "get" subcommand looks up a content hash through the transparency log, locally keeping track of the latest known hash.  This ensures the list of successful builds and their hashes is append-only, and modifications or removals by the server will be detected when you run "gobuild get".</p>
+
+		<h3>Examples</h3>
+		<pre style="margin-left: 2rem">gobuild get github.com/mjl-/gobuild@latest
+gobuild get -sum 0N7e6zxGtHCObqNBDA_mXKv7-A9M -target linux/amd64 -goversion go1.14.1 github.com/mjl-/gobuild@v0.0.8</pre>
+
 		<h2>More</h2>
-		<p>Only "go build" is run. None of "go test", "go generate", build tags, cgo, custom compile/link flags, makefiles, etc.</p>
+		<p>Only "go build" is run, for pure Go code. None of "go test", "go generate", build tags, cgo, custom compile/link flags, makefiles, etc. This means gobuild cannot build all Go applications.</p>
 		<p>Gobuild looks up module versions through the go proxy. That's why shorthand versions like "@v1" don't resolve.</p>
-		<p>Gobuild automatically download a Go toolchain (SDK) from https://golang.org/dl/
-when it is referenced. It also periodically queries that page for the latest
-supported releases, for redirecting to the latest supported toolchains.</p>
-		<p>Code is available at <a href="https://github.com/mjl-/gobuild">github.com/mjl-/gobuild</a>, under MIT-license, feedback welcome.</p>
+		<p>Gobuild automatically downloads a Go toolchain (SDK) from https://golang.org/dl/ when it is first referenced. It also periodically queries that page for the latest supported releases, for redirecting to the latest supported toolchains.</p>
+		<p>Gobuild can be configured to verify builds with other gobuild instances, requiring all to return the same hash for a build to be considered successful.</p>
 		<p>To build, gobuild executes:</p>
-<pre>
-GO19CONCURRENTCOMPILATION=0 GO111MODULE=on GOPROXY=https://proxy.golang.org/ \
-	CGO_ENABLED=0 GOOS=$goos GOARCH=$goarch \
-	$goversion get -trimpath -ldflags=-buildid= -- $module/$package@$version</pre>
+	<pre style="margin-left: 2rem">GO19CONCURRENTCOMPILATION=0 GO111MODULE=on GOPROXY=https://proxy.golang.org/ \
+  CGO_ENABLED=0 GOOS=$goos GOARCH=$goarch \
+  $goversion get -trimpath -ldflags=-buildid= -- $module/$package@$version</pre>
+		<p>It's easy to run a local or internal gobuild instance. For configuration details, see this <a href="/emptyconfig">empty example config</a>.</p>
+		<p>Code is available at <a href="https://github.com/mjl-/gobuild">github.com/mjl-/gobuild</a>, under MIT-license.</p>
 {{ end }}
 {{ define "script" }}{{ end }}
 `

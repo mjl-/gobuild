@@ -16,7 +16,7 @@ type modVersion struct {
 	Time    time.Time
 }
 
-func resolveModuleLatest(ctx context.Context, mod string) (*modVersion, error) {
+func resolveModuleLatest(ctx context.Context, goproxy, mod string) (*modVersion, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
@@ -29,7 +29,7 @@ func resolveModuleLatest(ctx context.Context, mod string) (*modVersion, error) {
 	if err != nil {
 		return nil, fmt.Errorf("bad module path: %v", err)
 	}
-	u := fmt.Sprintf("%s%s/@latest", config.GoProxy, modPath)
+	u := fmt.Sprintf("%s%s/@latest", goproxy, modPath)
 	mreq, err := http.NewRequestWithContext(ctx, "GET", u, nil)
 	if err != nil {
 		return nil, fmt.Errorf("%w: preparing goproxy http request: %v", errServer, err)

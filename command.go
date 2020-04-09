@@ -5,20 +5,25 @@ import (
 	"path/filepath"
 )
 
-func makeCommand(argv ...string) *exec.Cmd {
+func makeCommand(cgoEnabled bool, argv ...string) *exec.Cmd {
+	cgo := "CGO_ENABLED=0"
+	if cgoEnabled {
+		cgo = "CGO_ENABLED=1"
+	}
+
 	var l []string
 	l = append(l, config.Run...)
 	l = append(l, argv...)
 	cmd := exec.Command(l[0], l[1:]...)
-	cmd.Env = []string{
+	cmd.Env = append([]string{
 		"GOPROXY=" + config.GoProxy,
 		"GO111MODULE=on",
-		"CGO_ENABLED=0",
+		cgo,
 		"GO19CONCURRENTCOMPILATION=0",
 		"HOME=" + homedir,
 		"USERPROFILE=" + homedir,
 		"AppData=" + filepath.Join(homedir, "AppData"),
 		"LocalAppData=" + filepath.Join(homedir, "LocalAppData"),
-	}
+	}, config.Environment...)
 	return cmd
 }

@@ -6,6 +6,7 @@ The Go module proxy ensures source code stays available, and you are highly
 likely to get the same code each time you fetch it. Gobuild aims to do the same
 for binaries.
 
+
 URLs
 
 	/m/<module>
@@ -30,23 +31,46 @@ command with different module versions, goversions, goos/goarch.
 
 You need not and cannot refresh a successful build: they would give the same result.
 
+
+Transparency log
+
+Gobuild maintains a transparency log containing the hashes of all successful
+builds, similar to the Go module checksum database. Gobuild's "get" subcommand
+looks up a content hash through the transparency log, locally keeping track of
+the latest known hash.  This ensures the list of successful builds and their
+hashes is append-only, and modifications or removals by the server will be
+detected when you run "gobuild get".
+
+Examples:
+
+	gobuild get github.com/mjl-/gobuild@latest
+	gobuild get -sum 0N7e6zxGtHCObqNBDA_mXKv7-A9M -target linux/amd64 -goversion go1.14.1 github.com/mjl-/gobuild@v0.0.8
+
+
 More
 
-Only "go build" is run. None of "go test", "go generate", build tags, cgo,
-custom compile/link flags, makefiles, etc.
+Only "go build" is run, for pure Go code. None of "go test", "go generate",
+build tags, cgo, custom compile/link flags, makefiles, etc. This means gobuild
+cannot build all Go applications.
 
 Gobuild looks up module versions through the go proxy. That's why
 shorthandversions like "@v1" don't resolve.
 
-Gobuild automatically download a Go toolchain (SDK) from https://golang.org/dl/
-when it is referenced. It also periodically queries that page for the latest
+Gobuild automatically downloads a Go toolchain (SDK) from https://golang.org/dl/
+when it is first referenced. It also periodically queries that page for the latest
 supported releases, for redirecting to the latest supported toolchains.
+
+Gobuild can be configured to verify builds with other gobuild instances,
+requiring all to return the same hash for a build to be considered successful.
+
+It's easy to run a local or internal gobuild instance.
 
 To build, gobuild executes:
 
 	GO19CONCURRENTCOMPILATION=0 GO111MODULE=on GOPROXY=https://proxy.golang.org/ \
 		CGO_ENABLED=0 GOOS=$goos GOARCH=$goarch \
 		$goversion get -x -v -trimpath -ldflags=-buildid= -- $module/$package@$version
+
 
 Running
 
@@ -64,7 +88,14 @@ Test it with:
 
 	gobuild testconfig gobuild.conf
 
-By default, build results are stored in ./data, $HOME is set to ./home during
-builds and Go toolchains are installed in ./sdk.
+By default, build results and sumdb files are stored in ./data, $HOME is set to
+./home during builds and Go toolchains are installed in ./sdk.
+
+You can configure your own signer key for your transparency log. Create new keys with:
+
+	gobuild genkey you.example.org
+
+Now configure the signer key in the config file. And run "gobuild get" with the
+-verifierkey flag.
 */
 package main

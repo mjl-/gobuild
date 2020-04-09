@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -25,53 +26,104 @@ func (t target) osarch() string {
 	return t.Goos + "/" + t.Goarch
 }
 
-// By "go tool dist list", bound to be out of date here; should probably generate on startup, or when we get the first sdk installed.
+// List of targets from "go tool dist list", bound to be out of date here; should probably generate on startup, or when we get the first sdk installed.
 // Android and darwin/arm* cannot build on my linux/amd64 machine.
-// Note: this list will be sorted after startup by readRecentBuilds, most used first.
-var targets = []target{
-	{"aix", "ppc64"},
-	//	{"android", "386"},
-	//	{"android", "amd64"},
-	//	{"android", "arm"},
-	//	{"android", "arm64"},
-	{"darwin", "386"},
-	{"darwin", "amd64"},
-	//	{"darwin", "arm"},
-	//	{"darwin", "arm64"},
-	{"dragonfly", "amd64"},
-	{"freebsd", "386"},
-	{"freebsd", "amd64"},
-	{"freebsd", "arm"},
-	{"freebsd", "arm64"},
-	{"illumos", "amd64"},
-	{"js", "wasm"},
-	{"linux", "386"},
-	{"linux", "amd64"},
-	{"linux", "arm"},
-	{"linux", "arm64"},
-	{"linux", "mips"},
-	{"linux", "mips64"},
-	{"linux", "mips64le"},
-	{"linux", "mipsle"},
-	{"linux", "ppc64"},
-	{"linux", "ppc64le"},
-	{"linux", "riscv64"},
-	{"linux", "s390x"},
-	{"netbsd", "386"},
-	{"netbsd", "amd64"},
-	{"netbsd", "arm"},
-	{"netbsd", "arm64"},
-	{"openbsd", "386"},
-	{"openbsd", "amd64"},
-	{"openbsd", "arm"},
-	{"openbsd", "arm64"},
-	{"plan9", "386"},
-	{"plan9", "amd64"},
-	{"plan9", "arm"},
-	{"solaris", "amd64"},
-	{"windows", "386"},
-	{"windows", "amd64"},
-	{"windows", "arm"},
+// Note: list will be sorted after startup by readRecentBuilds, most used first.
+type xtargets struct {
+	sync.Mutex
+	use      map[string]int // Used for popularity, and for validating build requests.
+	totalUse int
+	list     []target
+}
+
+var targets = &xtargets{
+	sync.Mutex{},
+	map[string]int{},
+	0,
+	[]target{
+		{"aix", "ppc64"},
+		//	{"android", "386"},
+		//	{"android", "amd64"},
+		//	{"android", "arm"},
+		//	{"android", "arm64"},
+		{"darwin", "386"},
+		{"darwin", "amd64"},
+		//	{"darwin", "arm"},
+		//	{"darwin", "arm64"},
+		{"dragonfly", "amd64"},
+		{"freebsd", "386"},
+		{"freebsd", "amd64"},
+		{"freebsd", "arm"},
+		{"freebsd", "arm64"},
+		{"illumos", "amd64"},
+		{"js", "wasm"},
+		{"linux", "386"},
+		{"linux", "amd64"},
+		{"linux", "arm"},
+		{"linux", "arm64"},
+		{"linux", "mips"},
+		{"linux", "mips64"},
+		{"linux", "mips64le"},
+		{"linux", "mipsle"},
+		{"linux", "ppc64"},
+		{"linux", "ppc64le"},
+		{"linux", "riscv64"},
+		{"linux", "s390x"},
+		{"netbsd", "386"},
+		{"netbsd", "amd64"},
+		{"netbsd", "arm"},
+		{"netbsd", "arm64"},
+		{"openbsd", "386"},
+		{"openbsd", "amd64"},
+		{"openbsd", "arm"},
+		{"openbsd", "arm64"},
+		{"plan9", "386"},
+		{"plan9", "amd64"},
+		{"plan9", "arm"},
+		{"solaris", "amd64"},
+		{"windows", "386"},
+		{"windows", "amd64"},
+		{"windows", "arm"},
+	},
+}
+
+func init() {
+	for _, t := range targets.list {
+		targets.use[t.osarch()] = 0
+	}
+}
+
+func (t *xtargets) get() []target {
+	t.Lock()
+	defer t.Unlock()
+	return t.list
+}
+
+func (t *xtargets) valid(target string) bool {
+	t.Lock()
+	defer t.Unlock()
+	_, ok := t.use[target]
+	return ok
+}
+
+// must be called with lock held.
+func (t *xtargets) sort() {
+	n := make([]target, len(t.list))
+	copy(n, t.list)
+	sort.Slice(n, func(i, j int) bool {
+		return t.use[n[i].osarch()] > t.use[n[j].osarch()]
+	})
+	t.list = n
+}
+
+func (t *xtargets) increase(target string) {
+	t.Lock()
+	defer t.Unlock()
+	t.use[target]++
+	t.totalUse++
+	if t.totalUse <= 32 || t.totalUse%32 == 0 {
+		t.sort()
+	}
 }
 
 var sdk struct {
@@ -167,18 +219,20 @@ func installedSDK() (supported []string, remainingAvailable []string) {
 	return
 }
 
+var errBadGoversion = errors.New("bad goversion")
+
 func ensureSDK(goversion string) error {
 	// Reproducible builds work from go1.13 onwards. Refuse earlier versions.
 	if !strings.HasPrefix(goversion, "go") {
-		return fmt.Errorf(`goversion must start with "go"`)
+		return fmt.Errorf(`%w: must start with "go"`, errBadGoversion)
 	}
 	if strings.HasPrefix(goversion, "go1") {
 		if len(goversion) < 4 || !strings.HasPrefix(goversion, "go1.") {
-			return fmt.Errorf("old version, must be >=go1.13")
+			return fmt.Errorf("%w: old version, must be >=go1.13", errBadGoversion)
 		}
 		num, err := strconv.ParseInt(strings.Split(goversion[4:], ".")[0], 10, 64)
 		if err != nil || num < 13 {
-			return fmt.Errorf("bad version, must be >=go1.13")
+			return fmt.Errorf("%w: bad version, must be >=go1.13", errBadGoversion)
 		}
 	}
 
@@ -247,7 +301,7 @@ func ensureSDK(goversion string) error {
 	// Release not found. It may be a future release. Don't mark it as
 	// tried-and-failed.
 	// We may want to ratelimit how often we ask...
-	return fmt.Errorf("goversion not found")
+	return fmt.Errorf("%w: no such version", errBadGoversion)
 }
 
 func goexe() string {

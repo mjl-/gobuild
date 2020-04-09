@@ -36,6 +36,7 @@ type buildJSON struct {
 	Mod           string
 	Version       string
 	Dir           string
+	RecordNumber  int64
 }
 
 func ensureGobin(req request) (string, error) {
@@ -53,7 +54,7 @@ func ensureGobin(req request) (string, error) {
 func prepareBuild(req request) error {
 	err := ensureSDK(req.Goversion)
 	if err != nil {
-		return fmt.Errorf("missing toolchain %q: %v", req.Goversion, err)
+		return fmt.Errorf("missing toolchain %q: %w", req.Goversion, err)
 	}
 
 	gobin, err := ensureGobin(req)
@@ -69,18 +70,38 @@ func prepareBuild(req request) error {
 	pkgDir := filepath.Join(modDir, filepath.FromSlash(req.Dir))
 
 	// Check if package is a main package, resulting in an executable when built.
-	cmd := makeCommand(gobin, "list", "-f", "{{.Name}}")
+	cgo := true
+	cmd := makeCommand(cgo, gobin, "list", "-f", "{{.Name}}")
 	cmd.Dir = pkgDir
 	cmd.Env = append(cmd.Env,
 		"GOOS="+req.Goos,
 		"GOARCH="+req.Goarch,
 	)
-	nameOutput, err := cmd.CombinedOutput()
+	stderr := &strings.Builder{}
+	cmd.Stderr = stderr
+	nameOutput, err := cmd.Output()
 	if err != nil {
-		return fmt.Errorf("error finding package name; perhaps package does not exist: %v\n\n# output from go list:\n%s", err, string(nameOutput))
+		return fmt.Errorf("error finding package name; perhaps package does not exist: %v\n\n# stdout from go list:\n%s\n\nstderr:\n%s", err, nameOutput, stderr.String())
 	}
 	if string(nameOutput) != "main\n" {
-		return fmt.Errorf("not package main, building would not result in executable binary")
+		return fmt.Errorf("package main %w, building would not result in executable binary (package %s)", errNotExist, strings.TrimRight(string(nameOutput), "\n"))
+	}
+
+	// Check that package does not depend on any cgo.
+	cmd = makeCommand(cgo, gobin, "list", "-deps", "-f", `{{ if and (not .Standard) .CgoFiles }}{{ .ImportPath }}{{ end }}`)
+	cmd.Dir = pkgDir
+	cmd.Env = append(cmd.Env,
+		"GOOS="+req.Goos,
+		"GOARCH="+req.Goarch,
+	)
+	stderr = &strings.Builder{}
+	cmd.Stderr = stderr
+	cgoOutput, err := cmd.Output()
+	if err != nil {
+		return fmt.Errorf("error determining whether cgo is required: %v\n\n# output from go list:\n%s\n\nstderr:\n%s", err, cgoOutput, stderr.String())
+	}
+	if len(cgoOutput) != 0 {
+		return fmt.Errorf("build %w due to cgo dependencies:\n\n%s", errNotExist, cgoOutput)
 	}
 	return nil
 }
@@ -93,11 +114,6 @@ func goBuild(req request) (*buildJSON, error) {
 	result, err := build(req)
 
 	ok := err == nil && result != nil
-	if err == nil || !errors.Is(err, errTempFailure) {
-		availableBuilds.Lock()
-		availableBuilds.index[bu] = ok
-		availableBuilds.Unlock()
-	}
 	if err != nil {
 		return nil, err
 	}
@@ -118,6 +134,8 @@ func goBuild(req request) (*buildJSON, error) {
 }
 
 func build(req request) (result *buildJSON, err error) {
+	targets.increase(req.Goos + "/" + req.Goos)
+
 	start := time.Now()
 
 	gobin, err := ensureGobin(req)
@@ -230,7 +248,8 @@ func build(req request) (result *buildJSON, err error) {
 		os.Remove(resultPath)
 	}()
 
-	cmd := makeCommand(gobin, "get", "-x", "-v", "-trimpath", "-ldflags=-buildid=", "--", name)
+	cgo := false
+	cmd := makeCommand(cgo, gobin, "get", "-x", "-v", "-trimpath", "-ldflags=-buildid=", "--", name)
 	cmd.Env = append(cmd.Env,
 		"GOOS="+req.Goos,
 		"GOARCH="+req.Goarch,
@@ -254,7 +273,7 @@ func build(req request) (result *buildJSON, err error) {
 
 	elapsed := time.Since(start)
 
-	tmpdir, err := ioutil.TempDir(config.DataDir, "gobuild")
+	tmpdir, err := ioutil.TempDir(config.DataDir, "tmpgobuild")
 	if err != nil {
 		return nil, err
 	}
@@ -263,11 +282,6 @@ func build(req request) (result *buildJSON, err error) {
 			os.RemoveAll(tmpdir)
 		}
 	}()
-
-	result, err = saveFiles(tmpdir, req, output, resultPath, start, elapsed, sysTime, userTime)
-	if err != nil {
-		return nil, fmt.Errorf("storing results of build: %v (%w)", err, errTempFailure)
-	}
 
 	matchesFrom := []string{}
 	mismatches := []string{}
@@ -286,7 +300,12 @@ func build(req request) (result *buildJSON, err error) {
 		return nil, fmt.Errorf("build mismatches, we and %d others got %s, but %s (%w)", len(matchesFrom), result.Sum, strings.Join(mismatches, ", "), errTempFailure)
 	}
 
-	finalDir := filepath.Join(config.DataDir, req.storeDir())
+	result, err = saveFiles(tmpdir, req, output, resultPath, start, elapsed, sysTime, userTime)
+	if err != nil {
+		return nil, fmt.Errorf("storing results of build: %v (%w)", err, errTempFailure)
+	}
+
+	finalDir := filepath.Join(config.DataDir, "result", req.storeDir())
 	os.MkdirAll(filepath.Dir(finalDir), 0775) // failures will be caught later
 	err = os.Rename(tmpdir, finalDir)
 	if err != nil {
@@ -294,15 +313,11 @@ func build(req request) (result *buildJSON, err error) {
 	}
 	tmpdir = ""
 
-	err = appendBuildsTxt(result)
-	if err != nil {
-		return nil, err
-	}
 	return result, nil
 }
 
 func saveFailure(req request, output string, start time.Time, systemTime, userTime time.Duration) error {
-	tmpdir, err := ioutil.TempDir(config.DataDir, "failure")
+	tmpdir, err := ioutil.TempDir(config.DataDir, "tmpfailure")
 	if err != nil {
 		return err
 	}
@@ -317,33 +332,14 @@ func saveFailure(req request, output string, start time.Time, systemTime, userTi
 		return err
 	}
 
-	finalDir := filepath.Join(config.DataDir, req.storeDir())
+	finalDir := filepath.Join(config.DataDir, "result", req.storeDir())
 	os.MkdirAll(filepath.Dir(finalDir), 0775) // failures will be caught later
 	err = os.Rename(tmpdir, finalDir)
 	if err != nil {
 		return err
 	}
 	tmpdir = ""
-
-	buildResult := &buildJSON{
-		"0",
-		"",
-		nil, // Marks failure.
-		0,
-		0,
-		start,
-		time.Since(start),
-		systemTime,
-		userTime,
-		req.Goversion,
-		req.Goos,
-		req.Goarch,
-		req.Mod,
-		req.Version,
-		req.Dir,
-	}
-	err = appendBuildsTxt(buildResult)
-	return err
+	return nil
 }
 
 func saveFiles(tmpdir string, req request, output []byte, resultPath string, start time.Time, elapsed, systemTime, userTime time.Duration) (*buildJSON, error) {
@@ -386,6 +382,11 @@ func saveFiles(tmpdir string, req request, output []byte, resultPath string, sta
 		req.Mod,
 		req.Version,
 		req.Dir,
+		-1, // filled in by addSum below
+	}
+
+	if err := addSum(tmpdir, &buildResult); err != nil {
+		return nil, fmt.Errorf("adding sum to tranparency log: %w", err)
 	}
 
 	err = writeGz(filepath.Join(tmpdir, "log.gz"), bytes.NewReader(output))
@@ -436,28 +437,5 @@ func writeGz(path string, src io.Reader) error {
 	}
 	err = lf.Close()
 	lf = nil
-	return err
-}
-
-func appendBuildsTxt(b *buildJSON) error {
-	bf, err := os.OpenFile(filepath.Join(config.DataDir, "builds.txt"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		if bf != nil {
-			bf.Close()
-		}
-	}()
-	sum := "x"
-	if b.SHA256 != nil {
-		sum = fmt.Sprintf("%x", b.SHA256)
-	}
-	_, err = fmt.Fprintf(bf, "0 %s %d %d %d %d %d %d %s %s %s %s %s %s\n", sum, b.Filesize, b.FilesizeGz, b.Start.UnixNano()/int64(time.Millisecond), b.BuildWallTime/time.Millisecond, b.SystemTime/time.Millisecond, b.UserTime/time.Millisecond, b.Goos, b.Goarch, b.Goversion, b.Mod, b.Version, b.Dir)
-	if err != nil {
-		return err
-	}
-	err = bf.Close()
-	bf = nil
 	return err
 }

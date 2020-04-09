@@ -45,7 +45,7 @@ func serveBuild(w http.ResponseWriter, r *http.Request) {
 
 	// Resolve "latest" module version with a redirect.
 	if req.Version == "latest" {
-		info, err := resolveModuleLatest(r.Context(), req.Mod)
+		info, err := resolveModuleLatest(r.Context(), config.GoProxy, req.Mod)
 		if err != nil {
 			failf(w, "resolving latest for module: %w", err)
 			return
@@ -57,7 +57,7 @@ func serveBuild(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	lpath := filepath.Join(config.DataDir, req.storeDir())
+	lpath := filepath.Join(config.DataDir, "result", req.storeDir())
 
 	// If build.json exists, we have a successful build.
 	bf, err := os.Open(filepath.Join(lpath, "build.json"))

@@ -8,32 +8,40 @@ import (
 	"github.com/mjl-/sconf"
 )
 
+func usage() {
+	log.Println("usage: gobuild config")
+	log.Println("       gobuild testconfig gobuild.conf")
+	log.Println("       gobuild serve [flags] [gobuild.conf]")
+	log.Println("       gobuild genkey name")
+	log.Println("       gobuild get [flags] module[@version/package]")
+	flag.PrintDefaults()
+	os.Exit(2)
+}
+
 func main() {
 	log.SetFlags(0)
-	flag.Usage = func() {
-		log.Println("usage: gobuild [flags] { config | testconfig | serve }")
-		log.Println("       gobuild config")
-		log.Println("       gobuild testconfig gobuild.conf")
-		log.Println("       gobuild serve [gobuild.conf]")
-		flag.PrintDefaults()
-	}
+	flag.Usage = usage
 	flag.Parse()
 	args := flag.Args()
 	if len(args) == 0 {
-		flag.Usage()
-		os.Exit(2)
+		usage()
 	}
 	cmd, args := args[0], args[1:]
 	switch cmd {
+	default:
+		usage()
+
 	case "config":
+		if len(args) != 0 {
+			usage()
+		}
 		err := sconf.Describe(os.Stdout, &config)
 		if err != nil {
 			log.Fatalf("describing config: %v", err)
 		}
 	case "testconfig":
 		if len(args) != 1 {
-			flag.Usage()
-			os.Exit(2)
+			usage()
 		}
 		err := sconf.ParseFile(args[0], &config)
 		if err != nil {
@@ -42,8 +50,9 @@ func main() {
 		log.Printf("config OK")
 	case "serve":
 		serve(args)
-	default:
-		flag.Usage()
-		os.Exit(2)
+	case "genkey":
+		genkey(args)
+	case "get":
+		get(args)
 	}
 }

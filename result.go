@@ -30,7 +30,7 @@ func serveResult(w http.ResponseWriter, r *http.Request) {
 	}
 	defer observePage("result "+req.Page.String(), time.Now())
 
-	lpath := filepath.Join(config.DataDir, req.storeDir())
+	lpath := filepath.Join(config.DataDir, "result", req.storeDir())
 
 	bf, err := os.Open(filepath.Join(lpath, "build.json"))
 	if err == nil {

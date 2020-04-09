@@ -16,18 +16,22 @@ import (
 	"golang.org/x/mod/semver"
 )
 
+func fileExists(p string) bool {
+	_, err := os.Stat(p)
+	return err == nil
+}
+
 // serveIndex serves the HTML page for a build/result, that has either failed or is
 // pending under /b/, or has succeeded under /r/.
 func serveIndex(w http.ResponseWriter, r *http.Request, req request, result *buildJSON) {
 	urlPath := req.buildRequest().urlPath()
-	lpath := filepath.Join(config.DataDir, req.storeDir())
+	lpath := filepath.Join(config.DataDir, "result", req.storeDir())
 
 	type versionLink struct {
-		Version   string
-		URLPath   string
-		Available bool
-		Success   bool
-		Active    bool
+		Version string
+		URLPath string
+		Success bool
+		Active  bool
 	}
 	type response struct {
 		Err          error
@@ -75,8 +79,9 @@ func serveIndex(w http.ResponseWriter, r *http.Request, req request, result *bui
 			if s != "" {
 				vreq := req.buildRequest()
 				vreq.Version = s
+				success := fileExists(filepath.Join(config.DataDir, "result", vreq.storeDir(), "@index"))
 				p := vreq.urlPath()
-				link := versionLink{s, p, false, false, p == urlPath}
+				link := versionLink{s, p, success, p == urlPath}
 				l = append(l, link)
 			}
 		}
@@ -104,7 +109,6 @@ func serveIndex(w http.ResponseWriter, r *http.Request, req request, result *bui
 	type goversionLink struct {
 		Goversion string
 		URLPath   string
-		Available bool
 		Success   bool
 		Supported bool
 		Active    bool
@@ -114,49 +118,39 @@ func serveIndex(w http.ResponseWriter, r *http.Request, req request, result *bui
 	for _, goversion := range supported {
 		gvreq := req.buildRequest()
 		gvreq.Goversion = goversion
+		success := fileExists(filepath.Join(config.DataDir, "result", gvreq.storeDir(), "@index"))
 		p := gvreq.urlPath()
-		goversionLinks = append(goversionLinks, goversionLink{goversion, p, false, false, true, p == urlPath})
+		goversionLinks = append(goversionLinks, goversionLink{goversion, p, success, true, p == urlPath})
 	}
 	for _, goversion := range remaining {
 		gvreq := req.buildRequest()
 		gvreq.Goversion = goversion
+		success := fileExists(filepath.Join(config.DataDir, "result", gvreq.storeDir(), "@index"))
 		p := gvreq.urlPath()
-		goversionLinks = append(goversionLinks, goversionLink{goversion, p, false, false, false, p == urlPath})
+		goversionLinks = append(goversionLinks, goversionLink{goversion, p, success, false, p == urlPath})
 	}
 
 	type targetLink struct {
-		Goos      string
-		Goarch    string
-		URLPath   string
-		Available bool
-		Success   bool
-		Active    bool
+		Goos    string
+		Goarch  string
+		URLPath string
+		Success bool
+		Active  bool
 	}
 	targetLinks := []targetLink{}
-	for _, target := range targets {
+	for _, target := range targets.get() {
 		treq := req.buildRequest()
 		treq.Goos = target.Goos
 		treq.Goarch = target.Goarch
+		success := fileExists(filepath.Join(config.DataDir, "result", treq.storeDir(), "@index"))
 		p := treq.urlPath()
-		targetLinks = append(targetLinks, targetLink{target.Goos, target.Goarch, p, false, false, p == urlPath})
+		targetLinks = append(targetLinks, targetLink{target.Goos, target.Goarch, p, success, p == urlPath})
 	}
 
 	pkgGoDevURL := fmt.Sprintf("https://pkg.go.dev/%s@%s/%s", req.Mod, req.Version, req.Dir)
 	pkgGoDevURL = pkgGoDevURL[:len(pkgGoDevURL)-1] + "?tab=doc"
 
 	resp := <-c
-
-	availableBuilds.Lock()
-	for i, link := range goversionLinks {
-		goversionLinks[i].Success, goversionLinks[i].Available = availableBuilds.index[link.URLPath]
-	}
-	for i, link := range targetLinks {
-		targetLinks[i].Success, targetLinks[i].Available = availableBuilds.index[link.URLPath]
-	}
-	for i, link := range resp.VersionLinks {
-		resp.VersionLinks[i].Success, resp.VersionLinks[i].Available = availableBuilds.index[link.URLPath]
-	}
-	availableBuilds.Unlock()
 
 	success := result != nil
 
