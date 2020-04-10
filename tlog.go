@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"golang.org/x/mod/sumdb/note"
@@ -79,7 +80,24 @@ func addSum(tmpdir string, b *buildJSON) (rerr error) {
 	}
 
 	pkg := "/" + b.Dir
-	msg := []byte(fmt.Sprintf("%s %s %s %s %s %s %d %s\n", b.Mod, b.Version, pkg, b.Goos, b.Goarch, b.Goversion, b.Filesize, b.Sum))
+	fields := []string{
+		b.Mod,
+		b.Version,
+		pkg,
+		b.Goos,
+		b.Goarch,
+		b.Goversion,
+		fmt.Sprintf("%d", b.Filesize),
+		b.Sum,
+	}
+	for i, f := range fields {
+		for _, c := range f {
+			if c < ' ' {
+				return fmt.Errorf("bad field %d in record: %q", i, f)
+			}
+		}
+	}
+	msg := []byte(strings.Join(fields, " ") + "\n")
 	if len(msg) > diskRecordSize-2 {
 		return fmt.Errorf("record too large")
 	}
