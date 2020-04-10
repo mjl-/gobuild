@@ -104,16 +104,18 @@ func addSum(tmpdir string, b *buildJSON) (rerr error) {
 
 	hashes, err := tlog.StoredHashes(recordNumber, msg, hashReader{})
 	if err != nil {
-		return fmt.Errorf("StoredHashes: %v", err)
+		return fmt.Errorf("calculating hashes to store: %v", err)
 	}
 
-	for _, h := range hashes {
-		if _, err := hashesFile.Write(h[:]); err != nil {
-			return fmt.Errorf("write hash: %v", err)
-		}
+	hashBuf := make([]byte, len(hashes)*tlog.HashSize)
+	for i, h := range hashes {
+		copy(hashBuf[i*tlog.HashSize:], h[:])
+	}
+	if _, err := hashesFile.Write(hashBuf); err != nil {
+		return fmt.Errorf("write hashes: %v", err)
 	}
 	if err = hashesFile.Sync(); err != nil {
-		return fmt.Errorf("closing hashes file: %v", err)
+		return fmt.Errorf("sync hashes file: %v", err)
 	}
 
 	b.RecordNumber = recordNumber
