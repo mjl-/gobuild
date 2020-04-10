@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"encoding/base64"
 	"fmt"
 	"io/ioutil"
@@ -39,9 +38,6 @@ func serveIndex(w http.ResponseWriter, r *http.Request, req request, result *bui
 	}
 	c := make(chan response, 1)
 	go func() {
-		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
-		defer cancel()
-
 		t0 := time.Now()
 		defer func() {
 			metricGoproxyListDuration.Observe(time.Since(t0).Seconds())
@@ -53,7 +49,7 @@ func serveIndex(w http.ResponseWriter, r *http.Request, req request, result *bui
 			return
 		}
 		u := fmt.Sprintf("%s%s/@v/list", config.GoProxy, modPath)
-		mreq, err := http.NewRequestWithContext(ctx, "GET", u, nil)
+		mreq, err := http.NewRequestWithContext(r.Context(), "GET", u, nil)
 		if err != nil {
 			c <- response{fmt.Errorf("%w: preparing new http request: %v", errServer, err), nil}
 			return

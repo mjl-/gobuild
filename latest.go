@@ -17,9 +17,6 @@ type modVersion struct {
 }
 
 func resolveModuleLatest(ctx context.Context, goproxy, mod string) (*modVersion, error) {
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-
 	t0 := time.Now()
 	defer func() {
 		metricGoproxyLatestDuration.Observe(time.Since(t0).Seconds())
