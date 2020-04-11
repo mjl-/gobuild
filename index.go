@@ -1,7 +1,7 @@
 package main
 
 import (
-	"encoding/base64"
+	"compress/gzip"
 	"fmt"
 	"io/ioutil"
 	"net/http"
@@ -22,9 +22,9 @@ func fileExists(p string) bool {
 
 // serveIndex serves the HTML page for a build/result, that has either failed or is
 // pending under /b/, or has succeeded under /r/.
-func serveIndex(w http.ResponseWriter, r *http.Request, req request, result *buildJSON) {
-	urlPath := req.buildRequest().urlPath()
-	lpath := filepath.Join(config.DataDir, "result", req.storeDir())
+func serveIndex(w http.ResponseWriter, r *http.Request, bs buildSpec, br *buildResult) {
+	xreq := request{bs, "", pageIndex}
+	xlink := xreq.link()
 
 	type versionLink struct {
 		Version string
@@ -36,6 +36,8 @@ func serveIndex(w http.ResponseWriter, r *http.Request, req request, result *bui
 		Err          error
 		VersionLinks []versionLink
 	}
+
+	// Do a lookup to the goproxy in the background, to list the module versions.
 	c := make(chan response, 1)
 	go func() {
 		t0 := time.Now()
@@ -43,7 +45,7 @@ func serveIndex(w http.ResponseWriter, r *http.Request, req request, result *bui
 			metricGoproxyListDuration.Observe(time.Since(t0).Seconds())
 		}()
 
-		modPath, err := module.EscapePath(req.Mod)
+		modPath, err := module.EscapePath(bs.Mod)
 		if err != nil {
 			c <- response{fmt.Errorf("bad module path: %v", err), nil}
 			return
@@ -73,11 +75,11 @@ func serveIndex(w http.ResponseWriter, r *http.Request, req request, result *bui
 		l := []versionLink{}
 		for _, s := range strings.Split(string(buf), "\n") {
 			if s != "" {
-				vreq := req.buildRequest()
-				vreq.Version = s
-				success := fileExists(filepath.Join(config.DataDir, "result", vreq.storeDir(), "@index"))
-				p := vreq.urlPath()
-				link := versionLink{s, p, success, p == urlPath}
+				vbs := bs
+				vbs.Version = s
+				success := fileExists(filepath.Join(vbs.storeDir(), "recordnumber"))
+				p := request{vbs, "", pageIndex}.link()
+				link := versionLink{s, p, success, p == xlink}
 				l = append(l, link)
 			}
 		}
@@ -89,19 +91,19 @@ func serveIndex(w http.ResponseWriter, r *http.Request, req request, result *bui
 
 	// Non-emptiness means we'll serve the error page instead of doing a SSE request for events.
 	var output string
-
-	if result == nil {
-		buf, err := readGzipFile(filepath.Join(lpath, "log.gz"))
-		if err != nil {
+	if br == nil {
+		if buf, err := readGzipFile(filepath.Join(bs.storeDir(), "log.gz")); err != nil {
 			if !os.IsNotExist(err) {
 				failf(w, "%w: reading log.gz: %v", errServer, err)
 				return
 			}
+			// For not-exist, we'll continue below to build.
 		} else {
 			output = string(buf)
 		}
 	}
 
+	// Construct links to other goversions, targets.
 	type goversionLink struct {
 		Goversion string
 		URLPath   string
@@ -112,18 +114,18 @@ func serveIndex(w http.ResponseWriter, r *http.Request, req request, result *bui
 	goversionLinks := []goversionLink{}
 	supported, remaining := installedSDK()
 	for _, goversion := range supported {
-		gvreq := req.buildRequest()
-		gvreq.Goversion = goversion
-		success := fileExists(filepath.Join(config.DataDir, "result", gvreq.storeDir(), "@index"))
-		p := gvreq.urlPath()
-		goversionLinks = append(goversionLinks, goversionLink{goversion, p, success, true, p == urlPath})
+		gvbs := bs
+		gvbs.Goversion = goversion
+		success := fileExists(filepath.Join(gvbs.storeDir(), "recordnumber"))
+		p := request{gvbs, "", pageIndex}.link()
+		goversionLinks = append(goversionLinks, goversionLink{goversion, p, success, true, p == xlink})
 	}
 	for _, goversion := range remaining {
-		gvreq := req.buildRequest()
-		gvreq.Goversion = goversion
-		success := fileExists(filepath.Join(config.DataDir, "result", gvreq.storeDir(), "@index"))
-		p := gvreq.urlPath()
-		goversionLinks = append(goversionLinks, goversionLink{goversion, p, success, false, p == urlPath})
+		gvbs := bs
+		gvbs.Goversion = goversion
+		success := fileExists(filepath.Join(gvbs.storeDir(), "recordnumber"))
+		p := request{gvbs, "", pageIndex}.link()
+		goversionLinks = append(goversionLinks, goversionLink{goversion, p, success, false, p == xlink})
 	}
 
 	type targetLink struct {
@@ -135,62 +137,76 @@ func serveIndex(w http.ResponseWriter, r *http.Request, req request, result *bui
 	}
 	targetLinks := []targetLink{}
 	for _, target := range targets.get() {
-		treq := req.buildRequest()
-		treq.Goos = target.Goos
-		treq.Goarch = target.Goarch
-		success := fileExists(filepath.Join(config.DataDir, "result", treq.storeDir(), "@index"))
-		p := treq.urlPath()
-		targetLinks = append(targetLinks, targetLink{target.Goos, target.Goarch, p, success, p == urlPath})
+		tbs := bs
+		tbs.Goos = target.Goos
+		tbs.Goarch = target.Goarch
+		success := fileExists(filepath.Join(tbs.storeDir(), "recordnumber"))
+		p := request{tbs, "", pageIndex}.link()
+		targetLinks = append(targetLinks, targetLink{target.Goos, target.Goarch, p, success, p == xlink})
 	}
 
-	pkgGoDevURL := fmt.Sprintf("https://pkg.go.dev/%s@%s/%s", req.Mod, req.Version, req.Dir)
+	pkgGoDevURL := fmt.Sprintf("https://pkg.go.dev/%s@%s/%s", bs.Mod, bs.Version, bs.Dir[1:])
 	pkgGoDevURL = pkgGoDevURL[:len(pkgGoDevURL)-1] + "?tab=doc"
 
 	resp := <-c
 
-	success := result != nil
-
-	var bsum string
-	if success {
-		bsum = "0" + base64.RawURLEncoding.EncodeToString(result.SHA256[:20])
+	var filesizeGz string
+	if br == nil {
+		br = &buildResult{buildSpec: bs}
 	} else {
-		result = &buildJSON{} // for easier code below, we always dereference
+		if info, err := os.Stat(filepath.Join(bs.storeDir(), "binary.gz")); err == nil {
+			filesizeGz = fmt.Sprintf("%.1f MB", float64(info.Size())/(1024*1024))
+		}
+	}
+
+	prependDir := xreq.Dir
+	if prependDir == "/" {
+		prependDir = ""
 	}
 
 	args := map[string]interface{}{
-		"Success":          success,
-		"Req":              req,
+		"Success":          br.Sum != "",
+		"Sum":              br.Sum,
+		"Req":              xreq,             // eg "/" or "/cmd/x"
+		"DirAppend":        xreq.appendDir(), // eg "" or "cmd/x/"
+		"DirPrepend":       prependDir,       // eg "" or /cmd/x"
 		"GoversionLinks":   goversionLinks,
 		"TargetLinks":      targetLinks,
 		"Mod":              resp,
 		"GoProxy":          config.GoProxy,
-		"DownloadFilename": req.downloadFilename(),
+		"DownloadFilename": xreq.downloadFilename(),
+		"PkgGoDevURL":      pkgGoDevURL,
+		"GobuildVersion":   gobuildVersion,
 
 		// Whether we will do SSE request for updates.
-		"InProgress": !success && output == "",
+		"InProgress": br.Sum == "" && output == "",
 
 		// Non-empty on failure.
 		"Output": output,
 
 		// Below only meaningful when "success".
-		"SHA256":          fmt.Sprintf("%x", result.SHA256),
-		"Sum":             bsum,
-		"Filesize":        fmt.Sprintf("%.1f MB", float64(result.Filesize)/(1024*1024)),
-		"FilesizeGz":      fmt.Sprintf("%.1f MB", float64(result.FilesizeGz)/(1024*1024)),
-		"Start":           result.Start.Format("2006-01-02 15:04:05"),
-		"BuildWallTimeMS": fmt.Sprintf("%d", result.BuildWallTime/time.Millisecond),
-		"SystemTimeMS":    fmt.Sprintf("%d", result.SystemTime/time.Millisecond),
-		"UserTimeMS":      fmt.Sprintf("%d", result.UserTime/time.Millisecond),
-		"PkgGoDevURL":     pkgGoDevURL,
-		"GobuildVersion":  gobuildVersion,
+		"Filesize":   fmt.Sprintf("%.1f MB", float64(br.Filesize)/(1024*1024)),
+		"FilesizeGz": filesizeGz,
 	}
 
-	if req.isBuild() {
+	if br.Sum == "" {
 		w.Header().Set("Cache-Control", "no-store")
 	}
 
-	err := buildTemplate.Execute(w, args)
-	if err != nil {
+	if err := buildTemplate.Execute(w, args); err != nil {
 		failf(w, "%w: executing template: %v", errServer, err)
+	}
+}
+
+func readGzipFile(p string) ([]byte, error) {
+	f, err := os.Open(p)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	if fgz, err := gzip.NewReader(f); err != nil {
+		return nil, err
+	} else {
+		return ioutil.ReadAll(fgz)
 	}
 }

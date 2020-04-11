@@ -16,7 +16,7 @@ URLs
 The first URL fetches the requested Go module to find the commands (main
 packages). In case of a single command, it redirects to a URL of the second
 form. In case of multiple commands, it lists them, linking to URLs of the second
-form. Links are to the latest module and go versions, and with goos/goarch
+form. Links are to the latest module and Go versions, and with goos/goarch
 guessed based on user-agent.
 
 The second URL first resolves "latest" for the module and Go version with a
@@ -53,7 +53,7 @@ Only "go build" is run, for pure Go code. None of "go test", "go generate",
 build tags, cgo, custom compile/link flags, makefiles, etc. This means gobuild
 cannot build all Go applications.
 
-Gobuild looks up module versions through the go proxy. That's why
+Gobuild looks up module versions through the Go module proxy. That's why
 shorthandversions like "@v1" don't resolve.
 
 Gobuild automatically downloads a Go toolchain (SDK) from https://golang.org/dl/

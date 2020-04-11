@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,11 +17,12 @@ const (
 	kindSuccess       = kind("Success")
 )
 
+// buildUpdateMsg is sent to browsers through the SSE /events endpoint.
 type buildUpdateMsg struct {
 	Kind          kind
-	QueuePosition *int       `json:",omitempty"`
-	Error         string     `json:",omitempty"`
-	Result        *buildJSON `json:",omitempty"`
+	QueuePosition *int         `json:",omitempty"`
+	Error         string       `json:",omitempty"`
+	Result        *buildResult `json:",omitempty"`
 }
 
 func (bum buildUpdateMsg) json() []byte {
@@ -33,16 +35,17 @@ func (bum buildUpdateMsg) json() []byte {
 }
 
 type buildUpdate struct {
-	req           request
-	done          bool       // If true, build finished, failure or success.
-	err           error      // If not nil, build failed.
-	result        *buildJSON // Only in case of success.
-	queuePosition int        // If 0, no longer queued but building.
-	msg           []byte     // JSON-encoded buildUpdateMsg to write to clients.
+	bs            buildSpec
+	done          bool         // If true, build finished, failure or success.
+	err           error        // If not nil, build failed.
+	result        *buildResult // Only in case of success.
+	recordNumber  int64        // Only in case of success.
+	queuePosition int          // If 0, no longer queued, but building.
+	msg           []byte       // JSON-encoded buildUpdateMsg to write to clients.
 }
 
 type buildRequest struct {
-	req    request
+	bs     buildSpec
 	eventc chan buildUpdate
 }
 
@@ -54,12 +57,12 @@ var coordinate = struct {
 	make(chan buildRequest, 1),
 }
 
-func registerBuild(req request, eventc chan buildUpdate) {
-	coordinate.register <- buildRequest{req, eventc}
+func registerBuild(bs buildSpec, eventc chan buildUpdate) {
+	coordinate.register <- buildRequest{bs, eventc}
 }
 
-func unregisterBuild(req request, eventc chan buildUpdate) {
-	coordinate.unregister <- buildRequest{req, eventc}
+func unregisterBuild(bs buildSpec, eventc chan buildUpdate) {
+	coordinate.unregister <- buildRequest{bs, eventc}
 }
 
 func coordinateBuilds() {
@@ -67,14 +70,14 @@ func coordinateBuilds() {
 	// the build command that hasn't finished.
 	// If the last "events" leaves, and "final" is set, we remove wipBuild.
 	type wipBuild struct {
-		// All listeners for events.
+		// All listeners for events. These will all get updates.
 		events []chan buildUpdate
 
-		// Last update, width done set to true. We store it to know the command has
-		// finished, and give late arrivals the concluding update.
+		// Last update, with done set to true. We store it to know the command has
+		// finished, and give all listeners the concluding update.
 		final *buildUpdate
 	}
-	builds := map[request]*wipBuild{} // Index by request for build, index page.
+	builds := map[buildSpec]*wipBuild{}
 
 	active := 0
 	maxBuilds := config.MaxBuilds
@@ -84,10 +87,10 @@ func coordinateBuilds() {
 
 	// Build requests always go through the queue. We'll pick up the next for which the
 	// output path is available, but only if we are below maxBuilds builds in progress.
-	// Requests are always for build index pages.
-	queue := []request{}
+	queue := []buildSpec{}
 
-	// Keep track of output paths that are "busy", i.e. currently running builds will output to.
+	// Keep track of output paths that are "busy", i.e. paths that currently running
+	// builds will write the resulting binary to.
 	// Keys are the result of request.outputPath.
 	pathBusy := map[string]struct{}{}
 
@@ -110,11 +113,11 @@ func coordinateBuilds() {
 		}
 	}
 
-	startBuild := func(req request, b *wipBuild) {
+	startBuild := func(bs buildSpec, b *wipBuild) {
 		active++
-		pathBusy[req.outputPath()] = struct{}{}
+		pathBusy[bs.outputPath()] = struct{}{}
 		go func() {
-			result, err := goBuild(req)
+			recordNumber, result, err := build(bs)
 			var msg []byte
 			if err == nil {
 				msg = buildUpdateMsg{Kind: kindSuccess, Result: result}.json()
@@ -123,7 +126,7 @@ func coordinateBuilds() {
 			} else {
 				msg = buildUpdateMsg{Kind: kindPermFail, Error: err.Error()}.json()
 			}
-			update := buildUpdate{req: req, done: true, err: err, result: result, msg: msg}
+			update := buildUpdate{bs: bs, done: true, err: err, result: result, recordNumber: recordNumber, msg: msg}
 			updatec <- update
 		}()
 	}
@@ -134,21 +137,21 @@ func coordinateBuilds() {
 		}
 
 		for i := 0; i < len(queue); {
-			req := queue[i]
-			if _, busy := pathBusy[req.outputPath()]; busy {
+			bs := queue[i]
+			if _, busy := pathBusy[bs.outputPath()]; busy {
 				i++
 				continue
 			}
 			queue = append(queue[:i], queue[i+1:]...)
-			nb := builds[req]
+			nb := builds[bs]
 			if len(nb.events) == 0 {
 				// All parties interested have gone, don't build.
 				continue
 			}
 			sendPending(nb, 0)
-			startBuild(req, nb)
-			for j, wreq := range queue[i:] {
-				sendPending(builds[wreq], j+1)
+			startBuild(bs, nb)
+			for j, wbs := range queue[i:] {
+				sendPending(builds[wbs], i+j+1)
 			}
 			break
 		}
@@ -156,35 +159,47 @@ func coordinateBuilds() {
 
 	for {
 		select {
-		case br := <-coordinate.register:
-			breq := br.req.buildIndexRequest()
-			b, ok := builds[breq]
+		case reg := <-coordinate.register:
+			b, ok := builds[reg.bs]
 			if !ok {
 				b = &wipBuild{nil, nil}
-				builds[breq] = b
+				builds[reg.bs] = b
+
+				// We may have just finished a build. Before starting any new work, try reading a result.
+				if recordNumber, br, failed, err := (serverOps{}.lookupResult(context.Background(), reg.bs)); err != nil || failed {
+					if err == nil {
+						err = fmt.Errorf("build failed")
+					}
+					msg := buildUpdateMsg{Kind: kindTempFail, Error: err.Error()}.json()
+					b.final = &buildUpdate{reg.bs, true, err, nil, 0, 0, msg}
+				} else if br != nil {
+					msg := buildUpdateMsg{Kind: kindSuccess, Result: br}.json()
+					b.final = &buildUpdate{reg.bs, true, nil, br, recordNumber, 0, msg}
+				} else {
+					// No result, we'll continue as normal, starting a build.
+				}
 			}
-			b.events = append(b.events, br.eventc)
+			b.events = append(b.events, reg.eventc)
 			if b.final != nil {
-				br.eventc <- *b.final
+				reg.eventc <- *b.final
 				continue
 			}
 
 			if !ok {
-				queue = append(queue, breq)
+				queue = append(queue, reg.bs)
 				kick()
 			}
 			update := buildUpdate{
 				queuePosition: len(queue),
 				msg:           buildUpdateMsg{Kind: kindQueuePosition, QueuePosition: intptr(len(queue))}.json(),
 			}
-			br.eventc <- update
+			reg.eventc <- update
 
-		case br := <-coordinate.unregister:
-			breq := br.req.buildIndexRequest()
-			b := builds[breq]
+		case reg := <-coordinate.unregister:
+			b := builds[reg.bs]
 			l := []chan buildUpdate{}
 			for _, c := range b.events {
-				if c != br.eventc {
+				if c != reg.eventc {
 					l = append(l, c)
 				}
 			}
@@ -193,12 +208,11 @@ func coordinateBuilds() {
 			}
 			b.events = l
 			if len(b.events) == 0 && b.final != nil {
-				delete(builds, breq)
+				delete(builds, reg.bs)
 			}
 
 		case update := <-updatec:
-			breq := update.req.buildIndexRequest()
-			b := builds[breq]
+			b := builds[update.bs]
 			for _, c := range b.events {
 				// We don't want to block. Slow clients/readers may not get all updates, better than blocking.
 				select {
@@ -209,11 +223,11 @@ func coordinateBuilds() {
 			if !update.done {
 				continue
 			}
-			delete(pathBusy, breq.outputPath())
+			delete(pathBusy, update.bs.outputPath())
 			b.final = &update
 			active--
 			if len(b.events) == 0 {
-				delete(builds, breq)
+				delete(builds, update.bs)
 			}
 			kick()
 		}

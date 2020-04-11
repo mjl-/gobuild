@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -92,7 +93,55 @@ var (
 		},
 		[]string{"baseurl", "goos", "goarch", "goversion"},
 	)
+
+	metricTlogAddErrors = promauto.NewCounter(
+		prometheus.CounterOpts{
+			Name: "gobuild_tlog_add_errors_total",
+			Help: "Number of errors (of any kind, including consistency) while adding a sum to the transparency log.",
+		},
+	)
+	metricTlogConsistencyErrors = promauto.NewCounter(
+		prometheus.CounterOpts{
+			Name: "gobuild_tlog_consistency_errors_total",
+			Help: "Number of consistency errors encountered while adding a sum to the transparency log.",
+		},
+	)
+	metricTlogRecords = promauto.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "gobuild_tlog_record_total",
+			Help: "Number of records in the transparency log.",
+		},
+	)
+
+	metricTlogOpsSignedErrors       = newOpsErrorCounter("signed")
+	metricTlogOpsReadrecordsErrors  = newOpsErrorCounter("readrecords")
+	metricTlogOpsLookupErrors       = newOpsErrorCounter("lookup")
+	metricTlogOpsReadtiledataErrors = newOpsErrorCounter("readtiledata")
+
+	metricTlogOpsSignedDuration       = newOpsHistogram("signed")
+	metricTlogOpsReadrecordsDuration  = newOpsHistogram("readrecords")
+	metricTlogOpsLookupDuration       = newOpsHistogram("lookup")
+	metricTlogOpsReadtiledataDuration = newOpsHistogram("readtiledata")
 )
+
+func newOpsErrorCounter(op string) prometheus.Counter {
+	return promauto.NewCounter(
+		prometheus.CounterOpts{
+			Name: fmt.Sprintf("gobuild_tlog_ops_%s_errors_total", op),
+			Help: fmt.Sprintf("Number of transparency log errors for server op %s on the transparency log.", op),
+		},
+	)
+}
+
+func newOpsHistogram(op string) prometheus.Histogram {
+	return promauto.NewHistogram(
+		prometheus.HistogramOpts{
+			Name:    fmt.Sprintf("gobuild_tlog_ops_%s_duration_seconds", op),
+			Help:    fmt.Sprintf("Duration of transparency log server op %s in seconds.", op),
+			Buckets: []float64{0.001, 0.005, 0.01, 0.05, 0.1, 0.25, 0.5, 1},
+		},
+	)
+}
 
 func observePage(page string, t0 time.Time) {
 	metricPageDuration.WithLabelValues(page).Observe(time.Since(t0).Seconds())

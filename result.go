@@ -1,12 +1,7 @@
 package main
 
 import (
-	"bytes"
-	"compress/gzip"
-	"encoding/base64"
-	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -30,81 +25,61 @@ func serveResult(w http.ResponseWriter, r *http.Request) {
 	}
 	defer observePage("result "+req.Page.String(), time.Now())
 
-	lpath := filepath.Join(config.DataDir, "result", req.storeDir())
+	storeDir := req.storeDir()
 
-	bf, err := os.Open(filepath.Join(lpath, "build.json"))
-	if err == nil {
-		defer bf.Close()
-	}
-	var buildResult buildJSON
-	if err == nil {
-		err = json.NewDecoder(bf).Decode(&buildResult)
-	}
-	if err == nil && bytes.Equal(buildResult.SHA256, []byte{'x'}) {
+	_, br, failed, err := serverOps{}.lookupResult(r.Context(), req.buildSpec)
+	if err != nil {
+		failf(w, "%w: lookup record: %v", errServer, err)
+		return
+	} else if failed {
 		http.NotFound(w, r)
 		return
-	}
-	if err != nil && !os.IsNotExist(err) {
-		failf(w, "%w: reading build.json: %v", errServer, err)
-		return
-	}
-	if err != nil {
-		// Before attempting to build, check we don't have a failed build already.
-		_, err = os.Stat(filepath.Join(lpath, "log.gz"))
-		if err == nil {
-			http.NotFound(w, r)
-			return
-		}
-
+	} else if br == nil {
 		// Attempt to build.
-		err = prepareBuild(req)
-		if err != nil {
+		if err := prepareBuild(req.buildSpec); err != nil {
 			failf(w, "preparing build: %w", err)
 			return
 		}
 
 		eventc := make(chan buildUpdate, 100)
-		registerBuild(req, eventc)
+		registerBuild(req.buildSpec, eventc)
 		ctx := r.Context()
 
 	loop:
 		for {
 			select {
 			case <-ctx.Done():
-				unregisterBuild(req, eventc)
+				unregisterBuild(req.buildSpec, eventc)
 				return
 			case update := <-eventc:
 				if !update.done {
 					continue
 				}
-				unregisterBuild(req, eventc)
+				unregisterBuild(req.buildSpec, eventc)
 				if update.err != nil {
 					failf(w, "build failed: %w", update.err)
 					return
 				}
-				buildResult = *update.result
+				r := *update.result
+				br = &r
 				break loop
 			}
 		}
 	}
 
-	if "0"+base64.RawURLEncoding.EncodeToString(buildResult.SHA256[:20]) != req.Sum {
+	if br.Sum != req.Sum {
 		http.NotFound(w, r)
 		return
 	}
 
 	switch req.Page {
 	case pageLog:
-		serveLog(w, r, filepath.Join(lpath, "log.gz"))
-	case pageSha256:
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		fmt.Fprintf(w, "%x\n", buildResult.SHA256) // nothing to do for errors
+		serveLog(w, r, filepath.Join(storeDir, "log.gz"))
 	case pageDownloadRedirect:
-		dreq := req
-		dreq.Page = pageDownload
-		http.Redirect(w, r, dreq.urlPath(), http.StatusTemporaryRedirect)
+		link := request{req.buildSpec, br.Sum, pageDownload}.link()
+		http.Redirect(w, r, link, http.StatusTemporaryRedirect)
 	case pageDownload:
-		p := filepath.Join(lpath, req.downloadFilename()+".gz")
+		p := filepath.Join(storeDir, "binary.gz")
 		f, err := os.Open(p)
 		if err != nil {
 			failf(w, "%w: open binary: %v", errServer, err)
@@ -113,27 +88,18 @@ func serveResult(w http.ResponseWriter, r *http.Request) {
 		defer f.Close()
 		serveGzipFile(w, r, p, f)
 	case pageDownloadGz:
-		p := filepath.Join(lpath, req.downloadFilename()+".gz")
+		p := filepath.Join(storeDir, "binary.gz")
 		http.ServeFile(w, r, p)
-	case pageBuildJSON:
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		json.NewEncoder(w).Encode(buildResult) // nothing to do for errors
+	case pageRecord:
+		if msg, err := br.packRecord(); err != nil {
+			failf(w, "%w: packing record: %v", errServer, err)
+		} else {
+			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+			w.Write(msg) // nothing to do for errors
+		}
 	case pageIndex:
-		serveIndex(w, r, req, &buildResult)
+		serveIndex(w, r, req.buildSpec, br)
 	default:
 		failf(w, "%w: unknown page %v", errServer, req.Page)
 	}
-}
-
-func readGzipFile(p string) ([]byte, error) {
-	f, err := os.Open(p)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-	fgz, err := gzip.NewReader(f)
-	if err != nil {
-		return nil, err
-	}
-	return ioutil.ReadAll(fgz)
 }

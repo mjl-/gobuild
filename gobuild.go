@@ -5,7 +5,6 @@ import (
 	"compress/gzip"
 	"crypto/sha256"
 	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -20,170 +19,111 @@ import (
 
 var errTempFailure = errors.New("temporary failure")
 
-type buildJSON struct {
-	V             string // "0"
-	Sum           string // Sum is the versioned raw-base64-url encoded 20-byte prefix of the SHA256 sum. For v 0, it starts with "0".
-	SHA256        []byte
-	Filesize      int64
-	FilesizeGz    int64
-	Start         time.Time
-	BuildWallTime time.Duration
-	SystemTime    time.Duration
-	UserTime      time.Duration
-	Goversion     string
-	Goos          string
-	Goarch        string
-	Mod           string
-	Version       string
-	Dir           string
-	RecordNumber  int64
-}
-
-func ensureGobin(req request) (string, error) {
-	gobin := filepath.Join(config.SDKDir, req.Goversion, "bin", "go"+goexe())
+func ensureGobin(goversion string) (string, error) {
+	gobin := filepath.Join(config.SDKDir, goversion, "bin", "go"+goexe())
 	if !filepath.IsAbs(gobin) {
 		gobin = filepath.Join(workdir, gobin)
 	}
-	_, err := os.Stat(gobin)
-	if err != nil {
-		return "", fmt.Errorf("unknown toolchain %q: %v", req.Goversion, err)
+	if _, err := os.Stat(gobin); err != nil {
+		return "", fmt.Errorf("unknown toolchain %q: %v", goversion, err)
 	}
 	return gobin, nil
 }
 
-func prepareBuild(req request) error {
-	err := ensureSDK(req.Goversion)
-	if err != nil {
-		return fmt.Errorf("missing toolchain %q: %w", req.Goversion, err)
+func prepareBuild(bs buildSpec) error {
+	if err := ensureSDK(bs.Goversion); err != nil {
+		return fmt.Errorf("missing toolchain %q: %w", bs.Goversion, err)
 	}
 
-	gobin, err := ensureGobin(req)
+	gobin, err := ensureGobin(bs.Goversion)
 	if err != nil {
 		return err
 	}
 
-	modDir, getOutput, err := ensureModule(gobin, req.Mod, req.Version)
+	modDir, getOutput, err := ensureModule(gobin, bs.Mod, bs.Version)
 	if err != nil {
 		return fmt.Errorf("error fetching module from goproxy: %w\n\n# output from go get:\n%s", err, string(getOutput))
 	}
 
-	pkgDir := filepath.Join(modDir, filepath.FromSlash(req.Dir))
+	pkgDir := filepath.Join(modDir, filepath.FromSlash(bs.Dir[1:]))
 
 	// Check if package is a main package, resulting in an executable when built.
 	cgo := true
-	cmd := makeCommand(cgo, gobin, "list", "-f", "{{.Name}}")
-	cmd.Dir = pkgDir
-	cmd.Env = append(cmd.Env,
-		"GOOS="+req.Goos,
-		"GOARCH="+req.Goarch,
-	)
+	moreEnv := []string{
+		"GOOS=" + bs.Goos,
+		"GOARCH=" + bs.Goarch,
+	}
+	cmd := makeCommand(pkgDir, cgo, moreEnv, gobin, "list", "-f", "{{.Name}}")
 	stderr := &strings.Builder{}
 	cmd.Stderr = stderr
-	nameOutput, err := cmd.Output()
-	if err != nil {
+	if nameOutput, err := cmd.Output(); err != nil {
 		return fmt.Errorf("error finding package name; perhaps package does not exist: %v\n\n# stdout from go list:\n%s\n\nstderr:\n%s", err, nameOutput, stderr.String())
-	}
-	if string(nameOutput) != "main\n" {
+	} else if string(nameOutput) != "main\n" {
 		return fmt.Errorf("package main %w, building would not result in executable binary (package %s)", errNotExist, strings.TrimRight(string(nameOutput), "\n"))
 	}
 
 	// Check that package does not depend on any cgo.
-	cmd = makeCommand(cgo, gobin, "list", "-deps", "-f", `{{ if and (not .Standard) .CgoFiles }}{{ .ImportPath }}{{ end }}`)
-	cmd.Dir = pkgDir
-	cmd.Env = append(cmd.Env,
-		"GOOS="+req.Goos,
-		"GOARCH="+req.Goarch,
-	)
+	cmd = makeCommand(pkgDir, cgo, moreEnv, gobin, "list", "-deps", "-f", `{{ if and (not .Standard) .CgoFiles }}{{ .ImportPath }}{{ end }}`)
 	stderr = &strings.Builder{}
 	cmd.Stderr = stderr
-	cgoOutput, err := cmd.Output()
-	if err != nil {
+	if cgoOutput, err := cmd.Output(); err != nil {
 		return fmt.Errorf("error determining whether cgo is required: %v\n\n# output from go list:\n%s\n\nstderr:\n%s", err, cgoOutput, stderr.String())
-	}
-	if len(cgoOutput) != 0 {
+	} else if len(cgoOutput) != 0 {
 		return fmt.Errorf("build %w due to cgo dependencies:\n\n%s", errNotExist, cgoOutput)
 	}
 	return nil
 }
 
-// goBuild performs the actual build. This is called from coordinate.go, not too
-// many at a time.
-func goBuild(req request) (*buildJSON, error) {
-	bu := req.buildIndexRequest().urlPath()
+// Build does the actual build. It is called from coordinate, ensuring the same
+// buildSpec isn't built multiple times concurrently, and preventing a few other
+// clashes. On success, a record has been added to the transparency log.
+func build(bs buildSpec) (int64, *buildResult, error) {
+	targets.increase(bs.Goos + "/" + bs.Goos)
 
-	result, err := build(req)
-
-	ok := err == nil && result != nil
+	gobin, err := ensureGobin(bs.Goversion)
 	if err != nil {
-		return nil, err
+		return -1, nil, fmt.Errorf("ensuring go version is available: %v (%w)", err, errTempFailure)
 	}
 
-	fp := bu
-	if ok {
-		rreq := req.buildIndexRequest()
-		rreq.Sum = "0" + base64.RawURLEncoding.EncodeToString(result.SHA256[:20])
-		fp = rreq.urlPath()
+	if _, output, err := ensureModule(gobin, bs.Mod, bs.Version); err != nil {
+		return -1, nil, fmt.Errorf("error fetching module from goproxy: %v (%w)\n\n# output from go get:\n%s", err, errTempFailure, output)
 	}
-	recentBuilds.Lock()
-	recentBuilds.paths = append(recentBuilds.paths, fp)
-	if len(recentBuilds.paths) > 10 {
-		recentBuilds.paths = recentBuilds.paths[len(recentBuilds.paths)-10:]
-	}
-	recentBuilds.Unlock()
-	return result, nil
-}
 
-func build(req request) (result *buildJSON, err error) {
-	targets.increase(req.Goos + "/" + req.Goos)
-
-	start := time.Now()
-
-	gobin, err := ensureGobin(req)
+	// Where we call the go get command to build. This should get any files, but doesn't hurt to the command aside.
+	tmpBuilddir, err := ioutil.TempDir(resultDir, "tmpgoget")
 	if err != nil {
-		return nil, fmt.Errorf("ensuring go version is available: %v (%w)", err, errTempFailure)
+		return -1, nil, fmt.Errorf("tempdir for build: %v (%w)", err, errTempFailure)
 	}
+	defer os.RemoveAll(tmpBuilddir)
 
-	_, getOutput, err := ensureModule(gobin, req.Mod, req.Version)
-	if err != nil {
-		return nil, fmt.Errorf("error fetching module from goproxy: %v (%w)\n\n# output from go get:\n%s", err, errTempFailure, string(getOutput))
-	}
-
-	dir, err := ioutil.TempDir("", "gobuild")
-	if err != nil {
-		return nil, fmt.Errorf("tempdir for build: %v (%w)", err, errTempFailure)
-	}
-	defer os.RemoveAll(dir)
-
-	// Launch goroutines to let them build the same code and return their build.json.
-	// After our build, we verify we all had the same result. If our build fails, we
-	// just ignore these results, and let the remote builds continue. They will not
-	// cancel the build anyway.
+	// Launch goroutines to let the verifiers build the same code and return their
+	// build result. After our build, we verify we all had the same result. If our
+	// build fails, we just ignore these results, and let the remote builds continue.
+	// They will not cancel the build anyway.
 
 	type remoteBuild struct {
 		verifyURL string
 		err       error
-		result    *buildJSON
+		result    *buildResult
 	}
 
 	verifyResult := make(chan remoteBuild, len(config.VerifierURLs))
-	breq := req.buildRequest()
-	breq.Page = pageBuildJSON
-	verifyPath := breq.urlPath()
+	verifyLink := request{bs, "", pageRecord}.link()
 
-	verify := func(verifierBaseURL string) (*buildJSON, error) {
+	verify := func(verifierBaseURL string) (*buildResult, error) {
 		t0 := time.Now()
 		defer func() {
-			metricVerifyDuration.WithLabelValues(verifierBaseURL, req.Goos, req.Goarch, req.Goversion).Observe(time.Since(t0).Seconds())
+			metricVerifyDuration.WithLabelValues(verifierBaseURL, bs.Goos, bs.Goarch, bs.Goversion).Observe(time.Since(t0).Seconds())
 		}()
 
-		verifyURL := verifierBaseURL + verifyPath
+		verifyURL := verifierBaseURL + verifyLink
 		resp, err := http.Get(verifyURL)
 		if err != nil {
 			return nil, fmt.Errorf("%w: http request: %v", errServer, err)
 		}
 		defer resp.Body.Close()
 		if resp.StatusCode != 200 {
-			metricVerifyErrors.WithLabelValues(verifierBaseURL, req.Goos, req.Goarch, req.Goversion).Inc()
+			metricVerifyErrors.WithLabelValues(verifierBaseURL, bs.Goos, bs.Goarch, bs.Goversion).Inc()
 			buf, err := ioutil.ReadAll(resp.Body)
 			msg := string(buf)
 			if err != nil {
@@ -191,12 +131,14 @@ func build(req request) (result *buildJSON, err error) {
 			}
 			return nil, fmt.Errorf("%w: http error response: %s:\n%s", errRemote, resp.Status, msg)
 		}
-		var result buildJSON
-		err = json.NewDecoder(resp.Body).Decode(&result)
-		if err != nil {
-			return nil, fmt.Errorf("parsing build.json: %v", err)
+
+		if msg, err := ioutil.ReadAll(resp.Body); err != nil {
+			return nil, fmt.Errorf("reading build result from remote: %v", err)
+		} else if br, err := parseRecord(msg); err != nil {
+			return nil, fmt.Errorf("parsing build record from remote: %v", err)
+		} else {
+			return br, nil
 		}
-		return &result, nil
 	}
 
 	for _, verifierBaseURL := range config.VerifierURLs {
@@ -212,27 +154,27 @@ func build(req request) (result *buildJSON, err error) {
 	t0 := time.Now()
 
 	// What to "go get".
-	name := req.Mod
-	if req.Dir != "" {
-		name += "/" + req.Dir
+	name := bs.Mod
+	if bs.Dir != "/" {
+		name += bs.Dir
 	}
-	name += "@" + req.Version
+	name += "@" + bs.Version
 
 	// Path to compiled binary written by go get. We need to use "go get" to get full
 	// module version information in the binary. That isn't possible with "go build".
 	// But only "go build" has an "-o" flag to specify the output. And "go get" won't
 	// build with $GOBIN set.
 	resultPath := filepath.Join(homedir, "go", "bin")
-	if req.Goos != runtime.GOOS || req.Goarch != runtime.GOARCH {
-		resultPath = filepath.Join(resultPath, req.Goos+"_"+req.Goarch)
+	if bs.Goos != runtime.GOOS || bs.Goarch != runtime.GOARCH {
+		resultPath = filepath.Join(resultPath, bs.Goos+"_"+bs.Goarch)
 	}
-	if req.Dir == "" {
-		resultPath = filepath.Join(resultPath, filepath.Base(req.Mod))
+	if bs.Dir != "/" {
+		resultPath = filepath.Join(resultPath, filepath.Base(bs.Dir[1:]))
 	} else {
-		resultPath = filepath.Join(resultPath, filepath.Base(req.Dir))
+		resultPath = filepath.Join(resultPath, filepath.Base(bs.Mod))
 	}
 	// Also cannot set "GOEXE", "go get" does not use it.
-	if req.Goos == "windows" {
+	if bs.Goos == "windows" {
 		resultPath += ".exe"
 	}
 
@@ -240,84 +182,110 @@ func build(req request) (result *buildJSON, err error) {
 	// This might be a leftover from some earlier build attempt.
 	err = os.Remove(resultPath)
 	if err != nil && !os.IsNotExist(err) {
-		return nil, fmt.Errorf("attempting to remove preexisting binary: %v (%w)", err, errTempFailure)
+		return -1, nil, fmt.Errorf("attempting to remove preexisting binary: %v (%w)", err, errTempFailure)
 	}
 
 	// Always remove binary from $GOBIN when we're done here. We copied it on success.
-	defer func() {
-		os.Remove(resultPath)
-	}()
+	defer os.Remove(resultPath)
 
 	cgo := false
-	cmd := makeCommand(cgo, gobin, "get", "-x", "-v", "-trimpath", "-ldflags=-buildid=", "--", name)
-	cmd.Env = append(cmd.Env,
-		"GOOS="+req.Goos,
-		"GOARCH="+req.Goarch,
-	)
-	cmd.Dir = dir
+	moreEnv := []string{
+		"GOOS=" + bs.Goos,
+		"GOARCH=" + bs.Goarch,
+	}
+	cmd := makeCommand(tmpBuilddir, cgo, moreEnv, gobin, "get", "-x", "-v", "-trimpath", "-ldflags=-buildid=", "--", name)
 	output, err := cmd.CombinedOutput()
-	var sysTime, userTime time.Duration
-	if cmd.ProcessState != nil {
-		sysTime = cmd.ProcessState.SystemTime()
-		userTime = cmd.ProcessState.UserTime()
-	}
-	metricCompileDuration.WithLabelValues(req.Goos, req.Goarch, req.Goversion).Observe(time.Since(t0).Seconds())
+	metricCompileDuration.WithLabelValues(bs.Goos, bs.Goarch, bs.Goversion).Observe(time.Since(t0).Seconds())
 	if err != nil {
-		metricCompileErrors.WithLabelValues(req.Goos, req.Goarch, req.Goversion).Inc()
-		err2 := saveFailure(req, err.Error()+"\n\n"+string(output), start, sysTime, userTime)
-		if err2 != nil {
-			return nil, fmt.Errorf("storing results of failure: %v (%w)", err2, errTempFailure)
+		metricCompileErrors.WithLabelValues(bs.Goos, bs.Goarch, bs.Goversion).Inc()
+		if xerr := saveFailure(bs, err.Error()+"\n\n"+string(output)); xerr != nil {
+			return -1, nil, fmt.Errorf("storing results of failure: %v (%w)", xerr, errTempFailure)
 		}
-		return nil, err
+		return -1, nil, err
 	}
 
-	elapsed := time.Since(start)
-
-	tmpdir, err := ioutil.TempDir(config.DataDir, "tmpgobuild")
+	// Where we store the "recordnumber" file, binary.gz and log.gz.
+	tmpdir, err := ioutil.TempDir(resultDir, "tmpresult")
 	if err != nil {
-		return nil, err
+		return -1, nil, err
 	}
+	// On success, the directory will have been moved to its final destination,
+	// indicated by an empty tmpdir.
 	defer func() {
 		if tmpdir != "" {
 			os.RemoveAll(tmpdir)
 		}
 	}()
 
+	br := buildResult{buildSpec: bs}
+
+	// Calculate our hash.
+	rf, err := os.Open(resultPath)
+	if err != nil {
+		return -1, nil, fmt.Errorf("open result: %v", err)
+	}
+	defer rf.Close()
+
+	if info, err := rf.Stat(); err != nil {
+		return -1, nil, fmt.Errorf("stat result: %v", err)
+	} else {
+		br.Filesize = info.Size()
+	}
+
+	h := sha256.New()
+	if _, err := io.Copy(h, rf); err != nil {
+		return -1, nil, fmt.Errorf("read result: %v", err)
+	} else if _, err := rf.Seek(0, 0); err != nil {
+		return -1, nil, fmt.Errorf("seek result: %v", err)
+	}
+	br.Sum = "0" + base64.RawURLEncoding.EncodeToString(h.Sum(nil)[:20])
+
+	// Verify the sums of the verifiers.
 	matchesFrom := []string{}
 	mismatches := []string{}
 	for n := len(config.VerifierURLs); n > 0; n-- {
 		vr := <-verifyResult
 		if vr.err != nil {
-			return nil, fmt.Errorf("build at verifier failed: %v (%w)", vr.err, errTempFailure)
+			return -1, nil, fmt.Errorf("build at verifier failed: %v (%w)", vr.err, errTempFailure)
 		}
-		if result.Sum == vr.result.Sum {
+		if vr.result.Sum == br.Sum {
 			matchesFrom = append(matchesFrom, vr.verifyURL)
 		} else {
 			mismatches = append(mismatches, fmt.Sprintf("%s got %s", vr.verifyURL, vr.result.Sum))
 		}
 	}
 	if len(mismatches) > 0 {
-		return nil, fmt.Errorf("build mismatches, we and %d others got %s, but %s (%w)", len(matchesFrom), result.Sum, strings.Join(mismatches, ", "), errTempFailure)
+		return -1, nil, fmt.Errorf("build mismatches, we and %d others got %s, but %s (%w)", len(matchesFrom), br.Sum, strings.Join(mismatches, ", "), errTempFailure)
 	}
 
-	result, err = saveFiles(tmpdir, req, output, resultPath, start, elapsed, sysTime, userTime)
-	if err != nil {
-		return nil, fmt.Errorf("storing results of build: %v (%w)", err, errTempFailure)
+	// Write binary and log.
+	if err := writeGz(filepath.Join(tmpdir, "binary.gz"), rf); err != nil {
+		return -1, nil, err
+	}
+	if err := writeGz(filepath.Join(tmpdir, "log.gz"), bytes.NewReader(output)); err != nil {
+		return -1, nil, err
 	}
 
-	finalDir := filepath.Join(config.DataDir, "result", req.storeDir())
-	os.MkdirAll(filepath.Dir(finalDir), 0775) // failures will be caught later
-	err = os.Rename(tmpdir, finalDir)
+	// Finally, add to the transparency log, creating the "recordnumber" file and
+	// renaming tmpdir to the final directory in resultDir.
+	recordNumber, err := addSum(tmpdir, br)
 	if err != nil {
-		return nil, err
+		return -1, nil, fmt.Errorf("adding sum to tranparency log: %w", err)
 	}
 	tmpdir = ""
 
-	return result, nil
+	recentBuilds.Lock()
+	recentBuilds.links = append(recentBuilds.links, request{bs, br.Sum, pageIndex}.link())
+	if len(recentBuilds.links) > 10 {
+		recentBuilds.links = recentBuilds.links[len(recentBuilds.links)-10:]
+	}
+	recentBuilds.Unlock()
+
+	return recordNumber, &br, nil
 }
 
-func saveFailure(req request, output string, start time.Time, systemTime, userTime time.Duration) error {
-	tmpdir, err := ioutil.TempDir(config.DataDir, "tmpfailure")
+func saveFailure(bs buildSpec, output string) error {
+	tmpdir, err := ioutil.TempDir(resultDir, "tmpfail")
 	if err != nil {
 		return err
 	}
@@ -327,93 +295,15 @@ func saveFailure(req request, output string, start time.Time, systemTime, userTi
 		}
 	}()
 
-	err = writeGz(filepath.Join(tmpdir, "log.gz"), strings.NewReader(output))
-	if err != nil {
+	if err := writeGz(filepath.Join(tmpdir, "log.gz"), strings.NewReader(output)); err != nil {
 		return err
 	}
 
-	finalDir := filepath.Join(config.DataDir, "result", req.storeDir())
-	os.MkdirAll(filepath.Dir(finalDir), 0775) // failures will be caught later
-	err = os.Rename(tmpdir, finalDir)
-	if err != nil {
+	if err := os.Rename(tmpdir, bs.storeDir()); err != nil {
 		return err
 	}
 	tmpdir = ""
 	return nil
-}
-
-func saveFiles(tmpdir string, req request, output []byte, resultPath string, start time.Time, elapsed, systemTime, userTime time.Duration) (*buildJSON, error) {
-	of, err := os.Open(resultPath)
-	if err != nil {
-		return nil, err
-	}
-	defer of.Close()
-
-	fi, err := of.Stat()
-	if err != nil {
-		return nil, err
-	}
-	size := fi.Size()
-
-	h := sha256.New()
-	_, err = io.Copy(h, of)
-	if err != nil {
-		return nil, err
-	}
-	sha256 := h.Sum(nil)
-	_, err = of.Seek(0, io.SeekStart)
-	if err != nil {
-		return nil, err
-	}
-
-	buildResult := buildJSON{
-		"0",
-		"0" + base64.RawURLEncoding.EncodeToString(sha256[:20]),
-		sha256,
-		size,
-		0, // filled in below
-		start,
-		elapsed,
-		systemTime,
-		userTime,
-		req.Goversion,
-		req.Goos,
-		req.Goarch,
-		req.Mod,
-		req.Version,
-		req.Dir,
-		-1, // filled in by addSum below
-	}
-
-	if err := addSum(tmpdir, &buildResult); err != nil {
-		return nil, fmt.Errorf("adding sum to tranparency log: %w", err)
-	}
-
-	err = writeGz(filepath.Join(tmpdir, "log.gz"), bytes.NewReader(output))
-	if err != nil {
-		return nil, err
-	}
-
-	binGz := filepath.Join(tmpdir, req.downloadFilename()+".gz")
-	err = writeGz(binGz, of)
-	if err != nil {
-		return nil, err
-	}
-	fi, err = os.Stat(binGz)
-	if err != nil {
-		return nil, err
-	}
-	buildResult.FilesizeGz = fi.Size()
-
-	buf, err := json.Marshal(buildResult)
-	if err != nil {
-		return nil, fmt.Errorf("%w: marshal build.json: %v", errServer, err)
-	}
-	err = ioutil.WriteFile(filepath.Join(tmpdir, "build.json"), buf, 0664)
-	if err != nil {
-		return nil, err
-	}
-	return &buildResult, nil
 }
 
 func writeGz(path string, src io.Reader) error {
@@ -427,12 +317,10 @@ func writeGz(path string, src io.Reader) error {
 		}
 	}()
 	lfgz := gzip.NewWriter(lf)
-	_, err = io.Copy(lfgz, src)
-	if err != nil {
+	if _, err := io.Copy(lfgz, src); err != nil {
 		return err
 	}
-	err = lfgz.Close()
-	if err != nil {
+	if err := lfgz.Close(); err != nil {
 		return err
 	}
 	err = lf.Close()

@@ -3,9 +3,12 @@ package main
 import (
 	"os/exec"
 	"path/filepath"
+	"runtime"
 )
 
-func makeCommand(cgoEnabled bool, argv ...string) *exec.Cmd {
+// Prepare command, typically for running go get. We sometimes need CGO_ENABLED to
+// properly list the cgo files that would be used during a build.
+func makeCommand(dir string, cgoEnabled bool, extraEnv []string, argv ...string) *exec.Cmd {
 	cgo := "CGO_ENABLED=0"
 	if cgoEnabled {
 		cgo = "CGO_ENABLED=1"
@@ -15,15 +18,31 @@ func makeCommand(cgoEnabled bool, argv ...string) *exec.Cmd {
 	l = append(l, config.Run...)
 	l = append(l, argv...)
 	cmd := exec.Command(l[0], l[1:]...)
-	cmd.Env = append([]string{
+	cmd.Dir = dir
+	cmd.Env = []string{
 		"GOPROXY=" + config.GoProxy,
 		"GO111MODULE=on",
 		cgo,
 		"GO19CONCURRENTCOMPILATION=0",
-		"HOME=" + homedir,
-		"USERPROFILE=" + homedir,
-		"AppData=" + filepath.Join(homedir, "AppData"),
-		"LocalAppData=" + filepath.Join(homedir, "LocalAppData"),
-	}, config.Environment...)
+	}
+	switch runtime.GOOS {
+	case "windows":
+		cmd.Env = append(cmd.Env,
+			"USERPROFILE="+homedir,
+			"AppData="+filepath.Join(homedir, "AppData"),
+			"LocalAppData="+filepath.Join(homedir, "LocalAppData"),
+		)
+	case "plan9":
+		cmd.Env = append(cmd.Env, "home="+homedir)
+	default:
+		cmd.Env = append(cmd.Env, "HOME="+homedir)
+	}
+	if len(config.Environment) > 0 {
+		cmd.Env = append(cmd.Env, config.Environment...)
+	}
+	if len(extraEnv) > 0 {
+		cmd.Env = append(cmd.Env, extraEnv...)
+	}
+	// log.Printf("command: workdir=%q argv=%#v environment=%#v", dir, l, cmd.Env)
 	return cmd
 }

@@ -6,22 +6,22 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
-	"path"
 	"path/filepath"
 	"strconv"
-	"strings"
+	"time"
 
 	"github.com/mjl-/gobuild/internal/sumdb"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"golang.org/x/mod/sumdb/note"
 	"golang.org/x/mod/sumdb/tlog"
 )
 
-type server struct {
+type serverOps struct {
 	signer note.Signer
 }
 
-var _ sumdb.ServerOps = server{}
+var _ sumdb.ServerOps = serverOps{}
 
 type hashReader struct{}
 
@@ -36,24 +36,31 @@ func (h hashReader) ReadHashes(indexes []int64) ([]tlog.Hash, error) {
 	return hashes, nil
 }
 
-// Signed returns the signed hash of the latest tree.
-func (s server) Signed(ctx context.Context) ([]byte, error) {
-	n, err := treeSize()
-	if err != nil {
-		return nil, err
+func observeOp(rerr *error, t0 time.Time, errorCounter prometheus.Counter, histo prometheus.Histogram) {
+	histo.Observe(time.Since(t0).Seconds())
+	if *rerr != nil {
+		errorCounter.Inc()
 	}
+}
 
-	h, err := tlog.TreeHash(n, hashReader{})
-	if err != nil {
+// Signed returns the signed hash of the latest tree.
+func (s serverOps) Signed(ctx context.Context) (result []byte, rerr error) {
+	defer observeOp(&rerr, time.Now(), metricTlogOpsSignedErrors, metricTlogOpsSignedDuration)
+
+	if n, err := treeSize(); err != nil {
 		return nil, err
+	} else if h, err := tlog.TreeHash(n, hashReader{}); err != nil {
+		return nil, err
+	} else {
+		text := tlog.FormatTree(tlog.Tree{N: n, Hash: h})
+		return note.Sign(&note.Note{Text: string(text)}, s.signer)
 	}
-	text := tlog.FormatTree(tlog.Tree{N: n, Hash: h})
-	return note.Sign(&note.Note{Text: string(text)}, s.signer)
 }
 
 // ReadRecords returns the content for the n records id through id+n-1.
-func (s server) ReadRecords(ctx context.Context, id, n int64) ([][]byte, error) {
+func (s serverOps) ReadRecords(ctx context.Context, id, n int64) (results [][]byte, rerr error) {
 	// log.Printf("server: ReadRecords %d %d", id, n)
+	defer observeOp(&rerr, time.Now(), metricTlogOpsReadrecordsErrors, metricTlogOpsReadrecordsDuration)
 
 	if n <= 0 {
 		return nil, fmt.Errorf("bad n")
@@ -76,51 +83,69 @@ func (s server) ReadRecords(ctx context.Context, id, n int64) ([][]byte, error) 
 // Lookup looks up a record for the given key,
 // returning the record ID.
 // Returns os.ErrNotExist to cause a http 404 response.
-func (s server) Lookup(ctx context.Context, key string) (int64, error) {
+func (s serverOps) Lookup(ctx context.Context, key string) (results int64, rerr error) {
 	// log.Printf("server: Lookup %q", key)
+	defer observeOp(&rerr, time.Now(), metricTlogOpsLookupErrors, metricTlogOpsLookupDuration)
 
-	k, err := parseLookupKey(key)
+	bs, err := parseBuildSpec(key)
 	if err != nil {
 		return -1, os.ErrNotExist
 	}
 
-	if !targets.valid(k.Goos + "/" + k.Goarch) {
+	if !targets.valid(bs.Goos + "/" + bs.Goarch) {
 		return -1, os.ErrNotExist
 	}
 
-	p := filepath.Join(config.DataDir, "result", key, "@index")
-	buf, err := ioutil.ReadFile(p)
-	if err != nil {
+	p := filepath.Join(bs.storeDir(), "recordnumber")
+	if buf, err := ioutil.ReadFile(p); err != nil {
 		if os.IsNotExist(err) {
-			return lookupBuild(ctx, key, k)
+			return lookupBuild(ctx, bs)
 		}
 		return -1, err
+	} else {
+		return strconv.ParseInt(string(buf), 10, 64)
 	}
-	return strconv.ParseInt(string(buf), 10, 64)
+}
+
+// Attempt to read a result.
+// For a successful build, the recordNumber and buildResult are returned.
+// For a failed build (not in the tlog), failed will be true.
+// For an absent build, err wil be nil.
+// For other errors, err will be set.
+func (s serverOps) lookupResult(ctx context.Context, bs buildSpec) (recordNumber int64, br *buildResult, failed bool, err error) {
+	p := filepath.Join(bs.storeDir(), "recordnumber")
+	if buf, err := ioutil.ReadFile(p); err != nil {
+		if !os.IsNotExist(err) {
+			return -1, nil, false, err
+		}
+		lp := filepath.Join(bs.storeDir(), "log.gz")
+		if _, err := os.Stat(lp); err == nil {
+			return -1, nil, true, nil
+		} else if os.IsNotExist(err) {
+			return -1, nil, false, nil
+		} else {
+			return 0, nil, false, err
+		}
+	} else if num, err := strconv.ParseInt(string(buf), 10, 64); err != nil {
+		return -1, nil, false, err
+	} else if records, err := s.ReadRecords(ctx, num, 1); err != nil {
+		return -1, nil, false, err
+	} else if record, err := parseRecord(records[0]); err != nil {
+		return -1, nil, false, err
+	} else {
+		return num, record, false, nil
+	}
 }
 
 // Returns os.ErrNotExist (not wrapped) if the fault is in the request, to cause a http 404 response for the lookup.
-func lookupBuild(ctx context.Context, key string, k lookupKey) (int64, error) {
-	lpath := filepath.Join(config.DataDir, "result", key)
-
+func lookupBuild(ctx context.Context, bs buildSpec) (int64, error) {
 	// Before attempting to build, check we don't have a failed build already.
-	if _, err := os.Stat(filepath.Join(lpath, "log.gz")); err == nil {
+	if _, err := os.Stat(filepath.Join(bs.storeDir(), "log.gz")); err == nil {
 		return -1, os.ErrNotExist
 	}
 
-	req := request{
-		k.Mod,
-		k.Version,
-		k.Dir,
-		k.Goos,
-		k.Goarch,
-		k.Goversion,
-		pageIndex,
-		"",
-	}
-
 	// Attempt to build.
-	if err := prepareBuild(req); err != nil {
+	if err := prepareBuild(bs); err != nil {
 		if errors.Is(err, errBadGoversion) || errors.Is(err, os.ErrNotExist) || errors.Is(err, errNotExist) || errors.Is(err, errBadModule) || errors.Is(err, errBadVersion) {
 			return -1, os.ErrNotExist
 		}
@@ -128,80 +153,32 @@ func lookupBuild(ctx context.Context, key string, k lookupKey) (int64, error) {
 	}
 
 	eventc := make(chan buildUpdate, 100)
-	registerBuild(req, eventc)
+	registerBuild(bs, eventc)
 
 	for {
 		select {
 		case <-ctx.Done():
-			unregisterBuild(req, eventc)
-			return 0, ctx.Err()
+			unregisterBuild(bs, eventc)
+			return -1, ctx.Err()
 		case update := <-eventc:
 			if !update.done {
 				continue
 			}
-			unregisterBuild(req, eventc)
+			unregisterBuild(bs, eventc)
 			if update.err != nil {
 				// todo: turn some errors into "file not found".
 				return -1, fmt.Errorf("build failed: %s", update.err)
 			}
-			return update.result.RecordNumber, nil
+			return update.recordNumber, nil
 		}
 	}
 }
 
-type lookupKey struct {
-	Goos, Goarch, Goversion, Mod, Version, Dir string
-}
-
-func parseLookupKey(s string) (k lookupKey, err error) {
-	t := strings.SplitN(s, "/", 2)
-	if len(t) != 2 {
-		err = fmt.Errorf("missing slash")
-		return
-	}
-	s = t[1]
-	t = strings.Split(t[0], "-")
-	if len(t) != 3 {
-		err = fmt.Errorf("bad goos-goarch-goversion")
-		return
-	}
-	k.Goos = t[0]
-	k.Goarch = t[1]
-	k.Goversion = t[2]
-	t = strings.SplitN(s, "@", 2)
-	if len(t) != 2 {
-		err = fmt.Errorf("missing @ version")
-		return
-	}
-	k.Mod = t[0]
-	s = t[1]
-	t = strings.SplitN(s, "/", 2)
-	if len(t) != 2 {
-		err = fmt.Errorf("missing slash for package dir")
-		return
-	}
-	k.Version = t[0]
-	s = t[1]
-	if s != "" && !strings.HasSuffix(s, "/") {
-		err = fmt.Errorf("missing slash at end of package dir")
-		return
-	}
-	k.Dir = s
-	if path.Clean(k.Mod) != k.Mod {
-		err = fmt.Errorf("non-canonical module name")
-		return
-	}
-	if k.Dir != "" && path.Clean(k.Dir)+"/" != k.Dir {
-		err = fmt.Errorf("non-canonical package dir")
-		return
-	}
-	return
-}
-
 // ReadTileData reads the content of tile t.
 // It is only invoked for hash tiles (t.L ≥ 0).
-func (s server) ReadTileData(ctx context.Context, t tlog.Tile) ([]byte, error) {
+func (s serverOps) ReadTileData(ctx context.Context, t tlog.Tile) (results []byte, rerr error) {
 	// log.Printf("server: ReadTileData %#v", t)
+	defer observeOp(&rerr, time.Now(), metricTlogOpsReadtiledataErrors, metricTlogOpsReadtiledataDuration)
 
 	return tlog.ReadTileData(t, hashReader{})
 }

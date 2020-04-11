@@ -43,9 +43,10 @@ func serveModules(w http.ResponseWriter, r *http.Request) {
 		failf(w, "ensuring most recent goversion: %w", err)
 		return
 	}
-	gobin := filepath.Join(config.SDKDir, goversion, "bin", "go")
-	if !filepath.IsAbs(gobin) {
-		gobin = filepath.Join(workdir, gobin)
+	gobin, err := ensureGobin(goversion)
+	if err != nil {
+		failf(w, "%w", err)
+		return
 	}
 
 	modDir, getOutput, err := ensureModule(gobin, mod, info.Version)
@@ -56,26 +57,19 @@ func serveModules(w http.ResponseWriter, r *http.Request) {
 
 	goos, goarch := autodetectTarget(r)
 
+	bs := buildSpec{mod, info.Version, "", goos, goarch, goversion}
+
 	mainDirs, err := listMainPackages(gobin, modDir)
 	if err != nil {
 		failf(w, "listing main packages in module: %w", err)
 		return
-	}
-	if len(mainDirs) == 0 {
+	} else if len(mainDirs) == 0 {
 		failf(w, "no main packages in module")
 		return
-	}
-	if len(mainDirs) == 1 {
-		req := request{
-			Mod:       mod,
-			Version:   info.Version,
-			Dir:       filepath.ToSlash(mainDirs[0]),
-			Goos:      goos,
-			Goarch:    goarch,
-			Goversion: goversion,
-			Page:      pageIndex,
-		}
-		http.Redirect(w, r, req.urlPath(), http.StatusTemporaryRedirect)
+	} else if len(mainDirs) == 1 {
+		bs.Dir = "/" + filepath.ToSlash(mainDirs[0])
+		link := request{bs, "", pageIndex}.link()
+		http.Redirect(w, r, link, http.StatusTemporaryRedirect)
 		return
 	}
 
@@ -85,20 +79,9 @@ func serveModules(w http.ResponseWriter, r *http.Request) {
 	}
 	mainPkgs := []mainPkg{}
 	for _, md := range mainDirs {
-		md = filepath.ToSlash(md)
-		req := request{
-			Mod:       mod,
-			Version:   info.Version,
-			Dir:       md,
-			Goos:      goos,
-			Goarch:    goarch,
-			Goversion: goversion,
-			Page:      pageIndex,
-		}
-		if md == "" {
-			md = "/"
-		}
-		mainPkgs = append(mainPkgs, mainPkg{req.urlPath(), md})
+		bs.Dir = "/" + filepath.ToSlash(md)
+		link := request{bs, "", pageIndex}.link()
+		mainPkgs = append(mainPkgs, mainPkg{link, md})
 	}
 	args := struct {
 		Module         string
@@ -106,24 +89,24 @@ func serveModules(w http.ResponseWriter, r *http.Request) {
 		Mains          []mainPkg
 		GobuildVersion string
 	}{
-		mod,
-		info.Version,
+		bs.Mod,
+		bs.Version,
 		mainPkgs,
 		gobuildVersion,
 	}
-	err = moduleTemplate.Execute(w, args)
-	if err != nil {
+	if err := moduleTemplate.Execute(w, args); err != nil {
 		failf(w, "%w: executing template: %v", errServer, err)
 	}
 }
 
 func listMainPackages(gobin string, modDir string) ([]string, error) {
 	cgo := true
-	cmd := makeCommand(cgo, gobin, "list", "-f", "{{.Name}} {{ .Dir }}", "./...")
-	cmd.Dir = modDir
-	output, err := cmd.CombinedOutput()
+	cmd := makeCommand(modDir, cgo, nil, gobin, "list", "-f", "{{.Name}} {{ .Dir }}", "./...")
+	stderr := &strings.Builder{}
+	cmd.Stderr = stderr
+	output, err := cmd.Output()
 	if err != nil {
-		return nil, fmt.Errorf("%w\n\n# output from go list:\n%s", err, output)
+		return nil, fmt.Errorf("%w\n\n# output from go list:\n%s\n\nstderr:\n%s", err, output, stderr.String())
 	}
 	r := []string{}
 	for _, s := range strings.Split(string(output), "\n") {

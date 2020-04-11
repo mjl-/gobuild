@@ -1,14 +1,10 @@
 package main
 
 import (
-	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
-	"os"
 	"path/filepath"
-	"strings"
 	"time"
 )
 
@@ -31,98 +27,79 @@ func serveBuild(w http.ResponseWriter, r *http.Request) {
 
 	// Resolve "latest" goversion with a redirect.
 	if req.Goversion == "latest" {
-		supported, _ := installedSDK()
-		if len(supported) == 0 {
-			http.Error(w, "503 - no go supported toolchains available", http.StatusServiceUnavailable)
-			return
+		if supported, _ := installedSDK(); len(supported) == 0 {
+			http.Error(w, "503 - No supported Go toolchains available", http.StatusServiceUnavailable)
+		} else {
+			vreq := req
+			vreq.Goversion = supported[0]
+			http.Redirect(w, r, vreq.link(), http.StatusTemporaryRedirect)
 		}
-		goversion := supported[0]
-		vreq := req
-		vreq.Goversion = goversion
-		http.Redirect(w, r, vreq.urlPath(), http.StatusTemporaryRedirect)
 		return
 	}
 
 	// Resolve "latest" module version with a redirect.
 	if req.Version == "latest" {
-		info, err := resolveModuleLatest(r.Context(), config.GoProxy, req.Mod)
-		if err != nil {
+		if info, err := resolveModuleLatest(r.Context(), config.GoProxy, req.Mod); err != nil {
 			failf(w, "resolving latest for module: %w", err)
-			return
+		} else {
+			mreq := req
+			mreq.Version = info.Version
+			http.Redirect(w, r, mreq.link(), http.StatusTemporaryRedirect)
 		}
-
-		mreq := req
-		mreq.Version = info.Version
-		http.Redirect(w, r, mreq.urlPath(), http.StatusTemporaryRedirect)
 		return
 	}
 
-	lpath := filepath.Join(config.DataDir, "result", req.storeDir())
-
-	// If build.json exists, we have a successful build.
-	bf, err := os.Open(filepath.Join(lpath, "build.json"))
-	if err == nil {
-		defer bf.Close()
-	}
-	var buildResult buildJSON
-	if err == nil {
-		err = json.NewDecoder(bf).Decode(&buildResult)
-	}
-	if err != nil && !os.IsNotExist(err) {
-		failf(w, "%w: reading build.json: %v", errServer, err)
+	// See if we have a completed build, and handle it.
+	if _, br, failed, err := (serverOps{}).lookupResult(r.Context(), req.buildSpec); err != nil {
+		failf(w, "%w: lookup record: %v", errServer, err)
 		return
-	}
-	if err == nil {
+	} else if br != nil {
 		// Redirect to the permanent URLs that include the hash.
-		rreq := req
-		rreq.Sum = "0" + base64.RawURLEncoding.EncodeToString(buildResult.SHA256[:20])
-		http.Redirect(w, r, rreq.urlPath(), http.StatusTemporaryRedirect)
+		link := request{br.buildSpec, br.Sum, req.Page}.link()
+		http.Redirect(w, r, link, http.StatusTemporaryRedirect)
 		return
-	}
-
-	// If log.gz exists, we have a failed build.
-	_, err = os.Stat(filepath.Join(lpath, "log.gz"))
-	if err != nil && !os.IsNotExist(err) {
-		failf(w, "%w: stat path: %v", errServer, err)
-		return
-	}
-	if err == nil {
+	} else if failed {
 		// Show failed build to user, for the pages where that works.
 		switch req.Page {
 		case pageLog:
-			serveLog(w, r, filepath.Join(lpath, "log.gz"))
+			serveLog(w, r, filepath.Join(req.storeDir(), "log.gz"))
 		case pageIndex:
-			serveIndex(w, r, req, nil)
+			serveIndex(w, r, req.buildSpec, nil)
 		default:
 			http.Error(w, "400 - Bad Request - build failed, see index page for details", http.StatusBadRequest)
 		}
 		return
 	}
 
-	// No build yet, we need one.
+	// No build yet, we need one. Keep in mind that another build could finish between
+	// the checks above and below. This isn't a problem: preparing a build never hurts,
+	// and builds go through the coordinator, which always first checks if a build has
+	// completed.
 
-	// We always attempt to set up the build. This checks with the goproxy that the
-	// module and package exist, and seems like it has a chance to compile.
-	err = prepareBuild(req)
-	if err != nil {
+	// We always immediately attempt to get the files for a build build. This checks
+	// with the goproxy that the module and package exist, and seems like it has a
+	// chance to compile.
+	if err := prepareBuild(req.buildSpec); err != nil {
 		failf(w, "preparing build: %w", err)
 		return
 	}
 
 	// We serve the index page immediately. It makes an SSE-request to the /events
 	// endpoint to register a request for the build and to receive updates.
+	// Pages other than /events will block until a build completes.
 	if req.Page == pageIndex {
-		serveIndex(w, r, req, nil)
+		serveIndex(w, r, req.buildSpec, nil)
 		return
 	}
 
 	eventc := make(chan buildUpdate, 100)
-	registerBuild(req, eventc)
+	registerBuild(req.buildSpec, eventc)
 
 	ctx := r.Context()
 
 	switch req.Page {
 	case pageEvents:
+		// For the events endpoint, we send updates as they come in.
 		flusher, ok := w.(http.Flusher)
 		if !ok {
 			log.Println("ResponseWriter not a http.Flusher")
@@ -132,8 +109,7 @@ func serveBuild(w http.ResponseWriter, r *http.Request) {
 
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
-		_, err := w.Write([]byte(": keepalive\n\n"))
-		if err != nil {
+		if _, err := w.Write([]byte(": keepalive\n\n")); err != nil {
 			return
 		}
 		flusher.Flush()
@@ -144,28 +120,30 @@ func serveBuild(w http.ResponseWriter, r *http.Request) {
 			case <-ctx.Done():
 				break loop
 			case update := <-eventc:
-				_, err = w.Write(update.msg)
+				_, err := w.Write(update.msg)
 				flusher.Flush()
 				if update.done || err != nil {
 					break loop
 				}
 			}
 		}
-		unregisterBuild(req, eventc)
+		unregisterBuild(req.buildSpec, eventc)
+
 	default:
+		// For all other pages, we just wait until the build completes.
 		for {
 			select {
 			case <-ctx.Done():
-				unregisterBuild(req, eventc)
+				unregisterBuild(req.buildSpec, eventc)
 				return
 			case update := <-eventc:
 				if !update.done {
 					continue
 				}
-				unregisterBuild(req, eventc)
+				unregisterBuild(req.buildSpec, eventc)
 
 				if req.Page == pageLog {
-					serveLog(w, r, filepath.Join(lpath, "log.gz"))
+					serveLog(w, r, filepath.Join(req.storeDir(), "log.gz"))
 					return
 				}
 
@@ -175,27 +153,10 @@ func serveBuild(w http.ResponseWriter, r *http.Request) {
 				}
 
 				// Redirect to the permanent URLs that include the hash.
-				rreq := req
-				rreq.Sum = "0" + base64.RawURLEncoding.EncodeToString(update.result.SHA256[:20])
-				http.Redirect(w, r, rreq.urlPath(), http.StatusTemporaryRedirect)
+				link := request{update.result.buildSpec, update.result.Sum, req.Page}.link()
+				http.Redirect(w, r, link, http.StatusTemporaryRedirect)
 				return
 			}
 		}
 	}
-}
-
-func acceptsGzip(r *http.Request) bool {
-	s := r.Header.Get("Accept-Encoding")
-	t := strings.Split(s, ",")
-	for _, e := range t {
-		e = strings.TrimSpace(e)
-		tt := strings.Split(e, ";")
-		if len(tt) > 1 && t[1] == "q=0" {
-			continue
-		}
-		if tt[0] == "gzip" {
-			return true
-		}
-	}
-	return false
 }

@@ -74,11 +74,11 @@ var { color: #111; font-style: normal; }
 `
 
 const buildTemplateString = `
-{{ define "title" }}{{ .Req.Mod }}@{{ .Req.Version }}/{{ .Req.Dir }} - {{ .Req.Goos }}/{{ .Req.Goarch }} {{ .Req.Goversion }}{{ if .Success}} - {{ .Sum }}{{ end }}{{ end }}
+{{ define "title" }}{{ .Req.Mod }}@{{ .Req.Version }}{{ .Req.Dir }} - {{ .Req.Goos }}/{{ .Req.Goarch }} {{ .Req.Goversion }}{{ if .Success}} - {{ .Sum }}{{ end }}{{ end }}
 {{ define "content" }}
 	<p><a href="/">&lt; Home</a></p>
 	<h1>
-		{{ .Req.Mod }}@{{ .Req.Version }}/{{ .Req.Dir }}<br/>
+		{{ .Req.Mod }}@{{ .Req.Version }}{{ .Req.Dir }}<br/>
 		{{ .Req.Goos }}/{{ .Req.Goarch }} {{ .Req.Goversion }}<br/>
 		{{ if .Success}}{{ .Sum }}{{ end }}
 		{{ if .Success }}<span class="success">✓</span>{{ else if .InProgress }}<span class="pending">⌛</span>{{ else }}<span class="failure">❌</span>{{ end }}
@@ -89,33 +89,32 @@ const buildTemplateString = `
 	<table>
 		<tr>
 			<td><a href="{{ .DownloadFilename }}">{{ .DownloadFilename }}</a></td>
-			<td style="padding-left: 1rem">{{ .Filesize }}</td>
+			<td style="padding-left: 1rem; text-align: right">{{ .Filesize }}</td>
 		</tr>
 		<tr>
 			<td><a href="{{ .DownloadFilename }}.gz">{{ .DownloadFilename }}.gz</a></td>
-			<td style="padding-left: 1rem">{{ .FilesizeGz }}</td>
+			<td style="padding-left: 1rem; text-align: right">{{ .FilesizeGz }}</td>
 		</tr>
 	</table>
 	<p>To download using the transparency log:</p>
-	<pre style="margin-left:2rem">gobuild get -sum {{ .Sum }} -target {{ .Req.Goos }}/{{ .Req.Goarch }} -goversion {{ .Req.Goversion }} {{ .Req.Mod }}@{{ .Req.Version }}/{{ .Req.Dir }}</pre>
+	<pre style="margin-left:2rem">gobuild get -sum {{ .Sum }} -target {{ .Req.Goos }}/{{ .Req.Goarch }} -goversion {{ .Req.Goversion }} {{ .Req.Mod }}@{{ .Req.Version }}{{ .Req.Dir }}</pre>
 
 	<h2>More</h2>
 	<ul>
 		<li><a href="log">Build log</a></li>
-		<li><a href="/b/{{ .Req.Mod }}@latest/{{ .Req.Dir }}{{ .Req.Goos }}-{{ .Req.Goarch }}-latest/">{{ .Req.Mod }}@<b>latest</b>/{{ .Req.Dir }}{{ .Req.Goos }}-{{ .Req.Goarch }}-<b>latest</b>/</a> (<a href="/b/{{ .Req.Mod }}@latest/{{ .Req.Dir }}{{ .Req.Goos }}-{{ .Req.Goarch }}-latest/dl">direct download</a>)</li>
-		<li>Built on {{ .Start }}, in {{ .BuildWallTimeMS }}ms; sys {{ .SystemTimeMS }}ms, user {{ .UserTimeMS }}ms.</li>
+		<li><a href="/b/{{ .Req.Mod }}@latest/{{ .DirAppend }}{{ .Req.Goos }}-{{ .Req.Goarch }}-latest/">{{ .Req.Mod }}@<b>latest</b>/{{ .DirAppend }}{{ .Req.Goos }}-{{ .Req.Goarch }}-<b>latest</b>/</a> (<a href="/b/{{ .Req.Mod }}@latest/{{ .DirAppend }}{{ .Req.Goos }}-{{ .Req.Goarch }}-latest/dl">direct download</a>)</li>
 		<li>Documentation at <a href="{{ .PkgGoDevURL }}">pkg.go.dev</a></li>
 	</ul>
 {{ else if .InProgress }}
 	<h2>Progress <img style="visibility: hidden; width: 32px; height: 32px;" id="dance" src="/img/gopher-dance-long.gif" title="Dancing gopher, by Ego Elbre, CC0" /></h2>
 	<div id="progress">
 		<p>Connecting to server to request build and receive updates...</p>
-		<p>If your browser has JavaScript disabled, or does not support server-sent events (SSE), follor this <a href="dl">download link</a> to trigger a build.</p>
+		<p>If your browser has JavaScript disabled, or does not support server-sent events (SSE), follow this <a href="dl">download link</a> to trigger a build.</p>
 	</div>
 
 	<h2>Download</h2>
 	<p>To download using the transparency log:</p>
-	<pre style="margin-left:2rem">gobuild get -target {{ .Req.Goos }}/{{ .Req.Goarch }} -goversion {{ .Req.Goversion }} {{ .Req.Mod }}@{{ .Req.Version }}/{{ .Req.Dir }}</pre>
+	<pre style="margin-left:2rem">gobuild get -target {{ .Req.Goos }}/{{ .Req.Goarch }} -goversion {{ .Req.Goversion }} {{ .Req.Mod }}@{{ .Req.Version }}{{ .Req.Dir }}</pre>
 {{ else }}
 	<h2>Error</h2>
 	<div class="output">
@@ -130,8 +129,7 @@ const buildTemplateString = `
 <pre style="margin-left:2rem">
 GO19CONCURRENTCOMPILATION=0 GO111MODULE=on GOPROXY={{ .GoProxy }} \
 	CGO_ENABLED=0 GOOS={{ .Req.Goos }} GOARCH={{ .Req.Goarch }} \
-	{{ .Req.Goversion }} get -x -v -trimpath -ldflags=-buildid= -- {{ .Req.Mod }}{{ if not (eq .Req.Dir "") }}/{{ .Req.Dir }}{{ end }}@{{ .Req.Version }}
-{{ if .SHA256 }}# sha256 should be: {{ .SHA256 }}{{ end }}
+	{{ .Req.Goversion }} get -trimpath -ldflags=-buildid= -- {{ .Req.Mod }}{{ .DirPrepend }}@{{ .Req.Version }}
 </pre>
 
 	<div style="width: 32%; display: inline-block; vertical-align: top">
@@ -144,13 +142,13 @@ GO19CONCURRENTCOMPILATION=0 GO111MODULE=on GOPROXY={{ .GoProxy }} \
 	</div>
 
 	<div style="width: 32%; display: inline-block; vertical-align: top">
-		<h2>Go versions</h2>
-	{{ range .GoversionLinks }}	<div><a href="{{ .URLPath }}" class="buildlink{{ if .Active }} active{{ end }} {{ if not .Supported }} unsupported{{ end }}">{{ .Goversion }}</a>{{ if .Success }}<span class="success">✓</span>{{ end }}</div>{{ end }}
+		<h2>Targets</h2>
+	{{ range .TargetLinks }}	<div><a href="{{ .URLPath }}" class="buildlink{{ if .Active }} active{{ end }} ">{{ .Goos }}/{{ .Goarch }}</a>{{ if .Success }}<span class="success">✓</span>{{ end }}</div>{{ end }}
 	</div>
 
 	<div style="width: 32%; display: inline-block; vertical-align: top">
-		<h2>Targets</h2>
-	{{ range .TargetLinks }}	<div><a href="{{ .URLPath }}" class="buildlink{{ if .Active }} active{{ end }} ">{{ .Goos }}/{{ .Goarch }}</a>{{ if .Success }}<span class="success">✓</span>{{ end }}</div>{{ end }}
+		<h2>Go versions</h2>
+	{{ range .GoversionLinks }}	<div><a href="{{ .URLPath }}" class="buildlink{{ if .Active }} active{{ end }} {{ if not .Supported }} unsupported{{ end }}">{{ .Goversion }}</a>{{ if .Success }}<span class="success">✓</span>{{ end }}</div>{{ end }}
 	</div>
 {{ end }}
 {{ define "script" }}
@@ -294,9 +292,9 @@ const moduleTemplateString = `
 `
 
 const homeTemplateString = `
-{{ define "title" }}Gobuild: Reproducible binaries for the go module proxy{{ end }}
+{{ define "title" }}Gobuild: Reproducible binaries for the Go module proxy{{ end }}
 {{ define "content" }}
-		<h1>Gobuild: reproducible binaries with the go module proxy</h1>
+		<h1>Gobuild: reproducible binaries with the Go module proxy</h1>
 		<p>Gobuild deterministically compiles programs written in Go that are available through the Go module proxy, and returns the binary.</p>
 
 		<p>The <a href="https://proxy.golang.org/">Go module proxy</a> ensures source code stays available, and you are highly likely to get the same code each time you fetch it. Gobuild aims to do the same for binaries.</p>
@@ -333,7 +331,7 @@ const homeTemplateString = `
 		<p>The first URL fetches the requested Go module to find the commands (main
 packages). In case of a single command, it redirects to a URL of the second
 form. In case of multiple commands, it lists them, linking to URLs of the second
-form. Links are to the latest module and go versions, and with goos/goarch
+form. Links are to the latest module and Go versions, and with goos/goarch
 guessed based on user-agent.</p>
 
 		<p>The second URL first resolves "latest" for the module and Go version with a
@@ -358,7 +356,7 @@ gobuild get -sum 0N7e6zxGtHCObqNBDA_mXKv7-A9M -target linux/amd64 -goversion go1
 
 		<h2>More</h2>
 		<p>Only "go build" is run, for pure Go code. None of "go test", "go generate", build tags, cgo, custom compile/link flags, makefiles, etc. This means gobuild cannot build all Go applications.</p>
-		<p>Gobuild looks up module versions through the go proxy. That's why shorthand versions like "@v1" don't resolve.</p>
+		<p>Gobuild looks up module versions through the Go module proxy. That's why shorthand versions like "@v1" don't resolve.</p>
 		<p>Gobuild automatically downloads a Go toolchain (SDK) from https://golang.org/dl/ when it is first referenced. It also periodically queries that page for the latest supported releases, for redirecting to the latest supported toolchains.</p>
 		<p>Gobuild can be configured to verify builds with other gobuild instances, requiring all to return the same hash for a build to be considered successful.</p>
 		<p>To build, gobuild executes:</p>

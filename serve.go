@@ -4,17 +4,23 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/mjl-/gobuild/internal/sumdb"
@@ -28,18 +34,21 @@ import (
 )
 
 var (
-	workdir        string
-	homedir        string
+	// Set to absolute paths: the config file can have relative paths.
+	workdir string
+	homedir string
+
 	gobuildVersion = "(no module)"
 
+	// We keep track of the 10 most recent successful builds to display on home page.
 	recentBuilds struct {
 		sync.Mutex
-		paths []string // as returned by request.urlPath
+		links []string // as returned by request.urlPath
 	}
 
 	config = struct {
 		GoProxy      string   `sconf-doc:"URL to Go module proxy. Used to resolve \"latest\" module versions."`
-		DataDir      string   `sconf-doc:"Directory where the sumdb and builds files (binary, log, sha256) are stored."`
+		DataDir      string   `sconf-doc:"Directory where the sumdb and builds files (binary, log) are stored."`
 		SDKDir       string   `sconf-doc:"Directory where SDKs (go toolchains) are installed."`
 		HomeDir      string   `sconf-doc:"Directory set as home directory during builds. Go will store its caches, downloaded and extracted modules here."`
 		MaxBuilds    int      `sconf-doc:"Maximum concurrent builds. Default (0) uses NumCPU+1."`
@@ -68,6 +77,11 @@ var (
 	}
 	emptyConfig = config
 
+	// Set to config.DataDir + "/result" after parsing config. Separate variable
+	// because we use it quite a few times: for temp directories that we want nearby
+	// (same partition) as final results.
+	resultDir string
+
 	// Opened at startup, used whenever we read/write to the hashes or records files.
 	hashesFile, recordsFile *os.File
 )
@@ -92,8 +106,7 @@ func serve(args []string) {
 		os.Exit(2)
 	}
 	if len(args) > 0 {
-		err := sconf.ParseFile(args[0], &config)
-		if err != nil {
+		if err := sconf.ParseFile(args[0], &config); err != nil {
 			log.Fatalf("parsing config file: %v", err)
 		}
 	}
@@ -105,6 +118,7 @@ func serve(args []string) {
 			config.VerifierURLs[i] = config.VerifierURLs[i][:len(config.VerifierURLs[i])-1]
 		}
 	}
+	resultDir = filepath.Join(config.DataDir, "result")
 
 	if buildInfo, ok := debug.ReadBuildInfo(); ok {
 		gobuildVersion = buildInfo.Main.Version
@@ -120,64 +134,51 @@ func serve(args []string) {
 	if !filepath.IsAbs(homedir) {
 		homedir = filepath.Join(workdir, config.HomeDir)
 	}
-	os.Mkdir(homedir, 0775) // failures will be caught later
-	// We need a clean name: we will be match path prefixes against paths returned by
+	os.Mkdir(homedir, 0777) // failures will be caught later
+	// We need a clean name: we will be matching path prefixes against paths returned by
 	// go tools, that will have evaluated names.
 	homedir, err = filepath.EvalSymlinks(homedir)
 	if err != nil {
 		log.Fatalf("evaluating symlinks in homedir: %v", err)
 	}
-	os.Mkdir(config.SDKDir, 0775)                           // may already exist, we'll get errors later
-	os.Mkdir(filepath.Join(config.DataDir, "result"), 0775) // may already exist, we'll get errors later
-	os.Mkdir(filepath.Join(config.DataDir, "sum"), 0775)    // may already exist, we'll get errors later
+	os.MkdirAll(config.SDKDir, 0777)                        // may already exist, we'll get errors later
+	os.MkdirAll(filepath.Join(config.DataDir, "sum"), 0777) // may already exist, we'll get errors later
 
-	// Initialize data/sum/hashes and data/sum/records files.
+	// Make directories for each leading char for urlsafe base64 data, for storing results.
+	os.MkdirAll(resultDir, 0777) // may already exist, we'll get errors later
+	mksumdir := func(c rune) {
+		os.MkdirAll(filepath.Join(resultDir, string(c)), 0777)
+	}
+	for c := 'a'; c <= 'z'; c++ {
+		mksumdir(c)
+	}
+	for c := 'A'; c <= 'Z'; c++ {
+		mksumdir(c)
+	}
+	for c := '0'; c <= '9'; c++ {
+		mksumdir(c)
+	}
+	mksumdir('-')
+	mksumdir('_')
+
+	// Open data/sum/hashes and data/sum/records files for the lifetime of the program.
+	// Creating empty files is proper initialization.
 	hashesPath := filepath.Join(config.DataDir, "sum", "hashes")
-	recordsPath := filepath.Join(config.DataDir, "sum", "records")
-
-	os.MkdirAll(filepath.Dir(hashesPath), 0777) // Errors will be caught below.
 	hashesFile, err = os.OpenFile(hashesPath, os.O_APPEND|os.O_CREATE|os.O_RDWR, 0666)
 	if err != nil {
 		log.Fatalf("creating hashes file: %v", err)
 	}
+	recordsPath := filepath.Join(config.DataDir, "sum", "records")
 	recordsFile, err = os.OpenFile(recordsPath, os.O_APPEND|os.O_CREATE|os.O_RDWR, 0666)
 	if err != nil {
 		log.Fatalf("creating records file: %v", err)
 	}
 
-	// Verify records & hashes files have consistent sizes.
-	numRecords, err := treeSize()
-	if err != nil {
-		log.Fatalf("finding number of records in tlog: %v", err)
-	}
-	if info, err := hashesFile.Stat(); err != nil {
-		log.Fatalf("stat on hashes file: %v", err)
-	} else if hashCount := tlog.StoredHashCount(numRecords); hashCount*tlog.HashSize != info.Size() {
-		log.Fatalf("inconsistent size of hashes file of %d bytes for %d records, should be %d", info.Size(), numRecords, hashCount*tlog.HashSize)
-	}
-
-	// For the latest record on disk, verify the hashes on disk match the record.
-	if numRecords > 0 {
-		lastRecordNum := numRecords - 1
-		records, err := server{}.ReadRecords(context.Background(), lastRecordNum, 1)
-		if err != nil {
-			log.Fatalf("reading last record: %v", err)
-		}
-		hashes, err := tlog.StoredHashes(lastRecordNum, records[0], hashReader{})
-		if err != nil {
-			log.Fatalf("calculating hashes for most recent record: %v", err)
-		}
-		buf := make([]byte, len(hashes)*tlog.HashSize)
-		if _, err := hashesFile.ReadAt(buf, tlog.StoredHashIndex(0, lastRecordNum)*tlog.HashSize); err != nil {
-			log.Fatalf("reading hashes for verification: %v", err)
-		}
-		for i := range hashes {
-			o := i * tlog.HashSize
-			h := buf[o : o+tlog.HashSize]
-			if !bytes.Equal(hashes[i][:], h) {
-				log.Fatalf("hash %d mismatch for last record %d, got %x, expect %x", i, lastRecordNum, h, hashes[i][:])
-			}
-		}
+	// Verify the most recent additions to the records & hashes files are consistent.
+	if recordCount, err := verifySumState(); err != nil {
+		log.Fatal(err)
+	} else {
+		metricTlogRecords.Set(float64(recordCount))
 	}
 
 	initSDK()
@@ -185,13 +186,22 @@ func serve(args []string) {
 
 	go coordinateBuilds()
 
+	// When shutting down, make sure no modifications to transparency log are in progress.
+	sigc := make(chan os.Signal, 1)
+	signal.Notify(sigc, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-sigc
+		addSumMutex.Lock()
+		log.Fatal("shutdown after sigint or sigterm")
+	}()
+
 	http.Handle("/metrics", promhttp.Handler())
 	http.Handle("/info", httpinfo.NewHandler(httpinfo.CodeVersion{}, nil))
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/robots.txt", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain")
-		fmt.Fprint(w, "User-agent: *\nDisallow: /b/\n")
+		fmt.Fprint(w, "User-agent: *\nDisallow: /b/\nDisallow: /m/\nDisallow: /tlog/\n")
 	})
 	mux.HandleFunc("/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "image/png")
@@ -209,7 +219,7 @@ func serve(args []string) {
 			log.Fatalf("new signer: %v", err)
 		}
 
-		h := http.StripPrefix("/tlog", sumdb.NewServer(server{signer}))
+		h := http.StripPrefix("/tlog", sumdb.NewServer(serverOps{signer}))
 		for _, path := range sumdb.ServerPaths {
 			mux.Handle("/tlog"+path, h)
 		}
@@ -280,12 +290,95 @@ func serveGzipFile(w http.ResponseWriter, r *http.Request, path string, src io.R
 	if acceptsGzip(r) {
 		w.Header().Set("Content-Encoding", "gzip")
 		io.Copy(w, src) // nothing to do for errors
+	} else if gzr, err := gzip.NewReader(src); err != nil {
+		failf(w, "%w: decompressing %q: %s", errServer, path, err)
 	} else {
-		gzr, err := gzip.NewReader(src)
-		if err != nil {
-			failf(w, "%w: decompressing %q: %s", errServer, path, err)
-			return
-		}
 		io.Copy(w, gzr) // nothing to do for errors
 	}
+}
+
+func acceptsGzip(r *http.Request) bool {
+	s := r.Header.Get("Accept-Encoding")
+	t := strings.Split(s, ",")
+	for _, e := range t {
+		e = strings.TrimSpace(e)
+		tt := strings.Split(e, ";")
+		if len(tt) > 1 && t[1] == "q=0" {
+			continue
+		}
+		if tt[0] == "gzip" {
+			return true
+		}
+	}
+	return false
+}
+
+func verifySumState() (int64, error) {
+	// Verify records & hashes files have consistent sizes.
+	numRecords, err := treeSize()
+	if err != nil {
+		return -1, fmt.Errorf("finding number of records in tlog: %v", err)
+	}
+	if info, err := hashesFile.Stat(); err != nil {
+		return -1, fmt.Errorf("stat on hashes file: %v", err)
+	} else if hashCount := tlog.StoredHashCount(numRecords); hashCount*tlog.HashSize != info.Size() {
+		return -1, fmt.Errorf("inconsistent size of hashes file of %d bytes for %d records, should be %d", info.Size(), numRecords, hashCount*tlog.HashSize)
+	}
+
+	// For the latest record on disk, verify the hashes on disk match the record.
+	if numRecords == 0 {
+		return 0, nil
+	}
+
+	lastRecordNum := numRecords - 1
+	records, err := serverOps{}.ReadRecords(context.Background(), lastRecordNum, 1)
+	if err != nil {
+		return -1, fmt.Errorf("reading last record: %v", err)
+	}
+	hashes, err := tlog.StoredHashes(lastRecordNum, records[0], hashReader{})
+	if err != nil {
+		return -1, fmt.Errorf("calculating hashes for most recent record: %v", err)
+	}
+	buf := make([]byte, len(hashes)*tlog.HashSize)
+	if _, err := hashesFile.ReadAt(buf, tlog.StoredHashIndex(0, lastRecordNum)*tlog.HashSize); err != nil {
+		return -1, fmt.Errorf("reading hashes for verification: %v", err)
+	}
+	for i := range hashes {
+		o := i * tlog.HashSize
+		h := buf[o : o+tlog.HashSize]
+		if !bytes.Equal(hashes[i][:], h) {
+			return -1, fmt.Errorf("hash %d mismatch for last record %d, got %x, expect %x", i, lastRecordNum, h, hashes[i][:])
+		}
+	}
+
+	// Also check if the recordnumber file is available, i.e. if a lookup will succeed.
+	record, err := parseRecord(records[0])
+	if err != nil {
+		return -1, fmt.Errorf("parsing last record: %v", err)
+	}
+	if buf, err := ioutil.ReadFile(filepath.Join(record.storeDir(), "recordnumber")); err != nil {
+		return -1, fmt.Errorf("open recordnumber: %v", err)
+	} else if num, err := strconv.ParseInt(string(buf), 10, 64); err != nil {
+		return -1, fmt.Errorf("parse recordnumber from file: %v", err)
+	} else if num != lastRecordNum {
+		return -1, fmt.Errorf("inconsistent last recordnumber %d, expected %d", num, lastRecordNum)
+	}
+
+	// And check if the hash of the binary matches the sum.
+	h := sha256.New()
+	f, err := os.Open(filepath.Join(record.storeDir(), "binary.gz"))
+	if err != nil {
+		return -1, fmt.Errorf("open binary.gz for verification: %v", err)
+	}
+	defer f.Close()
+	if gzr, err := gzip.NewReader(f); err != nil {
+		return -1, fmt.Errorf("gzip reader for binary.gz: %v", err)
+	} else if _, err := io.Copy(h, gzr); err != nil {
+		return -1, fmt.Errorf("reading binary.gz for verification: %v", err)
+	} else if sum := "0" + base64.RawURLEncoding.EncodeToString(h.Sum(nil)[:20]); sum != record.Sum {
+		return -1, fmt.Errorf("latest binary.gz sum mismatch, got %s, expect %s", sum, record.Sum)
+	} else if err := f.Close(); err != nil {
+		return -1, fmt.Errorf("close binary.gz: %v", err)
+	}
+	return numRecords, nil
 }

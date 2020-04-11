@@ -17,18 +17,17 @@ func serveHome(w http.ResponseWriter, r *http.Request) {
 	}
 
 	recentBuilds.Lock()
-	recents := recentBuilds.paths
+	recentLinks := recentBuilds.links
 	recentBuilds.Unlock()
 
 	var args = struct {
 		Recents        []string
 		GobuildVersion string
 	}{
-		recents,
+		recentLinks,
 		gobuildVersion,
 	}
-	err := homeTemplate.Execute(w, args)
-	if err != nil {
+	if err := homeTemplate.Execute(w, args); err != nil {
 		failf(w, "%w: executing template: %v", errServer, err)
 	}
 }

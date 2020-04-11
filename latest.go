@@ -46,11 +46,9 @@ func resolveModuleLatest(ctx context.Context, goproxy, mod string) (*modVersion,
 		return nil, fmt.Errorf("%w: error response from goproxy, status %s:\n%s", errRemote, resp.Status, msg)
 	}
 	var info modVersion
-	err = json.NewDecoder(resp.Body).Decode(&info)
-	if err != nil {
+	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
 		return nil, fmt.Errorf("%w: parsing json returned by goproxy: %v", errRemote, err)
-	}
-	if info.Version == "" {
+	} else if info.Version == "" {
 		return nil, fmt.Errorf("%w: empty version from goproxy", errRemote)
 	}
 	return &info, nil

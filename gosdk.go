@@ -129,7 +129,7 @@ func (t *xtargets) increase(target string) {
 var sdk struct {
 	sync.Mutex
 	installed     map[string]struct{}
-	lastSupported time.Time // When last supported list was fetched. We fetch once per hour.
+	lastSupported time.Time // When last supported list was fetched. We fetch at most once per hour.
 	supportedList []string  // List of latest supported releases, from https://golang.org/dl/?mode=json.
 	installedList []string  // List of all other installed releases.
 
@@ -184,8 +184,7 @@ func ensureMostRecentSDK() (string, error) {
 	if len(supported) == 0 {
 		return "", fmt.Errorf("%w: no supported go versions", errServer)
 	}
-	err := ensureSDK(supported[0])
-	if err != nil {
+	if err := ensureSDK(supported[0]); err != nil {
 		return "", err
 	}
 	return supported[0], nil
@@ -194,11 +193,12 @@ func ensureMostRecentSDK() (string, error) {
 func installedSDK() (supported []string, remainingAvailable []string) {
 	now := time.Now()
 	sdk.Lock()
+	defer sdk.Unlock() // note: we unlock and relock below!
+
 	if now.Sub(sdk.lastSupported) > time.Hour {
 		// Don't hold lock while requesting. Don't let others make the same request.
 		sdk.lastSupported = now
 		sdk.Unlock()
-
 		// todo: set a (low) timeout on the request
 		rels, err := goreleases.ListSupported()
 		sdk.Lock()
@@ -215,7 +215,6 @@ func installedSDK() (supported []string, remainingAvailable []string) {
 	}
 	supported = sdk.supportedList
 	remainingAvailable = sdk.installedList
-	defer sdk.Unlock()
 	return
 }
 
@@ -230,8 +229,7 @@ func ensureSDK(goversion string) error {
 		if len(goversion) < 4 || !strings.HasPrefix(goversion, "go1.") {
 			return fmt.Errorf("%w: old version, must be >=go1.13", errBadGoversion)
 		}
-		num, err := strconv.ParseInt(strings.Split(goversion[4:], ".")[0], 10, 64)
-		if err != nil || num < 13 {
+		if num, err := strconv.ParseInt(strings.Split(goversion[4:], ".")[0], 10, 64); err != nil || num < 13 {
 			return fmt.Errorf("%w: bad version, must be >=go1.13", errBadGoversion)
 		}
 	}
@@ -250,8 +248,7 @@ func ensureSDK(goversion string) error {
 	// the presence of an entry in status, without an error.
 	sdk.fetch.Lock()
 	defer sdk.fetch.Unlock()
-	err, ok := sdk.fetch.status[goversion]
-	if ok {
+	if err, ok := sdk.fetch.status[goversion]; ok {
 		return err
 	}
 
@@ -262,40 +259,42 @@ func ensureSDK(goversion string) error {
 		return err
 	}
 	for _, rel := range rels {
-		if rel.Version == goversion {
-			f, err := goreleases.FindFile(rel, runtime.GOOS, runtime.GOARCH, "archive")
-			if err != nil {
-				err = fmt.Errorf("%w: finding release file: %v", errServer, err)
-				sdk.fetch.status[goversion] = err
-				return err
-			}
-			tmpdir, err := ioutil.TempDir(config.SDKDir, "tmp-install")
-			if err != nil {
-				err = fmt.Errorf("%w: making tempdir for sdk: %v", errServer, err)
-				sdk.fetch.status[goversion] = err
-				return err
-			}
-			defer func() {
-				os.RemoveAll(tmpdir)
-			}()
-			err = goreleases.Fetch(f, tmpdir, nil)
-			if err != nil {
-				err = fmt.Errorf("%w: installing sdk: %v", errServer, err)
-				sdk.fetch.status[goversion] = err
-				return err
-			}
-			err = os.Rename(filepath.Join(tmpdir, "go"), filepath.Join(config.SDKDir, goversion))
-			if err != nil {
-				err = fmt.Errorf("%w: putting sdk in place: %v", errServer, err)
-			} else {
-				sdk.Lock()
-				defer sdk.Unlock()
-				sdk.installed[goversion] = struct{}{}
-				sdkUpdateInstalledList()
-			}
+		if rel.Version != goversion {
+			continue
+		}
+
+		f, err := goreleases.FindFile(rel, runtime.GOOS, runtime.GOARCH, "archive")
+		if err != nil {
+			err = fmt.Errorf("%w: finding release file: %v", errServer, err)
 			sdk.fetch.status[goversion] = err
 			return err
 		}
+		tmpdir, err := ioutil.TempDir(config.SDKDir, "tmpsdk")
+		if err != nil {
+			err = fmt.Errorf("%w: making tempdir for sdk: %v", errServer, err)
+			sdk.fetch.status[goversion] = err
+			return err
+		}
+		defer os.RemoveAll(tmpdir)
+
+		log.Printf("fetching sdk for %v", goversion)
+
+		if err := goreleases.Fetch(f, tmpdir, nil); err != nil {
+			err = fmt.Errorf("%w: installing sdk: %v", errServer, err)
+			sdk.fetch.status[goversion] = err
+			return err
+		}
+		err = os.Rename(filepath.Join(tmpdir, "go"), filepath.Join(config.SDKDir, goversion))
+		if err != nil {
+			err = fmt.Errorf("%w: putting sdk in place: %v", errServer, err)
+		} else {
+			sdk.Lock()
+			defer sdk.Unlock()
+			sdk.installed[goversion] = struct{}{}
+			sdkUpdateInstalledList()
+		}
+		sdk.fetch.status[goversion] = err
+		return err
 	}
 
 	// Release not found. It may be a future release. Don't mark it as
