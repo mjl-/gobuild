@@ -134,8 +134,8 @@ func get(args []string) {
 	}
 
 	gobuildBaseURL := clientOps.baseURL
-	if strings.HasSuffix(gobuildBaseURL, "/tlog/") {
-		gobuildBaseURL = gobuildBaseURL[:len(gobuildBaseURL)-len("tlog/")]
+	if strings.HasSuffix(gobuildBaseURL, "/tlog") {
+		gobuildBaseURL = gobuildBaseURL[:len(gobuildBaseURL)-len("/tlog")]
 	}
 
 	// Retrieve file to bindir with temp name, calculate checksum as we go.
@@ -150,7 +150,7 @@ func get(args []string) {
 }
 
 func fetch(f *os.File, gobuildBaseURL string, br *buildResult, bindir string) error {
-	link := gobuildBaseURL + request{br.buildSpec, br.Sum, pageDownloadGz}.link()[1:]
+	link := gobuildBaseURL + request{br.buildSpec, br.Sum, pageDownloadGz}.link()
 	getLog("downloading and verifying binary at %s", link)
 	resp, err := http.Get(link)
 	if err != nil {

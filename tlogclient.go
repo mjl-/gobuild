@@ -31,14 +31,12 @@ func newClient(vkey string, baseURL string) (*sumdb.Client, *clientOps, error) {
 	if baseURL == "" {
 		name := verifier.Name()
 		if strings.Contains(name, ".") {
-			baseURL = "https://" + name + "/tlog/"
+			baseURL = "https://" + name + "/tlog"
 		} else {
-			baseURL = "http://" + name + ":8000/tlog/"
+			baseURL = "http://" + name + ":8000/tlog"
 		}
 	}
-	if !strings.HasSuffix(baseURL, "/") {
-		baseURL += "/"
-	}
+	baseURL = strings.TrimRight(baseURL, "/")
 
 	dir, err := os.UserCacheDir()
 	if err != nil {
