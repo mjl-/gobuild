@@ -1,4 +1,5 @@
 - Write tests.
+- Attempt to build with run.sh without sharing homedir/go/pkg/mod, except the "cache" dir. Only write during go get -d. Then do a go get with read-only mod directory, for extracting and verification.
 - Implement better backend with transactions for tlog server. To ensure we either have all information about a build, or none. Now we could get a mismatch between the records, hashes, and index files.
 - Improve error messages shown to users, and the http status codes.
 - Add subcommand to validate all records, hashes and links.
