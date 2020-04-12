@@ -284,17 +284,30 @@ func ensureSDK(goversion string) error {
 			sdk.fetch.status[goversion] = err
 			return err
 		}
-		err = os.Rename(filepath.Join(tmpdir, "go"), filepath.Join(config.SDKDir, goversion))
-		if err != nil {
+		gobin := filepath.Join(tmpdir, "go", "bin", "go")
+		if runtime.GOOS == "windows" {
+			gobin += ".exe"
+		}
+		// Priming here is not strictly necessary, but it's a good check the toolchain
+		// works, and prevents multiple immediately builds from doing this same work
+		// concurrently.
+		if err := ensurePrimedBuildCache(gobin, runtime.GOOS, runtime.GOARCH, goversion); err != nil {
+			err = fmt.Errorf("%w: priming build cache: %v", errServer, err)
+			sdk.fetch.status[goversion] = err
+			return err
+		} else if err := os.Rename(filepath.Join(tmpdir, "go"), filepath.Join(config.SDKDir, goversion)); err != nil {
 			err = fmt.Errorf("%w: putting sdk in place: %v", errServer, err)
+			sdk.fetch.status[goversion] = err
+			return err
 		} else {
+			sdk.fetch.status[goversion] = nil
+
 			sdk.Lock()
 			defer sdk.Unlock()
 			sdk.installed[goversion] = struct{}{}
 			sdkUpdateInstalledList()
 		}
-		sdk.fetch.status[goversion] = err
-		return err
+		return nil
 	}
 
 	// Release not found. It may be a future release. Don't mark it as
@@ -308,4 +321,34 @@ func goexe() string {
 		return ".exe"
 	}
 	return ""
+}
+
+// We compile the standard library for an architecture explicitly. This lets us do
+// other builds with a read-only cache. This lets builds reuse a good part of their
+// builds, without getting a big cache.
+func ensurePrimedBuildCache(gobin, goos, goarch, goversion string) error {
+	primedPath := filepath.Join(homedir, ".cache", "gobuild", fmt.Sprintf("%s-%s-%s.primed", goos, goarch, goversion))
+	if _, err := os.Stat(primedPath); err == nil {
+		return nil
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	os.MkdirAll(filepath.Dir(primedPath), 0777) // errors ignored
+
+	goproxy := false
+	cgo := false
+	moreEnv := []string{
+		"GOOS=" + goos,
+		"GOARCH=" + goarch,
+	}
+	cmd := makeCommand(goproxy, emptyDir, cgo, moreEnv, gobin, "build", "-trimpath", "std")
+	if output, err := cmd.CombinedOutput(); err != nil {
+		log.Printf("go build std: %v\n%s", err, output)
+		return err
+	}
+	if err := ioutil.WriteFile(primedPath, []byte{}, 0666); err != nil {
+		log.Printf("writefile %s: %v", primedPath, err)
+		return err
+	}
+	return nil
 }

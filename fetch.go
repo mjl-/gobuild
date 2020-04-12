@@ -3,7 +3,6 @@ package main
 import (
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"time"
@@ -43,18 +42,14 @@ func ensureModule(gobin, mod, version string) (string, []byte, error) {
 }
 
 func fetchModule(gobin, mod, version string) ([]byte, error) {
-	tmpdir, err := ioutil.TempDir(homedir, "tmpgoget")
-	if err != nil {
-		return nil, fmt.Errorf("%w: tempdir for go get: %v", errServer, err)
-	}
-	defer os.RemoveAll(tmpdir)
-
 	t0 := time.Now()
 	defer func() {
 		metricGogetDuration.Observe(time.Since(t0).Seconds())
 	}()
+	goproxy := true
 	cgo := true
-	cmd := makeCommand(tmpdir, cgo, nil, gobin, "get", "-d", "-x", "-v", "--", mod+"@"+version)
+	// note: the run script recognizes the download by the command starting with "get -d", don't change the flag order.
+	cmd := makeCommand(goproxy, emptyDir, cgo, nil, gobin, "get", "-d", "-x", "-v", "--", mod+"@"+version)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		metricGogetErrors.Inc()
 		return output, fmt.Errorf("go get: %v", err)

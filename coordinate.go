@@ -175,9 +175,8 @@ func coordinateBuilds() {
 				} else if br != nil {
 					msg := buildUpdateMsg{Kind: kindSuccess, Result: br}.json()
 					b.final = &buildUpdate{reg.bs, true, nil, br, recordNumber, 0, msg}
-				} else {
-					// No result, we'll continue as normal, starting a build.
 				}
+				// Else no result, we'll continue as normal, starting a build.
 			}
 			b.events = append(b.events, reg.eventc)
 			if b.final != nil {
