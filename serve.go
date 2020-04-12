@@ -16,6 +16,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"runtime/debug"
 	"strconv"
 	"strings"
@@ -123,6 +124,7 @@ func serve(args []string) {
 	if buildInfo, ok := debug.ReadBuildInfo(); ok {
 		gobuildVersion = buildInfo.Main.Version
 	}
+	gobuildVersion += " " + runtime.Version()
 
 	var err error
 	workdir, err = os.Getwd()
