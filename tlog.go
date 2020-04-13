@@ -51,6 +51,13 @@ func addSum(tmpdir string, br buildResult) (rnum int64, rerr error) {
 	addSumMutex.Lock()
 	defer addSumMutex.Unlock()
 
+	storeDir := br.storeDir()
+	if _, err := os.Stat(storeDir); err == nil {
+		return -1, fmt.Errorf("store dir for build result already exists")
+	} else if !os.IsNotExist(err) {
+		return -1, fmt.Errorf("stat on store dir for build result: %v", err)
+	}
+
 	// Find the next/new record number we'll be adding.
 	recordNumber, err := treeSize()
 	if err != nil {
@@ -130,7 +137,7 @@ func addSum(tmpdir string, br buildResult) (rnum int64, rerr error) {
 	}
 
 	// Put the tmp directory in place. From now on, lookups will succeed.
-	if err := os.Rename(tmpdir, br.storeDir()); err != nil {
+	if err := os.Rename(tmpdir, storeDir); err != nil {
 		return -1, fmt.Errorf("renaming to final directory in resultDir: %w", err)
 	}
 
