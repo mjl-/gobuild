@@ -58,6 +58,11 @@ pre { font-size: .9rem; }
 var:before { content: "<" }
 var:after { content: ">" }
 var { color: #111; font-style: normal; }
+.refadein { animation: refadein .5s ease; }
+@keyframes refadein {
+	0% { opacity: 0; }
+	100% { opacity: 1; }
+}
 /*]]>*/
 		</style>
 	</head>
@@ -173,6 +178,10 @@ GO19CONCURRENTCOMPILATION=0 GO111MODULE=on GOPROXY={{ .GoProxy }} \
 		}
 		return e
 	}
+	function refadein(e) {
+		e.classList.add('refadein')
+		setTimeout(function(){ e.classList.remove('refadein') }, 500)
+	}
 
 	const progress = document.getElementById('progress')
 	function display() {
@@ -182,6 +191,7 @@ GO19CONCURRENTCOMPILATION=0 GO111MODULE=on GOPROXY={{ .GoProxy }} \
 		var args = Array.prototype.slice.call(arguments)
 		args.unshift('div')
 		const e = elem.apply(undefined, args)
+		refadein(e)
 		progress.appendChild(e)
 	}
 
