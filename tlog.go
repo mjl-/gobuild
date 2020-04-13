@@ -101,7 +101,9 @@ func addSum(tmpdir string, br buildResult) (rnum int64, rerr error) {
 	}
 
 	// We know we are doing this, so log what we are going to write where.
-	log.Printf("adding record=%d at records=%d hashes=%d: %s", recordNumber, recordsSize, hashesSize, msg)
+	if _, err := fmt.Fprintf(sumLogFile, "adding record=%d at records=%d hashes=%d: %s", recordNumber, recordsSize, hashesSize, msg); err != nil {
+		return -1, fmt.Errorf("writing sum log: %v", err)
+	}
 
 	// Combine the hashes into a single buffer so we can do one big write. This is our
 	// first permanent write. It's more likely to complete succeed or fail with a

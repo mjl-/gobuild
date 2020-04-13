@@ -90,6 +90,9 @@ var (
 
 	// Opened at startup, used whenever we read/write to the hashes or records files.
 	hashesFile, recordsFile *os.File
+
+	// Either separate log file or stderr, append-only logging of added sums.
+	sumLogFile io.Writer
 )
 
 var errRemote = errors.New("remote")
@@ -248,6 +251,13 @@ func serve(args []string) {
 	if config.LogDir != "" {
 		os.MkdirAll(config.LogDir, 0777)
 		handler = newLogHandler(mux, config.LogDir)
+
+		sumLogFile, err = os.OpenFile(filepath.Join(config.LogDir, "sum.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0666)
+		if err != nil {
+			log.Fatalf("open sum.log: %v", err)
+		}
+	} else {
+		sumLogFile = os.Stderr
 	}
 
 	msg := "listening on"
