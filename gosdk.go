@@ -284,9 +284,9 @@ func ensureSDK(goversion string) error {
 			sdk.fetch.status[goversion] = err
 			return err
 		}
-		gobin := filepath.Join(tmpdir, "go", "bin", "go")
-		if runtime.GOOS == "windows" {
-			gobin += ".exe"
+		gobin := filepath.Join(tmpdir, "go", "bin", "go"+goexe())
+		if !filepath.IsAbs(gobin) {
+			gobin = filepath.Join(workdir, gobin)
 		}
 		// Priming here is not strictly necessary, but it's a good check the toolchain
 		// works, and prevents multiple immediately builds from doing this same work
