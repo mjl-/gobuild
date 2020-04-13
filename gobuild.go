@@ -79,7 +79,7 @@ func prepareBuild(bs buildSpec) error {
 // buildSpec isn't built multiple times concurrently, and preventing a few other
 // clashes. On success, a record has been added to the transparency log.
 func build(bs buildSpec) (int64, *buildResult, error) {
-	targets.increase(bs.Goos + "/" + bs.Goos)
+	targets.increase(bs.Goos + "/" + bs.Goarch)
 
 	gobin, err := ensureGobin(bs.Goversion)
 	if err != nil {
