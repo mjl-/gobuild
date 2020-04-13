@@ -46,9 +46,16 @@ exec /usr/bin/bwrap \
 	--dev /dev \
 	--tmpfs /tmp \
 	--proc /proc \
-	--ro-bind /etc /etc \
-	--ro-bind /bin /bin \
-	--ro-bind /usr /usr \
+	--ro-bind /etc/resolv.conf /etc/resolv.conf \
+	--ro-bind /etc/nsswitch.conf /etc/nsswitch.conf \
+	--ro-bind /etc/hosts /etc/hosts \
+	--ro-bind /etc/services /etc/services \
+	--ro-bind /etc/protocols /etc/protocols \
+	--ro-bind /etc/mime.types /etc/mime.types \
+	--ro-bind /etc/ssl/certs /etc/ssl/certs \
+	--ro-bind /etc/localtime /etc/localtime \
+	--ro-bind /usr/share/zoneinfo /usr/share/zoneinfo \
+	--ro-bind /usr/bin/nice /usr/bin/nice \
 	--ro-bind /lib /lib \
 	--ro-bind /lib64 /lib64 \
 	--unshare-ipc \
