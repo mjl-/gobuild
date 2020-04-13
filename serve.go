@@ -26,7 +26,6 @@ import (
 
 	"github.com/mjl-/gobuild/internal/sumdb"
 
-	"github.com/mjl-/httpinfo"
 	"github.com/mjl-/sconf"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"golang.org/x/crypto/acme/autocert"
@@ -210,7 +209,6 @@ func serve(args []string) {
 	}()
 
 	http.Handle("/metrics", promhttp.Handler())
-	http.Handle("/info", httpinfo.NewHandler(httpinfo.CodeVersion{}, nil))
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/robots.txt", func(w http.ResponseWriter, r *http.Request) {

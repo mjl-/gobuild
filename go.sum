@@ -36,8 +36,6 @@ github.com/matttproud/golang_protobuf_extensions v1.0.1 h1:4hp9jkHxhMHkqkrB3Ix0j
 github.com/matttproud/golang_protobuf_extensions v1.0.1/go.mod h1:D8He9yQNgCq6Z5Ld7szi9bcBfOoFv/3dc6xSMkL2PC0=
 github.com/mjl-/goreleases v0.0.2 h1:wfCJXXiagwpBU9mxbPpN77gYcZnyMY2Tk7v6X11AK+Q=
 github.com/mjl-/goreleases v0.0.2/go.mod h1:fQai17mOgk9qGV94WaH2cXFqxfjoZ4uD+XKhp3la4gQ=
-github.com/mjl-/httpinfo v0.0.2 h1:6lSs4JowAuZeqx3OlTsBaYQjmlPo/5pqQdbFBhMjt/o=
-github.com/mjl-/httpinfo v0.0.2/go.mod h1:o/nQc5HN+F0rwF5dFOcU11wqsLUePZuXOMAIsL/HglU=
 github.com/mjl-/sconf v0.0.1 h1:Bsb9WidI1AMCqbG/XRLQ1GWQYMgIiqgT/O8aL1hI+BQ=
 github.com/mjl-/sconf v0.0.1/go.mod h1:ezf7YOn7gtClo8y71SqgZKaEkyMQ5Te7vkv4PmTTfwM=
 github.com/mjl-/xfmt v0.0.0-20190521151243-39d9c00752ce h1:oyFmIHo3GLWZzb0odAzN9QUy0MTW6P8JaNRnNVGCBCk=
