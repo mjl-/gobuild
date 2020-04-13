@@ -66,7 +66,7 @@ func (lw *logResponseWriter) LogStatus(statusCode int) {
 
 	now := time.Now()
 	ms := now.Sub(lw.Start).Milliseconds()
-	text := fmt.Sprintf("%s %d %d %s %s %s\n", now.Format(time.RFC3339), ms, statusCode, lw.Request.RemoteAddr, noctl(lw.Request.Method), noctl(lw.Request.RequestURI))
+	text := fmt.Sprintf("%s %d %d %s %s %s %q\n", now.Format(time.RFC3339), ms, statusCode, lw.Request.RemoteAddr, noctl(lw.Request.Method), noctl(lw.Request.RequestURI), noctl(lw.Request.UserAgent()))
 	line := logLine{text: text}
 	line.date.year, line.date.month, line.date.day = now.Date()
 
