@@ -354,6 +354,13 @@ command with different module versions, goversions, goos/goarch.</p>
 		<pre style="margin-left: 2rem">gobuild get github.com/mjl-/gobuild@latest
 gobuild get -sum 0N7e6zxGtHCObqNBDA_mXKv7-A9M -target linux/amd64 -goversion go1.14.1 github.com/mjl-/gobuild@v0.0.8</pre>
 
+		{{ if .VerifierKey }}
+		<p>If you run your own gobuild instance, specify the verifierkey on the command-line:</p>
+		<pre style="margin-left:2rem">gobuild get -verifierkey {{ .VerifierKey }} ...</pre>
+		{{ else }}
+		<p>NOTE: The transparency log is not configured for this gobuild instance.</p>
+		{{ end }}
+
 		<h2>More</h2>
 		<p>Only "go build" is run, for pure Go code. None of "go test", "go generate", build tags, cgo, custom compile/link flags, makefiles, etc. This means gobuild cannot build all Go applications.</p>
 		<p>Gobuild looks up module versions through the Go module proxy. That's why shorthand versions like "@v1" don't resolve.</p>

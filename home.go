@@ -22,9 +22,11 @@ func serveHome(w http.ResponseWriter, r *http.Request) {
 
 	var args = struct {
 		Recents        []string
+		VerifierKey    string
 		GobuildVersion string
 	}{
 		recentLinks,
+		config.VerifierKey,
 		gobuildVersion,
 	}
 	if err := homeTemplate.Execute(w, args); err != nil {
