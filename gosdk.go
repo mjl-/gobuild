@@ -34,6 +34,9 @@ type xtargets struct {
 	use      map[string]int // Used for popularity, and for validating build requests.
 	totalUse int
 	list     []target
+
+	// Targets available for buildling. Use without lock.
+	available map[string]struct{}
 }
 
 var targets = &xtargets{
@@ -85,11 +88,13 @@ var targets = &xtargets{
 		{"windows", "amd64"},
 		{"windows", "arm"},
 	},
+	map[string]struct{}{},
 }
 
 func init() {
 	for _, t := range targets.list {
 		targets.use[t.osarch()] = 0
+		targets.available[t.osarch()] = struct{}{}
 	}
 }
 

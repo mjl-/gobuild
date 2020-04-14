@@ -99,6 +99,9 @@ func parseBuildSpec(s string) (buildSpec, error) {
 	}
 	bs.Goos = t[0]
 	bs.Goarch = t[1]
+	if _, ok := targets.available[bs.Goos+"/"+bs.Goarch]; !ok {
+		return bs, fmt.Errorf("unsupported target %s/%s", bs.Goos, bs.Goarch)
+	}
 	bs.Goversion = t[2]
 
 	t = strings.SplitN(s, "@", 2)
@@ -106,6 +109,12 @@ func parseBuildSpec(s string) (buildSpec, error) {
 		return bs, fmt.Errorf("missing @ version")
 	}
 	bs.Mod = t[0]
+	if bs.Mod == "" {
+		return bs, fmt.Errorf("empty module")
+	}
+	if !strings.Contains(bs.Mod, ".") {
+		return bs, fmt.Errorf("module must contain dot")
+	}
 	s = t[1]
 
 	t = strings.SplitN(s, "/", 2)
@@ -113,6 +122,9 @@ func parseBuildSpec(s string) (buildSpec, error) {
 		return bs, fmt.Errorf("missing slash for package dir")
 	}
 	bs.Version = t[0]
+	if bs.Version == "" {
+		return bs, fmt.Errorf("empty version")
+	}
 	bs.Dir = "/" + t[1]
 	if bs.Dir != "/" {
 		if !strings.HasSuffix(bs.Dir, "/") {
@@ -146,10 +158,16 @@ func parseGetSpec(s string) (buildSpec, error) {
 		return bs, nil
 	}
 	bs.Mod = t[0]
+	if bs.Mod == "" {
+		return bs, fmt.Errorf("empty module")
+	}
 	s = t[1]
 
 	t = strings.SplitN(s, "/", 2)
 	bs.Version = t[0]
+	if bs.Version == "" {
+		return bs, fmt.Errorf("empty version")
+	}
 	bs.Dir = "/"
 	if len(t) == 2 {
 		bs.Dir += strings.TrimRight(t[1], "/")
