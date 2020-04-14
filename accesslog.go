@@ -119,7 +119,7 @@ func accessLogger(dir string, logc chan logLine) {
 			}
 
 			d := lines[0].date
-			p := filepath.Join(dir, fmt.Sprintf("accesslog-%d%02d%02d.log", d.year, d.month, d.day))
+			p := filepath.Join(dir, fmt.Sprintf("httpaccess-%d%02d%02d.log", d.year, d.month, d.day))
 			if f, err := os.OpenFile(p, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0666); err != nil {
 				log.Printf("creating access log file %s: %v", p, err)
 				return
