@@ -74,6 +74,9 @@ To build, gobuild executes:
 
 Running
 
+Gobuild should work on all platforms for which you can download a Go toolchain
+on https://golang.org/dl/, including LInux, macOS, BSDs, Windows.
+
 Start gobuild by running:
 
 	gobuild serve

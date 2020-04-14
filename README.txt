@@ -1,4 +1,4 @@
-Gobuild builds reproducible binaries on demand.
+Gobuild builds reproducible binaries for modules available through the Go proxy on demand, publishing them in a transparency log.
 
 Docs at https://pkg.go.dev/github.com/mjl-/gobuild
 

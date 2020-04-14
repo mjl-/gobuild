@@ -17,13 +17,13 @@
 - Cache responses from goproxy? So we don't misbehave towards it.
 - Cleanup dir in go/pkg/mod/ after fetching/building, saves disk space. And we won't redownload too often. We could also periodically remove dirs with atime older than 1 hour. Will help if people build one module for different goversion/goos/goarch.
 - Could remove binaries after a period of inactivity. We can still keep the hash. And if the binary is requested again, just calculate it.
+- Cache some results of some serverops for serving transparency log?
 - Should not assume that all dependencies were fetched when a local package directory exists. Or just cleanup better when a "go get -d" fails.
 - Implement listening on specified list of network addresses for HTTPS, instead of default :443?
 - When resolving URLs with both goversion and modversion as "latest", do a single redirect?
 - On pages that link to other builds that were successful, link to /r/ URLs, not /b/. Saves redirects.
 - Implement privilege separation? Start as root, run all go commands under uid, http server under different uid (perhaps), store the results in a place the go commands cannot touch it.
 - Handle more versions in URL, like @master, @commitid, etc?
-- Do not make module cache readonly when goversion >= 1.14, with -modcacherw.
 - Find good place to mention one-liner to recreate sum: python3 -c 'import sys, hashlib, base64; print("0" + base64.urlsafe_b64encode(hashlib.sha256(sys.stdin.buffer.read()).digest()[:20]).decode("utf-8").rstrip("="))'
 - Add endpoint /s/<sum> that redirects to the result page of that sum. Currently cannot efficiently lookup the build info by hash.
 - Find a way to mark or recognize that a module is not meant to be compiled with just "go build". When it requires additional steps or additional files to work properly.
