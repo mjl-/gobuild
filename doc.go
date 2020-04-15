@@ -2,12 +2,14 @@
 Gobuild deterministically compiles programs written in Go that are available
 through the Go module proxy, and returns the binary.
 
-The Go module proxy ensures source code stays available, and you are highly
-likely to get the same code each time you fetch it. Gobuild aims to do the same
-for binaries.
+The Go module proxy at https://proxy.golang.org ensures source code stays
+available, and you are highly likely to get the same code each time you fetch
+it. Gobuild aims to do the same for binaries.
 
 
 URLs
+
+You can compose URLs to a specific module, build or result:
 
 	/m/<module>
 	/b/<module>@<version>/<package>/<goos>-<goarch>-<goversion>/
@@ -35,11 +37,11 @@ You need not and cannot refresh a successful build: they would give the same res
 Transparency log
 
 Gobuild maintains a transparency log containing the hashes of all successful
-builds, similar to the Go module checksum database. Gobuild's "get" subcommand
-looks up a content hash through the transparency log, locally keeping track of
-the latest known hash.  This ensures the list of successful builds and their
-hashes is append-only, and modifications or removals by the server will be
-detected when you run "gobuild get".
+builds, similar to the Go module checksum database at https://sum.golang.org/.
+Gobuild's "get" subcommand looks up a content hash through the transparency log,
+locally keeping track of the last known tree state.  This ensures the list of
+successful builds and their hashes is append-only, and modifications or removals
+by the server will be detected when you run "gobuild get".
 
 Examples:
 
@@ -47,7 +49,7 @@ Examples:
 	gobuild get -sum 0N7e6zxGtHCObqNBDA_mXKv7-A9M -target linux/amd64 -goversion go1.14.1 github.com/mjl-/gobuild@v0.0.8
 
 
-More
+Details
 
 Only "go build" is run, for pure Go code. None of "go test", "go generate",
 build tags, cgo, custom compile/link flags, makefiles, etc. This means gobuild
@@ -70,6 +72,17 @@ To build, gobuild executes:
 	GO19CONCURRENTCOMPILATION=0 GO111MODULE=on GOPROXY=https://proxy.golang.org/ \
 		CGO_ENABLED=0 GOOS=$goos GOARCH=$goarch \
 		$goversion get -x -v -trimpath -ldflags=-buildid= -- $module/$package@$version
+
+
+Why gobuild
+
+Get binaries for any module without having a Go toolchain installed: Useful when working on a machine that's not yours, or for your colleagues or friends who don't have a Go compiler installed.
+
+Simplify your software release process: You no longer need to cross compile for many architectures and upload binaries to a release page. You never forget a GOOS/GOARCH target. Just link to the build URL for your module and binaries will be created on demand.
+
+Binaries for the most recent Go toolchain: Go binaries include the runtime and standard library of the Go toolchain used to compile, including bugs. Gobuild links or can redirect to binaries built with the latest Go toolchain, so no need to publish new binaries after an updated Go toolchain is released.
+
+Verify reproducibility: Configure gobuild to check against other gobuild instances with different configuration to build trust that your binaries are indeed reproducible.
 
 
 Running

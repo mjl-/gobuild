@@ -1,6 +1,7 @@
 - Write tests.
 - Attempt to build with run.sh without sharing homedir/go/pkg/mod, except the "cache" dir. Only write during go get -d. Then do a go get with read-only mod directory, for extracting and verification.
 - Implement better backend with transactions for tlog server. To ensure we either have all information about a build, or none. Now we could get a mismatch between the records, hashes, and index files.
+- When we have a public gobuilds.org, mention in docs that people can set up their local instance, and configure the public gobuilds.org as a verifier.
 - Improve error messages shown to users, and the http status codes.
 - Add subcommand to validate all records, hashes and links.
 - Make content move around less on build/result index page. Eg reserve space for hash on build index page, and make "progress" box a min-height that will be enough for successful builds.

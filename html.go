@@ -325,6 +325,7 @@ const homeTemplateString = `
 		</div>
 
 		<h2>URLs</h2>
+		<p>You can compose URLs to a specific module, build or result:</p>
 		<blockquote style="color:#666; white-space: nowrap">
 			<div>/m/<var>module</var></div>
 			<div>/b/<var>module</var>@<var>version</var>/<var>package</var>/<var>goos</var>-<var>goarch</var>-<var>goversion</var>/</div>
@@ -358,7 +359,7 @@ command with different module versions, goversions, goos/goarch.</p>
 
 		<h2>Transparency log</h2>
 
-		<p>Gobuild maintains a transparency log containing the hashes of all successful builds, similar to the Go module checksum database. Gobuild's "get" subcommand looks up a content hash through the transparency log, locally keeping track of the latest known hash.  This ensures the list of successful builds and their hashes is append-only, and modifications or removals by the server will be detected when you run "gobuild get".</p>
+		<p>Gobuild maintains a transparency log containing the hashes of all successful builds, similar to the <a href="https://sum.golang.org/">Go module checksum database</a>. Gobuild's "get" subcommand looks up a content hash through the transparency log, locally keeping track of the last known tree state.  This ensures the list of successful builds and their hashes is append-only, and modifications or removals by the server will be detected when you run "gobuild get".</p>
 
 		<h3>Examples</h3>
 		<pre style="margin-left: 2rem">gobuild get github.com/mjl-/gobuild@latest
@@ -371,10 +372,10 @@ gobuild get -sum 0N7e6zxGtHCObqNBDA_mXKv7-A9M -target linux/amd64 -goversion go1
 		<p>NOTE: The transparency log is not configured for this gobuild instance.</p>
 		{{ end }}
 
-		<h2>More</h2>
+		<h2>Details</h2>
 		<p>Only "go build" is run, for pure Go code. None of "go test", "go generate", build tags, cgo, custom compile/link flags, makefiles, etc. This means gobuild cannot build all Go applications.</p>
 		<p>Gobuild looks up module versions through the Go module proxy. That's why shorthand versions like "@v1" don't resolve.</p>
-		<p>Gobuild automatically downloads a Go toolchain (SDK) from https://golang.org/dl/ when it is first referenced. It also periodically queries that page for the latest supported releases, for redirecting to the latest supported toolchains.</p>
+		<p>Gobuild automatically downloads a Go toolchain (SDK) from <a href="https://golang.org/dl/">https://golang.org/dl/</a> when it is first referenced. It also periodically queries that page for the latest supported releases, for redirecting to the latest supported toolchains.</p>
 		<p>Gobuild can be configured to verify builds with other gobuild instances, requiring all to return the same hash for a build to be considered successful.</p>
 		<p>To build, gobuild executes:</p>
 	<pre style="margin-left: 2rem">GO19CONCURRENTCOMPILATION=0 GO111MODULE=on GOPROXY=https://proxy.golang.org/ \
@@ -382,6 +383,12 @@ gobuild get -sum 0N7e6zxGtHCObqNBDA_mXKv7-A9M -target linux/amd64 -goversion go1
   $goversion get -trimpath -ldflags=-buildid= -- $module/$package@$version</pre>
 		<p>It's easy to run a local or internal gobuild instance. For configuration details, see this <a href="/emptyconfig">empty example config</a>.</p>
 		<p>Code is available at <a href="https://github.com/mjl-/gobuild">github.com/mjl-/gobuild</a>, under MIT-license.</p>
+
+		<h2>Why gobuild</h2>
+		<p>Get binaries for any module without having a Go toolchain installed: Useful when working on a machine that's not yours, or for your colleagues or friends who don't have a Go compiler installed.</p>
+		<p>Simplify your software release process: You no longer need to cross compile for many architectures and upload binaries to a release page. You never forget a GOOS/GOARCH target. Just link to the build URL for your module and binaries will be created on demand.</p>
+		<p>Binaries for the most recent Go toolchain: Go binaries include the runtime and standard library of the Go toolchain used to compile, including bugs. Gobuild links or can redirect to binaries built with the latest Go toolchain, so no need to publish new binaries after an updated Go toolchain is released.</p>
+		<p>Verify reproducibility: Configure gobuild to check against other gobuild instances with different configuration to build trust that your binaries are indeed reproducible.</p>
 {{ end }}
 {{ define "script" }}{{ end }}
 `
