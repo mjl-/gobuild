@@ -64,7 +64,7 @@ func prepareBuild(bs buildSpec) error {
 	}
 
 	// Check that package does not depend on any cgo.
-	cmd = makeCommand(goproxy, pkgDir, cgo, moreEnv, gobin, "list", "-deps", "-f", `{{ if and (not .Standard) .CgoFiles }}{{ .ImportPath }}{{ end }}`)
+	cmd = makeCommand(goproxy, pkgDir, cgo, moreEnv, gobin, "list", "-mod=mod", "-deps", "-f", `{{ if and (not .Standard) .CgoFiles }}{{ .ImportPath }}{{ end }}`)
 	stderr = &strings.Builder{}
 	cmd.Stderr = stderr
 	if cgoOutput, err := cmd.Output(); err != nil {
