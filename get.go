@@ -133,10 +133,7 @@ func get(args []string) {
 		return
 	}
 
-	gobuildBaseURL := clientOps.baseURL
-	if strings.HasSuffix(gobuildBaseURL, "/tlog") {
-		gobuildBaseURL = gobuildBaseURL[:len(gobuildBaseURL)-len("/tlog")]
-	}
+	gobuildBaseURL := strings.TrimSuffix(clientOps.baseURL, "/tlog")
 
 	// Retrieve file to bindir with temp name, calculate checksum as we go.
 	if f, err := ioutil.TempFile(*bindir, br.filename()+".gobuildget"); err != nil {
