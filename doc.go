@@ -65,7 +65,7 @@ supported releases, for redirecting to the latest supported toolchains.
 Gobuild can be configured to verify builds with other gobuild instances,
 requiring all to return the same hash for a build to be considered successful.
 
-It's easy to run a local or internal gobuild instance.
+It's easy to run a local instance, or an instance internal to your organization.
 
 To build, gobuild executes:
 
@@ -88,7 +88,7 @@ Verify reproducibility: Configure gobuild to check against other gobuild instanc
 Running
 
 Gobuild should work on all platforms for which you can download a Go toolchain
-on https://golang.org/dl/, including LInux, macOS, BSDs, Windows.
+on https://golang.org/dl/, including Linux, macOS, BSDs, Windows.
 
 Start gobuild by running:
 
