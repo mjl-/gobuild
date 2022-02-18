@@ -71,7 +71,7 @@ To build, gobuild executes:
 
 	GO19CONCURRENTCOMPILATION=0 GO111MODULE=on GOPROXY=https://proxy.golang.org/ \
 		CGO_ENABLED=0 GOOS=$goos GOARCH=$goarch \
-		$goversion get -x -v -trimpath -ldflags=-buildid= -- $module/$package@$version
+		$goversion install -x -v -trimpath -ldflags=-buildid= -- $module/$package@$version
 
 
 Why gobuild

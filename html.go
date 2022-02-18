@@ -134,7 +134,7 @@ const buildTemplateString = `
 <pre style="margin-left:2rem">
 GO19CONCURRENTCOMPILATION=0 GO111MODULE=on GOPROXY={{ .GoProxy }} \
 	CGO_ENABLED=0 GOOS={{ .Req.Goos }} GOARCH={{ .Req.Goarch }} \
-	{{ .Req.Goversion }} get -trimpath -ldflags=-buildid= -- {{ .Req.Mod }}{{ .DirPrepend }}@{{ .Req.Version }}
+	{{ .Req.Goversion }} install -trimpath -ldflags=-buildid= -- {{ .Req.Mod }}{{ .DirPrepend }}@{{ .Req.Version }}
 </pre>
 
 	<div style="width: 32%; display: inline-block; vertical-align: top">
@@ -380,7 +380,7 @@ gobuild get -sum 0N7e6zxGtHCObqNBDA_mXKv7-A9M -target linux/amd64 -goversion go1
 		<p>To build, gobuild executes:</p>
 	<pre style="margin-left: 2rem">GO19CONCURRENTCOMPILATION=0 GO111MODULE=on GOPROXY=https://proxy.golang.org/ \
   CGO_ENABLED=0 GOOS=$goos GOARCH=$goarch \
-  $goversion get -trimpath -ldflags=-buildid= -- $module/$package@$version</pre>
+  $goversion install -trimpath -ldflags=-buildid= -- $module/$package@$version</pre>
 		<p>It's easy to run a local or internal gobuild instance. For configuration details, see this <a href="/emptyconfig">empty example config</a>.</p>
 		<p>Code is available at <a href="https://github.com/mjl-/gobuild">github.com/mjl-/gobuild</a>, under MIT-license.</p>
 
