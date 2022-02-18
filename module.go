@@ -81,6 +81,9 @@ func serveModules(w http.ResponseWriter, r *http.Request) {
 	for _, md := range mainDirs {
 		bs.Dir = "/" + filepath.ToSlash(md)
 		link := request{bs, "", pageIndex}.link()
+		if md == "" {
+			md = "/"
+		}
 		mainPkgs = append(mainPkgs, mainPkg{link, md})
 	}
 	args := struct {
