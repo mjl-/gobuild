@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"time"
 
@@ -17,7 +18,7 @@ var (
 )
 
 // Fetches module@version for use in subsequent build.
-func ensureModule(gobin, mod, version string) (string, []byte, error) {
+func ensureModule(goversion, gobin, mod, version string) (string, []byte, error) {
 	modPath, err := module.EscapePath(mod)
 	if err != nil {
 		return "", nil, fmt.Errorf("%w: %v", errBadModule, err)
@@ -35,21 +36,28 @@ func ensureModule(gobin, mod, version string) (string, []byte, error) {
 	}
 
 	// todo: for errors, want to know if module or version does not exist. probably requires parsing the error message for: 1. no module; 2. no version; 3. no package.
-	if output, err := fetchModule(gobin, mod, version); err != nil {
+	if output, err := fetchModule(goversion, gobin, mod, version); err != nil {
 		return "", output, err
 	}
 	return modDir, nil, nil
 }
 
-func fetchModule(gobin, mod, version string) ([]byte, error) {
+func fetchModule(goversion, gobin, mod, version string) ([]byte, error) {
 	t0 := time.Now()
 	defer func() {
 		metricGogetDuration.Observe(time.Since(t0).Seconds())
 	}()
 	goproxy := true
 	cgo := true
-	// note: the run script recognizes the download by the command starting with "get -d", don't change the flag order.
-	cmd := makeCommand(goproxy, emptyDir, cgo, nil, gobin, "get", "-d", "-x", "-v", "--", mod+"@"+version)
+	var cmd *exec.Cmd
+	if version1, ok := goversion1(goversion); ok && version1 >= 18 {
+		// Go1.18 dropped "go get -d" for downloading modules. Using "go mod download" does
+		// not download all dependencies. So we run a later "go list" with goproxy=true for
+		// Go1.18 and later.
+		cmd = makeCommand(goproxy, emptyDir, cgo, nil, gobin, "mod", "download", "-x", "--", mod+"@"+version)
+	} else {
+		cmd = makeCommand(goproxy, emptyDir, cgo, nil, gobin, "get", "-d", "-x", "-v", "--", mod+"@"+version)
+	}
 	if output, err := cmd.CombinedOutput(); err != nil {
 		metricGogetErrors.Inc()
 		return output, fmt.Errorf("go get: %v", err)

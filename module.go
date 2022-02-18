@@ -49,7 +49,7 @@ func serveModules(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	modDir, getOutput, err := ensureModule(gobin, mod, info.Version)
+	modDir, getOutput, err := ensureModule(goversion, gobin, mod, info.Version)
 	if err != nil {
 		failf(w, "error fetching module from goproxy: %w\n\n# output from go get:\n%s", err, string(getOutput))
 		return

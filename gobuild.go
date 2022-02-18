@@ -11,6 +11,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -40,7 +41,7 @@ func prepareBuild(bs buildSpec) error {
 		return err
 	}
 
-	modDir, getOutput, err := ensureModule(gobin, bs.Mod, bs.Version)
+	modDir, getOutput, err := ensureModule(bs.Goversion, gobin, bs.Mod, bs.Version)
 	if err != nil {
 		return fmt.Errorf("error fetching module from goproxy: %w\n\n# output from go get:\n%s", err, string(getOutput))
 	}
@@ -49,6 +50,10 @@ func prepareBuild(bs buildSpec) error {
 
 	// Check if package is a main package, resulting in an executable when built.
 	goproxy := false
+	if version1, ok := goversion1(bs.Goversion); ok && version1 >= 18 {
+		// Our "go mod download" earlier did not download dependencies. They will be downloaded now.
+		goproxy = true
+	}
 	cgo := true
 	moreEnv := []string{
 		"GOOS=" + bs.Goos,
@@ -86,7 +91,7 @@ func build(bs buildSpec) (int64, *buildResult, error) {
 		return -1, nil, fmt.Errorf("ensuring go version is available: %v (%w)", err, errTempFailure)
 	}
 
-	if _, output, err := ensureModule(gobin, bs.Mod, bs.Version); err != nil {
+	if _, output, err := ensureModule(bs.Goversion, gobin, bs.Mod, bs.Version); err != nil {
 		return -1, nil, fmt.Errorf("error fetching module from goproxy: %v (%w)\n\n# output from go get:\n%s", err, errTempFailure, output)
 	}
 
@@ -210,7 +215,13 @@ func build(bs buildSpec) (int64, *buildResult, error) {
 
 	goproxy := false
 	cgo := false
-	cmd := makeCommand(goproxy, emptyDir, cgo, moreEnv, gobin, "get", "-x", "-v", "-trimpath", "-ldflags=-buildid=", "--", name)
+	var cmd *exec.Cmd
+	if version1, ok := goversion1(bs.Goversion); ok && version1 >= 18 {
+		// Since Go1.18 we need to use "go install" to compile external programs.
+		cmd = makeCommand(goproxy, emptyDir, cgo, moreEnv, gobin, "install", "-x", "-v", "-trimpath", "-ldflags=-buildid=", "--", name)
+	} else {
+		cmd = makeCommand(goproxy, emptyDir, cgo, moreEnv, gobin, "get", "-x", "-v", "-trimpath", "-ldflags=-buildid=", "--", name)
+	}
 	output, err := cmd.CombinedOutput()
 	metricCompileDuration.WithLabelValues(bs.Goos, bs.Goarch, bs.Goversion).Observe(time.Since(t0).Seconds())
 	if err != nil {
