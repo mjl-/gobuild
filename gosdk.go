@@ -231,10 +231,13 @@ func ensureSDK(goversion string) error {
 		return fmt.Errorf(`%w: must start with "go"`, errBadGoversion)
 	}
 	if strings.HasPrefix(goversion, "go1") {
-		if len(goversion) < 4 || !strings.HasPrefix(goversion, "go1.") {
+		// Handle "rc" and "beta" versions by stripping those parts.
+		v := strings.SplitN(goversion, "rc", 2)[0]
+		v = strings.SplitN(v, "beta", 2)[0]
+		if len(v) < 4 || !strings.HasPrefix(v, "go1.") {
 			return fmt.Errorf("%w: old version, must be >=go1.13", errBadGoversion)
 		}
-		if num, err := strconv.ParseInt(strings.Split(goversion[4:], ".")[0], 10, 64); err != nil || num < 13 {
+		if num, err := strconv.ParseInt(strings.Split(v[4:], ".")[0], 10, 64); err != nil || num < 13 {
 			return fmt.Errorf("%w: bad version, must be >=go1.13", errBadGoversion)
 		}
 	}
