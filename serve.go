@@ -213,7 +213,7 @@ func serve(args []string) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/robots.txt", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain")
-		fmt.Fprint(w, "User-agent: *\nDisallow: /b/\nDisallow: /m/\nDisallow: /tlog/\n")
+		fmt.Fprint(w, "User-agent: *\nDisallow: /*/*\nDisallow: /tlog/\n\nAllow: /\n")
 	})
 	mux.HandleFunc("/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "image/png")
@@ -237,14 +237,23 @@ func serve(args []string) {
 		}
 	}
 
-	mux.HandleFunc("/m/", http.HandlerFunc(serveModules))
-	mux.HandleFunc("/b/", http.HandlerFunc(serveBuild))
-	mux.HandleFunc("/r/", http.HandlerFunc(serveResult))
 	mux.HandleFunc("/img/gopher-dance-long.gif", func(w http.ResponseWriter, r *http.Request) {
 		defer observePage("dance", time.Now())
 		w.Header().Set("Content-Type", "image/gif")
 		w.Write(fileGopherDanceLongGif) // nothing to do for errors
 	})
+
+	// These prefixes are old. We still serve on these paths for compatibility.
+	mux.HandleFunc("/m/", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, r.URL.Path[2:], http.StatusTemporaryRedirect)
+	})
+	mux.HandleFunc("/b/", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, r.URL.Path[2:], http.StatusTemporaryRedirect)
+	})
+	mux.HandleFunc("/r/", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, r.URL.Path[2:], http.StatusTemporaryRedirect)
+	})
+
 	mux.HandleFunc("/", serveHome)
 
 	var handler http.Handler = mux

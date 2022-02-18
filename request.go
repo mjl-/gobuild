@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/base64"
 	"fmt"
 	"path"
 	"strings"
@@ -40,19 +41,13 @@ func (p page) String() string {
 
 type request struct {
 	buildSpec
-	Sum  string // Empty for build instead of result requests: /b vs /r.
+	Sum  string // Empty for build instead of result requests.
 	Page page
 }
 
 // Path in URL for this request, for linking to other pages.
 func (r request) link() string {
-	var kind string
-	if r.Sum == "" {
-		kind = "b"
-	} else {
-		kind = "r"
-	}
-	s := fmt.Sprintf("/%s/%s@%s/%s%s-%s-%s/", kind, r.Mod, r.Version, r.appendDir(), r.Goos, r.Goarch, r.Goversion)
+	s := fmt.Sprintf("/%s@%s/%s%s-%s-%s/", r.Mod, r.Version, r.appendDir(), r.Goos, r.Goarch, r.Goversion)
 	if r.Sum != "" {
 		s += r.Sum + "/"
 	}
@@ -96,43 +91,46 @@ func (r request) downloadFilename() string {
 	return fmt.Sprintf("%s-%s-%s%s", name, r.Version, r.Goversion, ext)
 }
 
-// We'll get paths like /[br]/github.com/mjl-/sherpa@v0.6.0/cmd/sherpaclient/linux-amd64-go1.14.1/0m32pSahHbf-fptQdDyWD87GJNXI/{log,dl,<name>,<name>.gz,record, events}
-func parseRequest(s string) (r request, hint string, ok bool) {
-	withSum := strings.HasPrefix(s, "/r/")
-	s = s[len("/X/"):]
+func isSum(s string) bool {
+	if !strings.HasPrefix(s, "0") {
+		return false
+	}
+	buf, err := base64.RawURLEncoding.DecodeString(s[1:])
+	if err != nil {
+		return false
+	}
+	return len(buf) == 20
+}
 
+// We'll get paths like /github.com/mjl-/sherpa@v0.6.0/cmd/sherpaclient/linux-amd64-go1.14.1/0m32pSahHbf-fptQdDyWD87GJNXI/{log,dl,<name>,<name>.gz,record, events}
+// with optional sum.
+func parseRequest(s string) (r request, hint string, ok bool) {
 	if s == "" {
 		hint = ""
 		return
 	}
 
-	// First peel off the trailing (optional) page, and possible sum.
+	t := strings.Split(s[1:], "/")
+
+	// Look for a page-part and take it off.
 	var page string
-	if !strings.HasSuffix(s, "/") {
-		t := strings.Split(s, "/")
+	if t[len(t)-1] == "" {
+		t = t[:len(t)-1]
+	} else {
 		page = t[len(t)-1]
-		s = s[:len(s)-len(page)]
-		if !strings.HasSuffix(s, "/") {
-			hint = "No path left after peeling off page from end"
-			return
-		}
+		t = t[:len(t)-1]
 	}
-	if withSum {
-		t := strings.Split(s[:len(s)-1], "/")
+	if len(t) > 2 && isSum(t[len(t)-1]) {
 		r.Sum = t[len(t)-1]
-		if len(r.Sum) != 28 {
-			hint = "malformed sum"
-			return
-		}
-		s = s[:len(s)-len(r.Sum)-1]
-		if !strings.HasSuffix(s, "/") {
-			hint = "No path left after peeling off sum from end"
-			return
-		}
+		t = t[:len(t)-1]
+	}
+	if len(t) < 2 {
+		hint = "Missing goos-goarch-goversion at end of path"
+		return
 	}
 
-	// No we have a regular buildspec left.
-	if bs, err := parseBuildSpec(s); err != nil {
+	// Now we have a regular buildspec left.
+	if bs, err := parseBuildSpec(strings.Join(t, "/") + "/"); err != nil {
 		hint = "Bad module@version/path: " + err.Error()
 		return
 	} else {
@@ -157,11 +155,12 @@ func parseRequest(s string) (r request, hint string, ok bool) {
 		} else if page == dl+".gz" {
 			r.Page = pageDownloadGz
 		} else {
+			hint = "Missing slash at end of URL"
 			return
 		}
 	}
 
-	if withSum && r.Page == pageEvents {
+	if r.Sum != "" && r.Page == pageEvents {
 		hint = "No events endpoint for results"
 		return
 	}

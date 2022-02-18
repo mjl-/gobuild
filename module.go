@@ -15,20 +15,11 @@ func serveModules(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "405 - Method Not Allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	if r.URL.Path == "/m/" {
-		m := r.FormValue("m")
-		if m == "" {
-			http.NotFound(w, r)
-			return
-		}
-		http.Redirect(w, r, "/m/"+m, http.StatusTemporaryRedirect)
-		return
-	}
 
-	mod := r.URL.Path[len("/m/"):]
+	mod := r.URL.Path[1:]
 	if strings.HasSuffix(mod, "/") {
 		mod = strings.TrimRight(mod, "/")
-		http.Redirect(w, r, "/m/"+mod, http.StatusTemporaryRedirect)
+		http.Redirect(w, r, "/"+mod, http.StatusTemporaryRedirect)
 		return
 	}
 

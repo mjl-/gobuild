@@ -95,7 +95,7 @@ func parseBuildSpec(s string) (buildSpec, error) {
 
 	t = strings.Split(last, "-")
 	if len(t) != 3 {
-		return bs, fmt.Errorf("bad goos-goarch-goversion")
+		return bs, fmt.Errorf("bad goos-goarch-goversion %q", last)
 	}
 	bs.Goos = t[0]
 	bs.Goarch = t[1]

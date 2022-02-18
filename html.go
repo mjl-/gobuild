@@ -107,7 +107,7 @@ const buildTemplateString = `
 	<h2>More</h2>
 	<ul>
 		<li><a href="log">Build log</a></li>
-		<li><a href="/b/{{ .Req.Mod }}@latest/{{ .DirAppend }}{{ .Req.Goos }}-{{ .Req.Goarch }}-latest/">{{ .Req.Mod }}@<b>latest</b>/{{ .DirAppend }}{{ .Req.Goos }}-{{ .Req.Goarch }}-<b>latest</b>/</a> (<a href="/b/{{ .Req.Mod }}@latest/{{ .DirAppend }}{{ .Req.Goos }}-{{ .Req.Goarch }}-latest/dl">direct download</a>)</li>
+		<li><a href="/{{ .Req.Mod }}@latest/{{ .DirAppend }}{{ .Req.Goos }}-{{ .Req.Goarch }}-latest/">{{ .Req.Mod }}@<b>latest</b>/{{ .DirAppend }}{{ .Req.Goos }}-{{ .Req.Goarch }}-<b>latest</b>/</a> (<a href="/{{ .Req.Mod }}@latest/{{ .DirAppend }}{{ .Req.Goos }}-{{ .Req.Goarch }}-latest/dl">direct download</a>)</li>
 		<li>Documentation at <a href="{{ .PkgGoDevURL }}">pkg.go.dev</a></li>
 	</ul>
 {{ else if .InProgress }}
@@ -247,7 +247,7 @@ GO19CONCURRENTCOMPILATION=0 GO111MODULE=on GOPROXY={{ .GoProxy }} \
 			case 'Success':
 				{
 					hide(dance)
-					const resultsURL = '/r/' + location.pathname.substring(3) + update.Result.Sum + '/'
+					const resultsURL = location.pathname + update.Result.Sum + '/'
 					const link = elem('a', 'build results page')
 					link.setAttribute('href', resultsURL)
 
@@ -310,7 +310,7 @@ const homeTemplateString = `
 		<p>The <a href="https://proxy.golang.org/">Go module proxy</a> ensures source code stays available, and you are highly likely to get the same code each time you fetch it. Gobuild aims to do the same for binaries.</p>
 
 		<h2>Try a module</h2>
-		<form onsubmit="location.href = '/m/' + moduleName.value; return false" method="GET" action="/m/">
+		<form onsubmit="location.href = '/' + moduleName.value; return false" method="GET" action="/">
 			<input onfocus="modulenote.style.display='block'" id="moduleName" name="m" type="text" placeholder="github.com/your/project containing go.mod" style="width:30rem; max-width:75%" />
 			<button type="submit">Go!</button>
 		</form>
@@ -327,16 +327,16 @@ const homeTemplateString = `
 		<h2>URLs</h2>
 		<p>You can compose URLs to a specific module, build or result:</p>
 		<blockquote style="color:#666; white-space: nowrap">
-			<div>/m/<var>module</var></div>
-			<div>/b/<var>module</var>@<var>version</var>/<var>package</var>/<var>goos</var>-<var>goarch</var>-<var>goversion</var>/</div>
-			<div>/r/<var>module</var>@<var>version</var>/<var>package</var>/<var>goos</var>-<var>goarch</var>-<var>goversion</var>/<var>sum</var>/</div>
+			<div>/<var>module</var></div>
+			<div>/<var>module</var>@<var>version</var>/<var>package</var>/<var>goos</var>-<var>goarch</var>-<var>goversion</var>/</div>
+			<div>/<var>module</var>@<var>version</var>/<var>package</var>/<var>goos</var>-<var>goarch</var>-<var>goversion</var>/<var>sum</var>/</div>
 		</blockquote>
 
 		<h3>Examples</h3>
 		<blockquote style="color:#666; white-space: nowrap">
-			<a href="/m/github.com/mjl-/gobuild">/m/github.com/mjl-/gobuild</a><br/>
-			<a href="/b/github.com/mjl-/sherpa@latest/cmd/sherpaclient/linux-amd64-latest/">/b/github.com/mjl-/sherpa@latest/cmd/sherpaclient/linux-amd64-latest/</a><br/>
-			<a href="/r/github.com/mjl-/sherpa@v0.6.0/cmd/sherpaclient/linux-amd64-go1.14.1/0m32pSahHbf-fptQdDyWD87GJNXI/">/r/github.com/mjl-/sherpa@v0.6.0/cmd/sherpaclient/linux-amd64-go1.14.1/0m32pSahHbf-fptQdDyWD87GJNXI/</a>
+			<a href="/github.com/mjl-/gobuild">/github.com/mjl-/gobuild</a><br/>
+			<a href="/github.com/mjl-/sherpa@latest/cmd/sherpaclient/linux-amd64-latest/">/github.com/mjl-/sherpa@latest/cmd/sherpaclient/linux-amd64-latest/</a><br/>
+			<a href="/github.com/mjl-/sherpa@v0.6.0/cmd/sherpaclient/linux-amd64-go1.14.1/0m32pSahHbf-fptQdDyWD87GJNXI/">/github.com/mjl-/sherpa@v0.6.0/cmd/sherpaclient/linux-amd64-go1.14.1/0m32pSahHbf-fptQdDyWD87GJNXI/</a>
 		</blockquote>
 
 		<p>The first URL fetches the requested Go module to find the commands (main

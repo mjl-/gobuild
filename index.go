@@ -21,7 +21,7 @@ func fileExists(p string) bool {
 }
 
 // serveIndex serves the HTML page for a build/result, that has either failed or is
-// pending under /b/, or has succeeded under /r/.
+// pending or has succeeded.
 func serveIndex(w http.ResponseWriter, r *http.Request, bs buildSpec, br *buildResult) {
 	xreq := request{bs, "", pageIndex}
 	xlink := xreq.link()

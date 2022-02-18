@@ -11,9 +11,9 @@ URLs
 
 You can compose URLs to a specific module, build or result:
 
-	/m/<module>
-	/b/<module>@<version>/<package>/<goos>-<goarch>-<goversion>/
-	/r/<module>@<version>/<package>/<goos>-<goarch>-<goversion>/<sum>/
+	/<module>
+	/<module>@<version>/<package>/<goos>-<goarch>-<goversion>/
+	/<module>@<version>/<package>/<goos>-<goarch>-<goversion>/<sum>/
 
 The first URL fetches the requested Go module to find the commands (main
 packages). In case of a single command, it redirects to a URL of the second
