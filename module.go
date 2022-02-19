@@ -11,11 +11,6 @@ import (
 func serveModules(w http.ResponseWriter, r *http.Request) {
 	defer observePage("module", time.Now())
 
-	if r.Method != "GET" {
-		http.Error(w, "405 - Method Not Allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	mod := r.URL.Path[1:]
 	if strings.HasSuffix(mod, "/") {
 		mod = strings.TrimRight(mod, "/")
@@ -78,11 +73,13 @@ func serveModules(w http.ResponseWriter, r *http.Request) {
 		mainPkgs = append(mainPkgs, mainPkg{link, md})
 	}
 	args := struct {
+		Favicon        string
 		Module         string
 		Version        string
 		Mains          []mainPkg
 		GobuildVersion string
 	}{
+		"/favicon.ico",
 		bs.Mod,
 		bs.Version,
 		mainPkgs,

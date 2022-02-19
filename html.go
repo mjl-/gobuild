@@ -6,7 +6,7 @@ import (
 )
 
 var (
-	homeTemplate, moduleTemplate, buildTemplate *template.Template
+	homeTemplate, moduleTemplate, buildTemplate, errorTemplate *template.Template
 )
 
 func init() {
@@ -22,11 +22,25 @@ func init() {
 		log.Fatalf("parsing module html template: %v", err)
 	}
 
-	homeTemplate, err = template.New("home").Parse(homeTemplateString + htmlTemplateString)
-	if err != nil {
-		log.Fatalf("parsing home html template: %v", err)
-	}
+	homeTemplate = template.Must(template.New("home").Parse(homeTemplateString + htmlTemplateString))
+	errorTemplate = template.Must(template.New("error").Parse(errorTemplateString))
 }
+
+const errorTemplateString = `
+<!doctype html>
+<html>
+	<head>
+		<title>error</title>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width">
+		<link rel="icon" type="image/png" href="/favicon-error.png" />
+		<style>
+body { font-family: Ubuntu, Lato, sans-serif; font-size: 17px; line-height: 1.3; white-space: pre-wrap; }
+		</style>
+	</head>
+	<body>{{ .Message }}</body>
+</html>
+`
 
 const htmlTemplateString = `
 {{ define "html" }}
@@ -36,6 +50,7 @@ const htmlTemplateString = `
 		<title>{{ template "title" . }}</title>
 		<meta charset="utf-8" />
 		<meta name="viewport" content="width=device-width">
+		<link rel="icon" type="image/png" href="{{ .Favicon }}" />
 		<style>
 /*<![CDATA[*/
 * { box-sizing: border-box; }
@@ -182,6 +197,14 @@ GO19CONCURRENTCOMPILATION=0 GO111MODULE=on GOPROXY={{ .GoProxy }} \
 		e.classList.add('refadein')
 		setTimeout(function(){ e.classList.remove('refadein') }, 500)
 	}
+	function favicon(path) {
+		const link = document.head.querySelector('link[rel=icon]')
+		if (link) {
+			link.setAttribute('href', path)
+		}
+	}
+	function faviconFailed() { favicon('/favicon-error.png') }
+	function faviconSuccess() { favicon('/favicon.ico') }
 
 	const progress = document.getElementById('progress')
 	function display() {
@@ -216,8 +239,9 @@ GO19CONCURRENTCOMPILATION=0 GO111MODULE=on GOPROXY={{ .GoProxy }} \
 				} else {
 					display('Waiting in queue, ' + update.QueuePosition + ' builds before yours...')
 				}
-				break;
+				break
 			case 'TempFailed':
+				faviconFailed()
 				hide(dance)
 				display(
 					elem('p', 'Build failed, temporary failure, try again later.'),
@@ -225,9 +249,10 @@ GO19CONCURRENTCOMPILATION=0 GO111MODULE=on GOPROXY={{ .GoProxy }} \
 					elem('pre.prewrap', update.Error),
 				)
 				src.close()
-				break;
+				break
 			case 'PermFailed':
 				{
+					faviconFailed()
 					hide(dance)
 					const link = elem('a', 'build failure output log')
 					link.setAttribute('href', 'log')
@@ -243,9 +268,10 @@ GO19CONCURRENTCOMPILATION=0 GO111MODULE=on GOPROXY={{ .GoProxy }} \
 					)
 					src.close()
 				}
-				break;
+				break
 			case 'Success':
 				{
+					faviconSuccess()
 					hide(dance)
 					const resultsURL = location.pathname + update.Result.Sum + '/'
 					const link = elem('a', 'build results page')
@@ -257,7 +283,7 @@ GO19CONCURRENTCOMPILATION=0 GO111MODULE=on GOPROXY={{ .GoProxy }} \
 					src.close()
 					location.href = resultsURL
 				}
-				break;
+				break
 			default:
 				console.log('unknown update kind')
 			}

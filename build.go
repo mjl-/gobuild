@@ -10,7 +10,7 @@ func serveBuild(w http.ResponseWriter, r *http.Request, req request) {
 	// Resolve "latest" goversion with a redirect.
 	if req.Goversion == "latest" {
 		if supported, _ := installedSDK(); len(supported) == 0 {
-			http.Error(w, "503 - No supported Go toolchains available", http.StatusServiceUnavailable)
+			failf(w, "no supported go toolchains available: %w", errServer)
 		} else {
 			vreq := req
 			vreq.Goversion = supported[0]
@@ -48,7 +48,7 @@ func serveBuild(w http.ResponseWriter, r *http.Request, req request) {
 		case pageIndex:
 			serveIndex(w, r, req.buildSpec, nil)
 		default:
-			http.Error(w, "400 - Bad Request - build failed, see index page for details", http.StatusBadRequest)
+			failf(w, "build failed, see index page for details")
 		}
 		return
 	}

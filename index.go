@@ -165,7 +165,14 @@ func serveIndex(w http.ResponseWriter, r *http.Request, bs buildSpec, br *buildR
 		prependDir = ""
 	}
 
+	favicon := "/favicon.ico"
+	if output != "" {
+		favicon = "/favicon-error.png"
+	} else if br.Sum == "" {
+		favicon = "/favicon-building.png"
+	}
 	args := map[string]interface{}{
+		"Favicon":          favicon,
 		"Success":          br.Sum != "",
 		"Sum":              br.Sum,
 		"Req":              xreq,             // eg "/" or "/cmd/x"

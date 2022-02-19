@@ -97,8 +97,16 @@ var (
 	sumLogFile io.Writer
 )
 
-//go:embed favicon.png
-var fileFaviconPng []byte
+var (
+	//go:embed favicon.png
+	fileFaviconPng []byte
+
+	//go:embed favicon-building.png
+	fileFaviconBuildingPng []byte
+
+	//go:embed favicon-error.png
+	fileFaviconErrorPng []byte
+)
 
 var errRemote = errors.New("remote")
 var errServer = errors.New("server error")
@@ -223,6 +231,14 @@ func serve(args []string) {
 		w.Header().Set("Content-Type", "image/png")
 		w.Write(fileFaviconPng) // nothing to do for errors
 	})
+	mux.HandleFunc("/favicon-building.png", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/png")
+		w.Write(fileFaviconBuildingPng) // nothing to do for errors
+	})
+	mux.HandleFunc("/favicon-error.png", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/png")
+		w.Write(fileFaviconErrorPng) // nothing to do for errors
+	})
 
 	mux.HandleFunc("/emptyconfig", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain")
@@ -325,12 +341,19 @@ func serve(args []string) {
 func failf(w http.ResponseWriter, format string, args ...interface{}) {
 	err := fmt.Errorf(format, args...)
 	msg := err.Error()
+	var status int
 	if errors.Is(err, errServer) {
 		log.Println(msg)
-		http.Error(w, "500 - "+msg, http.StatusInternalServerError)
-		return
+		msg = "500 - internal server error - " + msg
+		status = http.StatusInternalServerError
+	} else {
+		msg = "400 - bad request - " + msg
+		status = http.StatusBadRequest
 	}
-	http.Error(w, "400 - "+msg, http.StatusBadRequest)
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.WriteHeader(status)
+	errorTemplate.Execute(w, map[string]string{"Message": msg})
 }
 
 func serveLog(w http.ResponseWriter, r *http.Request, p string) {
