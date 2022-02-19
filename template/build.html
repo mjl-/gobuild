@@ -2,10 +2,12 @@
 {{ define "content" }}
 	<p><a href="/">&lt; Home</a></p>
 	<h1>
-		{{ .Req.Mod }}@{{ .Req.Version }}{{ .Req.Dir }}<br/>
-		{{ .Req.Goos }}/{{ .Req.Goarch }} {{ .Req.Goversion }}<br/>
-		{{ if .Success}}{{ .Sum }}{{ end }}
-		{{ if .Success }}<span class="success">✓</span>{{ else if .InProgress }}<span class="pending">⌛</span>{{ else }}<span class="failure">❌</span>{{ end }}
+		<div>{{ .Req.Mod }}@{{ .Req.Version }}{{ .Req.Dir }}</div>
+		<div>{{ .Req.Goos }}/{{ .Req.Goarch }} {{ .Req.Goversion }}</div>
+		{{ if .Success}}<div>{{ .Sum }}<span class="success">✓</span></div>
+		{{ else if .InProgress }}<div><img style="max-height: 1.5rem;" id="dancer" src="/img/gopher-dance-long.gif" title="Dancing gopher, by Ego Elbre, CC0" /> <span id="progress">Connecting for updates... <a href="dl">trigger build</a></span></div>
+		{{ else }}<div>Error<span class="failure">❌</span></div>
+		{{ end }}
 	</h1>
 
 {{ if .Success }}
@@ -23,20 +25,23 @@
 	<p>To download using the transparency log:</p>
 	<pre style="margin-left:2rem">gobuild get -sum {{ .Sum }} -target {{ .Req.Goos }}/{{ .Req.Goarch }} -goversion {{ .Req.Goversion }} {{ .Req.Mod }}@{{ .Req.Version }}{{ .Req.Dir }}</pre>
 
-	<h2>More</h2>
-	<ul>
-		<li><a href="log">Build log</a></li>
-		<li><a href="/{{ .Req.Mod }}@latest/{{ .DirAppend }}{{ .Req.Goos }}-{{ .Req.Goarch }}-latest/">{{ .Req.Mod }}@<b>latest</b>/{{ .DirAppend }}{{ .Req.Goos }}-{{ .Req.Goarch }}-<b>latest</b>/</a> (<a href="/{{ .Req.Mod }}@latest/{{ .DirAppend }}{{ .Req.Goos }}-{{ .Req.Goarch }}-latest/dl">direct download</a>)</li>
-		<li>Documentation at <a href="{{ .PkgGoDevURL }}">pkg.go.dev</a></li>
-	</ul>
 {{ else if .InProgress }}
-	<h2>Progress <img style="visibility: hidden; width: 32px; height: 32px;" id="dance" src="/img/gopher-dance-long.gif" title="Dancing gopher, by Ego Elbre, CC0" /></h2>
-	<div id="progress">
-		<p>Connecting to server to request build and receive updates...</p>
-		<p>If your browser has JavaScript disabled, or does not support server-sent events (SSE), follow this <a href="dl">download link</a> to trigger a build.</p>
+	<div id="error" style="display: none">
+		<h2>Error</h2>
+		<pre class="prewrap" id="errormsg"></pre>
 	</div>
 
 	<h2>Download</h2>
+	<table>
+		<tr>
+			<td>{{ .DownloadFilename }}</td>
+			<td style="padding-left: 1rem; text-align: right">(pending)</td>
+		</tr>
+		<tr>
+			<td>{{ .DownloadFilename }}.gz</td>
+			<td style="padding-left: 1rem; text-align: right">(pending)</td>
+		</tr>
+	</table>
 	<p>To download using the transparency log:</p>
 	<pre style="margin-left:2rem">gobuild get -target {{ .Req.Goos }}/{{ .Req.Goarch }} -goversion {{ .Req.Goversion }} {{ .Req.Mod }}@{{ .Req.Version }}{{ .Req.Dir }}</pre>
 {{ else }}
@@ -47,6 +52,13 @@
 		</pre>
 	</div>
 {{ end }}
+
+	<h2>More</h2>
+	<ul>
+		<li><a href="log">Build log</a></li>
+		<li><a href="/{{ .Req.Mod }}@latest/{{ .DirAppend }}{{ .Req.Goos }}-{{ .Req.Goarch }}-latest/">{{ .Req.Mod }}@<b>latest</b>/{{ .DirAppend }}{{ .Req.Goos }}-{{ .Req.Goarch }}-<b>latest</b>/</a> (<a href="/{{ .Req.Mod }}@latest/{{ .DirAppend }}{{ .Req.Goos }}-{{ .Req.Goarch }}-latest/dl">direct download</a>)</li>
+		<li>Documentation at <a href="{{ .PkgGoDevURL }}">pkg.go.dev</a></li>
+	</ul>
 
 	<h2>Reproduce</h2>
 	<p>To reproduce locally:</p>
@@ -79,12 +91,10 @@ GO19CONCURRENTCOMPILATION=0 GO111MODULE=on GOPROXY={{ .GoProxy }} \
 	{{ if .InProgress }}
 	<script>
 (function() {
-	function show(e) { e.style.visibility = 'visible' }
-	function hide(e) { e.style.visibility = 'hidden' }
 	function text(s) { return document.createTextNode(s) }
 	function elem(tag) {
-		const t = tag.split('.')
-		const e = document.createElement(t.shift())
+		var t = tag.split('.')
+		var e = document.createElement(t.shift())
 		if (t.length > 0) {
 			e.className = t.join(' ')
 		}
@@ -97,93 +107,94 @@ GO19CONCURRENTCOMPILATION=0 GO111MODULE=on GOPROXY={{ .GoProxy }} \
 		}
 		return e
 	}
+	function span(s) {
+		var args = Array.prototype.slice.call(arguments)
+		args.unshift('span')
+		return elem.apply(undefined, args)
+	}
+	function link(url, anchor) {
+		var a = elem('a', anchor)
+		a.setAttribute('href', url)
+		return a
+	}
 	function refadein(e) {
 		e.classList.add('refadein')
 		setTimeout(function(){ e.classList.remove('refadein') }, 500)
 	}
+	function fadein(element, kid) {
+		while (element.firstChild) {
+			element.removeChild(element.firstChild)
+		}
+		refadein(kid)
+		element.appendChild(kid)
+	}
 	function favicon(path) {
-		const link = document.head.querySelector('link[rel=icon]')
+		var link = document.head.querySelector('link[rel=icon]')
 		if (link) {
 			link.setAttribute('href', path)
 		}
 	}
 	function faviconFailed() { favicon('/favicon-error.png') }
-	function faviconSuccess() { favicon('/favicon.ico') }
-
-	const progress = document.getElementById('progress')
-	function display() {
-		while (progress.firstChild) {
-			progress.removeChild(progress.firstChild)
-		}
-		var args = Array.prototype.slice.call(arguments)
-		args.unshift('div')
-		const e = elem.apply(undefined, args)
-		refadein(e)
-		progress.appendChild(e)
-	}
 
 	if (!window.EventSource) {
 		console.log('cannot request build and receive updates, browser does not support server-sent events (SSE)?')
 		return
 	}
 
-	const dance = document.getElementById('dance')
+	var dancer = document.getElementById('dancer')
+	var progress = document.getElementById('progress')
+	var errorElem = document.getElementById('error')
+	var errormsgElem = document.getElementById('errormsg')
+
+	function showError(line, details) {
+		dancer.style.display = 'none'
+		faviconFailed()
+		fadein(progress, line)
+
+		fadein(errormsgElem, details)
+		errorElem.style.display = ''
+	}
+
+	function showProgress(lineElem) {
+		dancer.style.display = ''
+		fadein(progress, lineElem)
+	}
+
+	var initialProgressID
 
 	var requestBuildWithUpdates = function() {
-		const src = new EventSource('events')
+		var src = new EventSource('events')
 		src.addEventListener('update', function(e) {
-			const update = JSON.parse(e.data)
+			if (initialProgressID) {
+				clearTimeout(initialProgressID)
+				initialProgressID = undefined
+			}
+
+			var update = JSON.parse(e.data)
 			switch (update.Kind) {
 			case 'QueuePosition':
-				show(dance)
 				if (update.QueuePosition === 0) {
-					display('Build in progress, hang in there!')
+					showProgress(span('Build in progress, hang in there!'))
 				} else if (update.QueuePosition === 1) {
-					display('Waiting in queue, 1 build before yours...')
+					showProgress(span('Waiting in queue, 1 build before yours...'))
 				} else {
-					display('Waiting in queue, ' + update.QueuePosition + ' builds before yours...')
+					showProgress(span('Waiting in queue, ' + update.QueuePosition + ' builds before yours...'))
 				}
 				break
 			case 'TempFailed':
-				faviconFailed()
-				hide(dance)
-				display(
-					elem('p', 'Build failed, temporary failure, try again later.'),
-					elem('h3', 'Error'),
-					elem('pre.prewrap', update.Error),
-				)
+				showError('Build failed, temporary failure, try again later.', update.Error)
 				src.close()
 				break
 			case 'PermFailed':
 				{
-					faviconFailed()
-					hide(dance)
-					const link = elem('a', 'build failure output log')
-					link.setAttribute('href', 'log')
-
-					display(
-						elem('p',
-							'Build failed. See ',
-							link,
-							' for details.',
-						),
-						elem('h3', 'Error'),
-						elem('pre.prewrap', update.Error),
-					)
+					showError(span('Build failed. See ', link('log', 'output'), ' for details.'), update.Error)
 					src.close()
 				}
 				break
 			case 'Success':
 				{
-					faviconSuccess()
-					hide(dance)
-					const resultsURL = location.pathname + update.Result.Sum + '/'
-					const link = elem('a', 'build results page')
-					link.setAttribute('href', resultsURL)
-
-					display(
-						elem('p', 'Build successful, redirecting to ', link, '.')
-					)
+					var resultsURL = location.pathname + update.Result.Sum + '/'
+					showProgress(span('Build successful, redirecting to ', link(resultsURL, 'results page'), '.'))
 					src.close()
 					location.href = resultsURL
 				}
@@ -193,21 +204,22 @@ GO19CONCURRENTCOMPILATION=0 GO111MODULE=on GOPROXY={{ .GoProxy }} \
 			}
 		})
 		src.addEventListener('open', function(e) {
-			show(dance)
-			display(elem('p', 'Connected! Waiting for updates...'))
+			initialProgressID = setTimeout(function() {
+				showProgress(span('Connected! Waiting for updates...'))
+				initialProgressID = undefined
+			}, 500)
 		})
 		src.addEventListener('error', function(e) {
-			hide(dance)
 			if (src) {
 				src.close()
 			}
-			const reconnect = elem('a', 'Reconnect')
-			reconnect.setAttribute('href', '#')
+			var reconnect = link('#', 'Reconnect')
 			reconnect.addEventListener('click', function(e) {
 				e.preventDefault()
 				requestBuildWithUpdates()
 			})
-			display(elem('p', 'Connection to backend failed. ', reconnect, '.'))
+			showProgress(span('Connection to backend failed. ', reconnect, '.'))
+			dancer.style.display = 'none'
 		})
 	}
 
