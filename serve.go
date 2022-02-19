@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"context"
 	"crypto/sha256"
+	_ "embed"
 	"encoding/base64"
 	"errors"
 	"flag"
@@ -95,6 +96,9 @@ var (
 	// Either separate log file or stderr, append-only logging of added sums.
 	sumLogFile io.Writer
 )
+
+//go:embed favicon.png
+var fileFaviconPng []byte
 
 var errRemote = errors.New("remote")
 var errServer = errors.New("server error")
