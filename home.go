@@ -22,8 +22,15 @@ func serveHome(w http.ResponseWriter, r *http.Request) {
 		}
 
 		recentBuilds.Lock()
-		recentLinks := recentBuilds.links
+		recentLinks := append([]string{}, recentBuilds.links...)
 		recentBuilds.Unlock()
+
+		// Reverse order for recentLinks most recent first.
+		n := len(recentLinks)
+		for i := 0; i < n/2; i++ {
+			j := n - 1 - i
+			recentLinks[i], recentLinks[j] = recentLinks[j], recentLinks[i]
+		}
 
 		var args = struct {
 			Recents        []string
