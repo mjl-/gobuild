@@ -1,20 +1,22 @@
+- Handle @master/@main, and more in URL.
+- Allow retrying failed builds. We will normally show the log of the failure. But if user wants to try again, why not? It will probably fail again. But for some temporary failure (eg out of disk), this will help.
+- Test using gobuild with other goproxy, sumdb. And with private git modules?
+- Add subcommand to validate all records, hashes and links.
+- Store specifier in result directories? For failed builds, we currently have no way of knowing for which specifier it is.
+- When downloading an SDK, explain it on a page, possibly with progress updates.
+- For next go release, use concurrentcompilation again.
+- For next go release, consider stripping only part of the buildid.
 - Write tests.
 - Attempt to build with run.sh without sharing homedir/go/pkg/mod, except the "cache" dir. Only write during go get -d. Then do a go get with read-only mod directory, for extracting and verification.
 - Implement better backend with transactions for tlog server. To ensure we either have all information about a build, or none. Now we could get a mismatch between the records, hashes, and index files.
 - When we have a public gobuilds.org, mention in docs that people can set up their local instance, and configure the public gobuilds.org as a verifier.
 - Improve error messages shown to users, and the http status codes.
-- Add subcommand to validate all records, hashes and links.
-- Make content move around less on build/result index page. Eg reserve space for hash on build index page, and make "progress" box a min-height that will be enough for successful builds.
 - Better detect if module, version or package does not exist, and propagate it to lookup sum calls as 404 does not exist (instead of 500 server error). Either match strings in output from go get, or talk to goproxy directly.
+ - With GOPROXY=https://proxy.golang.org (no ",direct"), on a module with a replace directive for a zero-revision requirement, "go get" tries to fetch the zero-revision (which is replaced) from the proxy, which fails. "go build" doesn't fetch those deps and will build.
 - Possibly use different description in notes, now it says "go.sum database tree". It should say something like "gobuild database tree". Not sure if worth the trouble, means forking tlog package.
 - Improve storage and robustness.
-- Set user-agent to something pointing to gobuild source, let user configure a string.
 - Should we talk to other verifiers with sum-checking as well?
-- Allow retrying failed builds. We will normally show the log of the failure. But if user wants to try again, why not? It will probably fail again. But for some temporary failure (eg out of disk), this will help.
-- Update page title or favicon with success/failure of a build in progress?
-- Should we keep part of the buildid? Only the first of the 4 slash-separated parts will vary with different setups (toolchains on different systems and/or their installation location). We could clear out the first part, keep the remaining parts. Especially the content hashes. That would be helpful with reproducing by others. However, it might be misleading to use part of the buildid. We might be better off just removing the buildid.  NOTE: before go1.13.3, working directories of builds would affect the resulting binary, but we always build in the package directory, which is always the same.
 - Perhaps implement a mode where a gobuild only verifies with other backends, but doesn't build itself. Can work for adding sums. But downloading would have to go through another backend as well. Or it could retrieve downloads as well.
-- Block some bots from accessing /b/ URLs.
 - Cache responses from goproxy? So we don't misbehave towards it.
 - Cleanup dir in go/pkg/mod/ after fetching/building, saves disk space. And we won't redownload too often. We could also periodically remove dirs with atime older than 1 hour. Will help if people build one module for different goversion/goos/goarch.
 - Could remove binaries after a period of inactivity. We can still keep the hash. And if the binary is requested again, just calculate it.
@@ -22,10 +24,11 @@
 - Should not assume that all dependencies were fetched when a local package directory exists. Or just cleanup better when a "go get -d" fails.
 - Implement listening on specified list of network addresses for HTTPS, instead of default :443?
 - When resolving URLs with both goversion and modversion as "latest", do a single redirect?
-- On pages that link to other builds that were successful, link to /r/ URLs, not /b/. Saves redirects.
+- On pages that link to other builds that were successful, link to result directly instead of to build which does a redirect.
 - Implement privilege separation? Start as root, run all go commands under uid, http server under different uid (perhaps), store the results in a place the go commands cannot touch it.
-- Handle more versions in URL, like @master, @commitid, etc?
+- Handle more versions in URL, like @commitid, etc?
 - Find good place to mention one-liner to recreate sum: python3 -c 'import sys, hashlib, base64; print("0" + base64.urlsafe_b64encode(hashlib.sha256(sys.stdin.buffer.read()).digest()[:20]).decode("utf-8").rstrip("="))'
 - Add endpoint /s/<sum> that redirects to the result page of that sum. Currently cannot efficiently lookup the build info by hash.
 - Find a way to mark or recognize that a module is not meant to be compiled with just "go build". When it requires additional steps or additional files to work properly.
 - Make list of goos/goarch dependend on version. Different goversions have different supported targets.
+- Add SSE endpoint that streams new sums. We can use the reconnect-with-id mechanism of SSE to make sure a listener never misses a sum.
