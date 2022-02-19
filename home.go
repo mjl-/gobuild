@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -57,12 +58,24 @@ func serveHome(w http.ResponseWriter, r *http.Request) {
 		serveModules(w, r)
 		return
 	}
-	if t[len(t)-1] == "" {
-		t = t[:len(t)-1]
+
+	req, hint, ok := parseRequest(r.URL.Path)
+	if !ok {
+		if hint != "" {
+			http.Error(w, fmt.Sprintf("404 - File Not Found\n\n%s\n", hint), http.StatusNotFound)
+		} else {
+			http.NotFound(w, r)
+		}
+		return
 	}
-	if isSum(t[len(t)-1]) || (len(t) > 1 && isSum(t[len(t)-2])) {
-		serveResult(w, r)
+	what := "build"
+	if req.Sum != "" {
+		what = "result"
+	}
+	defer observePage(what+" "+req.Page.String(), time.Now())
+	if req.Sum == "" {
+		serveBuild(w, r, req)
 	} else {
-		serveBuild(w, r)
+		serveResult(w, r, req)
 	}
 }

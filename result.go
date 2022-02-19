@@ -1,30 +1,12 @@
 package main
 
 import (
-	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
-	"time"
 )
 
-func serveResult(w http.ResponseWriter, r *http.Request) {
-	if r.Method != "GET" {
-		http.Error(w, "405 - Method Not Allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	req, hint, ok := parseRequest(r.URL.Path)
-	if !ok {
-		if hint != "" {
-			http.Error(w, fmt.Sprintf("404 - File Not Found\n\n%s\n", hint), http.StatusNotFound)
-		} else {
-			http.NotFound(w, r)
-		}
-		return
-	}
-	defer observePage("result "+req.Page.String(), time.Now())
-
+func serveResult(w http.ResponseWriter, r *http.Request, req request) {
 	storeDir := req.storeDir()
 
 	_, br, failed, err := serverOps{}.lookupResult(r.Context(), req.buildSpec)

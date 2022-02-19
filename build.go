@@ -1,30 +1,12 @@
 package main
 
 import (
-	"fmt"
 	"log"
 	"net/http"
 	"path/filepath"
-	"time"
 )
 
-func serveBuild(w http.ResponseWriter, r *http.Request) {
-	if r.Method != "GET" {
-		http.Error(w, "405 - Method Not Allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	req, hint, ok := parseRequest(r.URL.Path)
-	if !ok {
-		if hint != "" {
-			http.Error(w, fmt.Sprintf("404 - File Not Found\n\n%s\n", hint), http.StatusNotFound)
-		} else {
-			http.NotFound(w, r)
-		}
-		return
-	}
-	defer observePage("build "+req.Page.String(), time.Now())
-
+func serveBuild(w http.ResponseWriter, r *http.Request, req request) {
 	// Resolve "latest" goversion with a redirect.
 	if req.Goversion == "latest" {
 		if supported, _ := installedSDK(); len(supported) == 0 {
