@@ -10,6 +10,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"html/template"
 	"io"
 	"io/ioutil"
 	"log"
@@ -106,6 +107,28 @@ var (
 
 	//go:embed favicon-error.png
 	fileFaviconErrorPng []byte
+
+	//go:embed template/base.html
+	baseHTML string
+
+	//go:embed template/build.html
+	buildHTML string
+
+	//go:embed template/module.html
+	moduleHTML string
+
+	//go:embed template/home.html
+	homeHTML string
+
+	//go:embed template/error.html
+	errorHTML string
+)
+
+var (
+	buildTemplate  = template.Must(template.New("build").Parse(buildHTML + baseHTML))
+	moduleTemplate = template.Must(template.New("module").Parse(moduleHTML + baseHTML))
+	homeTemplate   = template.Must(template.New("home").Parse(homeHTML + baseHTML))
+	errorTemplate  = template.Must(template.New("error").Parse(errorHTML))
 )
 
 var errRemote = errors.New("remote")

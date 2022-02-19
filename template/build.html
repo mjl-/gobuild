@@ -1,0 +1,218 @@
+{{ define "title" }}{{ .Req.Mod }}@{{ .Req.Version }}{{ .Req.Dir }} - {{ .Req.Goos }}/{{ .Req.Goarch }} {{ .Req.Goversion }}{{ if .Success}} - {{ .Sum }}{{ end }}{{ end }}
+{{ define "content" }}
+	<p><a href="/">&lt; Home</a></p>
+	<h1>
+		{{ .Req.Mod }}@{{ .Req.Version }}{{ .Req.Dir }}<br/>
+		{{ .Req.Goos }}/{{ .Req.Goarch }} {{ .Req.Goversion }}<br/>
+		{{ if .Success}}{{ .Sum }}{{ end }}
+		{{ if .Success }}<span class="success">✓</span>{{ else if .InProgress }}<span class="pending">⌛</span>{{ else }}<span class="failure">❌</span>{{ end }}
+	</h1>
+
+{{ if .Success }}
+	<h2>Download</h2>
+	<table>
+		<tr>
+			<td><a href="{{ .DownloadFilename }}">{{ .DownloadFilename }}</a></td>
+			<td style="padding-left: 1rem; text-align: right">{{ .Filesize }}</td>
+		</tr>
+		<tr>
+			<td><a href="{{ .DownloadFilename }}.gz">{{ .DownloadFilename }}.gz</a></td>
+			<td style="padding-left: 1rem; text-align: right">{{ .FilesizeGz }}</td>
+		</tr>
+	</table>
+	<p>To download using the transparency log:</p>
+	<pre style="margin-left:2rem">gobuild get -sum {{ .Sum }} -target {{ .Req.Goos }}/{{ .Req.Goarch }} -goversion {{ .Req.Goversion }} {{ .Req.Mod }}@{{ .Req.Version }}{{ .Req.Dir }}</pre>
+
+	<h2>More</h2>
+	<ul>
+		<li><a href="log">Build log</a></li>
+		<li><a href="/{{ .Req.Mod }}@latest/{{ .DirAppend }}{{ .Req.Goos }}-{{ .Req.Goarch }}-latest/">{{ .Req.Mod }}@<b>latest</b>/{{ .DirAppend }}{{ .Req.Goos }}-{{ .Req.Goarch }}-<b>latest</b>/</a> (<a href="/{{ .Req.Mod }}@latest/{{ .DirAppend }}{{ .Req.Goos }}-{{ .Req.Goarch }}-latest/dl">direct download</a>)</li>
+		<li>Documentation at <a href="{{ .PkgGoDevURL }}">pkg.go.dev</a></li>
+	</ul>
+{{ else if .InProgress }}
+	<h2>Progress <img style="visibility: hidden; width: 32px; height: 32px;" id="dance" src="/img/gopher-dance-long.gif" title="Dancing gopher, by Ego Elbre, CC0" /></h2>
+	<div id="progress">
+		<p>Connecting to server to request build and receive updates...</p>
+		<p>If your browser has JavaScript disabled, or does not support server-sent events (SSE), follow this <a href="dl">download link</a> to trigger a build.</p>
+	</div>
+
+	<h2>Download</h2>
+	<p>To download using the transparency log:</p>
+	<pre style="margin-left:2rem">gobuild get -target {{ .Req.Goos }}/{{ .Req.Goarch }} -goversion {{ .Req.Goversion }} {{ .Req.Mod }}@{{ .Req.Version }}{{ .Req.Dir }}</pre>
+{{ else }}
+	<h2>Error</h2>
+	<div class="output">
+		<pre class="prewrap">
+{{ .Output }}
+		</pre>
+	</div>
+{{ end }}
+
+	<h2>Reproduce</h2>
+	<p>To reproduce locally:</p>
+<pre style="margin-left:2rem">
+GO19CONCURRENTCOMPILATION=0 GO111MODULE=on GOPROXY={{ .GoProxy }} \
+	CGO_ENABLED=0 GOOS={{ .Req.Goos }} GOARCH={{ .Req.Goarch }} \
+	{{ .Req.Goversion }} install -trimpath -ldflags=-buildid= -- {{ .Req.Mod }}{{ .DirPrepend }}@{{ .Req.Version }}
+</pre>
+
+	<div style="width: 32%; display: inline-block; vertical-align: top">
+		<h2>Module versions</h2>
+	{{ if .Mod.Err }}
+		<div>error: {{ .Mod.Err }}</div>
+	{{ else }}
+	{{ range .Mod.VersionLinks }}	<div><a href="{{ .URLPath }}" class="buildlink{{ if .Active }} active{{ end }} ">{{ .Version }}</a>{{ if .Success }}<span class="success">✓</span>{{ end }}</div>{{ end }}
+	{{ end }}
+	</div>
+
+	<div style="width: 32%; display: inline-block; vertical-align: top">
+		<h2>Targets</h2>
+	{{ range .TargetLinks }}	<div><a href="{{ .URLPath }}" class="buildlink{{ if .Active }} active{{ end }} ">{{ .Goos }}/{{ .Goarch }}</a>{{ if .Success }}<span class="success">✓</span>{{ end }}</div>{{ end }}
+	</div>
+
+	<div style="width: 32%; display: inline-block; vertical-align: top">
+		<h2>Go versions</h2>
+	{{ range .GoversionLinks }}	<div><a href="{{ .URLPath }}" class="buildlink{{ if .Active }} active{{ end }} {{ if not .Supported }} unsupported{{ end }}">{{ .Goversion }}</a>{{ if .Success }}<span class="success">✓</span>{{ end }}</div>{{ end }}
+	</div>
+{{ end }}
+{{ define "script" }}
+	{{ if .InProgress }}
+	<script>
+(function() {
+	function show(e) { e.style.visibility = 'visible' }
+	function hide(e) { e.style.visibility = 'hidden' }
+	function text(s) { return document.createTextNode(s) }
+	function elem(tag) {
+		const t = tag.split('.')
+		const e = document.createElement(t.shift())
+		if (t.length > 0) {
+			e.className = t.join(' ')
+		}
+		for (let i = 1; i < arguments.length; i++) {
+			let a = arguments[i]
+			if (typeof a === 'string') {
+				a = text(a)
+			}
+			e.appendChild(a)
+		}
+		return e
+	}
+	function refadein(e) {
+		e.classList.add('refadein')
+		setTimeout(function(){ e.classList.remove('refadein') }, 500)
+	}
+	function favicon(path) {
+		const link = document.head.querySelector('link[rel=icon]')
+		if (link) {
+			link.setAttribute('href', path)
+		}
+	}
+	function faviconFailed() { favicon('/favicon-error.png') }
+	function faviconSuccess() { favicon('/favicon.ico') }
+
+	const progress = document.getElementById('progress')
+	function display() {
+		while (progress.firstChild) {
+			progress.removeChild(progress.firstChild)
+		}
+		var args = Array.prototype.slice.call(arguments)
+		args.unshift('div')
+		const e = elem.apply(undefined, args)
+		refadein(e)
+		progress.appendChild(e)
+	}
+
+	if (!window.EventSource) {
+		console.log('cannot request build and receive updates, browser does not support server-sent events (SSE)?')
+		return
+	}
+
+	const dance = document.getElementById('dance')
+
+	var requestBuildWithUpdates = function() {
+		const src = new EventSource('events')
+		src.addEventListener('update', function(e) {
+			const update = JSON.parse(e.data)
+			switch (update.Kind) {
+			case 'QueuePosition':
+				show(dance)
+				if (update.QueuePosition === 0) {
+					display('Build in progress, hang in there!')
+				} else if (update.QueuePosition === 1) {
+					display('Waiting in queue, 1 build before yours...')
+				} else {
+					display('Waiting in queue, ' + update.QueuePosition + ' builds before yours...')
+				}
+				break
+			case 'TempFailed':
+				faviconFailed()
+				hide(dance)
+				display(
+					elem('p', 'Build failed, temporary failure, try again later.'),
+					elem('h3', 'Error'),
+					elem('pre.prewrap', update.Error),
+				)
+				src.close()
+				break
+			case 'PermFailed':
+				{
+					faviconFailed()
+					hide(dance)
+					const link = elem('a', 'build failure output log')
+					link.setAttribute('href', 'log')
+
+					display(
+						elem('p',
+							'Build failed. See ',
+							link,
+							' for details.',
+						),
+						elem('h3', 'Error'),
+						elem('pre.prewrap', update.Error),
+					)
+					src.close()
+				}
+				break
+			case 'Success':
+				{
+					faviconSuccess()
+					hide(dance)
+					const resultsURL = location.pathname + update.Result.Sum + '/'
+					const link = elem('a', 'build results page')
+					link.setAttribute('href', resultsURL)
+
+					display(
+						elem('p', 'Build successful, redirecting to ', link, '.')
+					)
+					src.close()
+					location.href = resultsURL
+				}
+				break
+			default:
+				console.log('unknown update kind')
+			}
+		})
+		src.addEventListener('open', function(e) {
+			show(dance)
+			display(elem('p', 'Connected! Waiting for updates...'))
+		})
+		src.addEventListener('error', function(e) {
+			hide(dance)
+			if (src) {
+				src.close()
+			}
+			const reconnect = elem('a', 'Reconnect')
+			reconnect.setAttribute('href', '#')
+			reconnect.addEventListener('click', function(e) {
+				e.preventDefault()
+				requestBuildWithUpdates()
+			})
+			display(elem('p', 'Connection to backend failed. ', reconnect, '.'))
+		})
+	}
+
+	requestBuildWithUpdates()
+})()
+	</script>
+	{{ end }}
+{{ end }}
