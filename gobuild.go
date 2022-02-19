@@ -48,11 +48,7 @@ func prepareBuild(bs buildSpec) error {
 	pkgDir := filepath.Join(modDir, filepath.FromSlash(bs.Dir[1:]))
 
 	// Check if package is a main package, resulting in an executable when built.
-	goproxy := false
-	if version1, ok := goversion1(bs.Goversion); ok && version1 >= 18 {
-		// Our "go mod download" earlier did not download dependencies. They will be downloaded now.
-		goproxy = true
-	}
+	goproxy := true
 	cgo := true
 	moreEnv := []string{
 		"GOOS=" + bs.Goos,

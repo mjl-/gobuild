@@ -94,7 +94,7 @@ func serveModules(w http.ResponseWriter, r *http.Request) {
 }
 
 func listMainPackages(gobin string, modDir string) ([]string, error) {
-	goproxy := false
+	goproxy := true
 	cgo := true
 	cmd := makeCommand(goproxy, modDir, cgo, nil, gobin, "list", "-f", "{{.Name}} {{ .Dir }}", "./...")
 	stderr := &strings.Builder{}
