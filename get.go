@@ -10,7 +10,6 @@ import (
 	"io"
 	"io/ioutil"
 	"log"
-	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -149,7 +148,7 @@ func get(args []string) {
 func fetch(f *os.File, gobuildBaseURL string, br *buildResult, bindir string) error {
 	link := gobuildBaseURL + request{br.buildSpec, br.Sum, pageDownloadGz}.link()
 	getLog("downloading and verifying binary at %s", link)
-	resp, err := http.Get(link)
+	resp, err := httpGet(link)
 	if err != nil {
 		return fmt.Errorf("making request to download binary: %v", err)
 	}

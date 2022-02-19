@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -66,7 +65,7 @@ func newClient(vkey string, baseURL string) (*sumdb.Client, *clientOps, error) {
 func (c *clientOps) ReadRemote(path string) ([]byte, error) {
 	// log.Printf("client: ReadRemote %s", path)
 
-	resp, err := http.Get(c.baseURL + path)
+	resp, err := httpGet(c.baseURL + path)
 	if err != nil {
 		return nil, err
 	}

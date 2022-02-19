@@ -56,6 +56,7 @@ func serveIndex(w http.ResponseWriter, r *http.Request, bs buildSpec, br *buildR
 			c <- response{fmt.Errorf("%w: preparing new http request: %v", errServer, err), nil}
 			return
 		}
+		mreq.Header.Set("User-Agent", userAgent)
 		resp, err := http.DefaultClient.Do(mreq)
 		if err != nil {
 			c <- response{fmt.Errorf("%w: http request: %v", errServer, err), nil}

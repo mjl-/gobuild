@@ -31,6 +31,7 @@ func resolveModuleLatest(ctx context.Context, goproxy, mod string) (*modVersion,
 	if err != nil {
 		return nil, fmt.Errorf("%w: preparing goproxy http request: %v", errServer, err)
 	}
+	mreq.Header.Set("User-Agent", userAgent)
 	resp, err := http.DefaultClient.Do(mreq)
 	if err != nil {
 		return nil, fmt.Errorf("%w: http request to goproxy: %v", errServer, err)

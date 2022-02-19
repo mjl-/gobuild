@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -116,7 +115,7 @@ func build(bs buildSpec) (int64, *buildResult, error) {
 		}()
 
 		verifyURL := verifierBaseURL + verifyLink
-		resp, err := http.Get(verifyURL)
+		resp, err := httpGet(verifyURL)
 		if err != nil {
 			return nil, fmt.Errorf("%w: http request: %v", errServer, err)
 		}
