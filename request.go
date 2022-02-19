@@ -131,7 +131,7 @@ func parseRequest(s string) (r request, hint string, ok bool) {
 
 	// Now we have a regular buildspec left.
 	if bs, err := parseBuildSpec(strings.Join(t, "/") + "/"); err != nil {
-		hint = "Bad module@version/path: " + err.Error()
+		hint = "Bad module@version/path: " + err.Error() + ", or missing slash at end of URL"
 		return
 	} else {
 		r.buildSpec = bs
@@ -155,7 +155,7 @@ func parseRequest(s string) (r request, hint string, ok bool) {
 		} else if page == dl+".gz" {
 			r.Page = pageDownloadGz
 		} else {
-			hint = "Missing slash at end of URL"
+			hint = "Missing slash at end of URL or unknown build/result page"
 			return
 		}
 	}
