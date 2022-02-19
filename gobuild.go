@@ -208,6 +208,14 @@ func build(bs buildSpec) (int64, *buildResult, error) {
 	// Always remove binary from $GOBIN when we're done here. We copied it on success.
 	defer os.Remove(resultPath)
 
+	// We strip out the buildid. The first of the 4 slash-separated parts will vary
+	// with different setups (toolchains on different systems and/or their installation
+	// location). We hash the whole binary, and it must be the same regardless of
+	// system it was compiled on. Perhaps we should just clear out the first part,
+	// keeping the remaining parts. Some (or all?) of those parts are content hashes.
+	// Could be helpful for debugging. NOTE: before go1.13.3, working directories of
+	// builds would affect the resulting binary.
+
 	goproxy := false
 	cgo := false
 	var cmd *exec.Cmd
