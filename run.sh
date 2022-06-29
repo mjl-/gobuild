@@ -17,10 +17,17 @@ if ! test -d "$HOME/.cache"; then
 	mkdir -p "$HOME/.cache"
 fi
 
-# Only "go get -d" gets access to the network.
+
+# Only "go get -d", "go mod download" and "go list" get access to the network.
 net="--unshare-net"
 gopkgbind="--ro-bind"
 if test "$2" = 'get' -a "$3" = '-d'; then
+	gopkgbind="--bind"
+	net=""
+elif test "$2" = 'mod' -a "$3" = 'download'; then
+	gopkgbind="--bind"
+	net=""
+elif test "$2" = 'list'; then
 	gopkgbind="--bind"
 	net=""
 fi
