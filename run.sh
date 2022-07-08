@@ -32,10 +32,9 @@ elif test "$2" = 'list'; then
 	net=""
 fi
 
-cachebind="--ro-bind"
-if test "$#" -eq 4 -a "$2" = 'build' -a "$3" = '-trimpath' -a "$4" = 'std'; then
-	cachebind='--bind'
-fi
+cachebind="--bind"
+# Since go1.19 commands like "go list" also modify the cache. So it can no
+# longer be a ro-bind.
 
 gobinbind=""
 if test "$GOBUILD_GOBIN" != ""; then
@@ -71,7 +70,7 @@ exec /usr/bin/bwrap \
 	--unshare-uts \
 	--hostname gobuilds.org \
 	--ro-bind $GOSDK $GOSDK \
-	$cachebind $HOME/.cache $HOME/.cache \
+	--bind $HOME/.cache $HOME/.cache \
 	$gopkgbind $HOME/go/pkg $HOME/go/pkg \
 	$gobinbind \
 	$net \
