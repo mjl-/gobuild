@@ -6,8 +6,7 @@ The Go module proxy at https://proxy.golang.org ensures source code stays
 available, and you are highly likely to get the same code each time you fetch
 it. Gobuild aims to do the same for binaries.
 
-
-URLs
+# URLs
 
 You can compose URLs to a specific module, build or result:
 
@@ -33,8 +32,7 @@ command with different module versions, goversions, goos/goarch.
 
 You need not and cannot refresh a successful build: they would give the same result.
 
-
-Transparency log
+# Transparency log
 
 Gobuild maintains a transparency log containing the hashes of all successful
 builds, similar to the Go module checksum database at https://sum.golang.org/.
@@ -48,8 +46,7 @@ Examples:
 	gobuild get github.com/mjl-/gobuild@latest
 	gobuild get -sum 0N7e6zxGtHCObqNBDA_mXKv7-A9M -target linux/amd64 -goversion go1.14.1 github.com/mjl-/gobuild@v0.0.8
 
-
-Details
+# Details
 
 Only "go build" is run, for pure Go code. None of "go test", "go generate",
 build tags, cgo, custom compile/link flags, makefiles, etc. This means gobuild
@@ -73,8 +70,7 @@ To build, gobuild executes:
 		CGO_ENABLED=0 GOOS=$goos GOARCH=$goarch \
 		$goversion install -x -v -trimpath -ldflags=-buildid= -- $module/$package@$version
 
-
-Why gobuild
+# Why gobuild
 
 Get binaries for any module without having a Go toolchain installed: Useful when working on a machine that's not yours, or for your colleagues or friends who don't have a Go compiler installed.
 
@@ -84,8 +80,7 @@ Binaries for the most recent Go toolchain: Go binaries include the runtime and s
 
 Verify reproducibility: Configure gobuild to check against other gobuild instances with different configuration to build trust that your binaries are indeed reproducible.
 
-
-Running
+# Running
 
 Gobuild should work on all platforms for which you can download a Go toolchain
 on https://golang.org/dl/, including Linux, macOS, BSDs, Windows.
@@ -98,7 +93,6 @@ You can optionally pass a configuration file. Create an example config file
 with:
 
 	gobuild config >gobuild.conf
-
 
 Test it with:
 

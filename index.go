@@ -172,19 +172,21 @@ func serveIndex(w http.ResponseWriter, r *http.Request, bs buildSpec, br *buildR
 		favicon = "/favicon-building.png"
 	}
 	args := map[string]interface{}{
-		"Favicon":          favicon,
-		"Success":          br.Sum != "",
-		"Sum":              br.Sum,
-		"Req":              xreq,             // eg "/" or "/cmd/x"
-		"DirAppend":        xreq.appendDir(), // eg "" or "cmd/x/"
-		"DirPrepend":       prependDir,       // eg "" or /cmd/x"
-		"GoversionLinks":   goversionLinks,
-		"TargetLinks":      targetLinks,
-		"Mod":              resp,
-		"GoProxy":          config.GoProxy,
-		"DownloadFilename": xreq.downloadFilename(),
-		"PkgGoDevURL":      pkgGoDevURL,
-		"GobuildVersion":   gobuildVersion,
+		"Favicon":                favicon,
+		"Success":                br.Sum != "",
+		"Sum":                    br.Sum,
+		"Req":                    xreq,             // eg "/" or "/cmd/x"
+		"DirAppend":              xreq.appendDir(), // eg "" or "cmd/x/"
+		"DirPrepend":             prependDir,       // eg "" or /cmd/x"
+		"GoversionLinks":         goversionLinks,
+		"TargetLinks":            targetLinks,
+		"Mod":                    resp,
+		"GoProxy":                config.GoProxy,
+		"DownloadFilename":       xreq.downloadFilename(),
+		"PkgGoDevURL":            pkgGoDevURL,
+		"GobuildVersion":         gobuildVersion,
+		"VerifierKey":            config.VerifierKey,
+		"GobuildsOrgVerifierKey": gobuildsOrgVerifierKey,
 
 		// Whether we will do SSE request for updates.
 		"InProgress": br.Sum == "" && output == "",

@@ -122,8 +122,9 @@ func (c *clientOps) WriteConfig(file string, old, new []byte) error {
 // ReadCache reads and returns the content of the named cache file.
 // Any returned error will be treated as equivalent to the file not existing.
 // There can be arbitrarily many cache files, such as:
-//      serverName/lookup/pkg@version
-//      serverName/tile/8/1/x123/456
+//
+//	serverName/lookup/pkg@version
+//	serverName/tile/8/1/x123/456
 func (c *clientOps) ReadCache(file string) ([]byte, error) {
 	// log.Printf("client: Readcache %s", file)
 

@@ -19,13 +19,16 @@ import (
 	"github.com/mjl-/goreleases"
 )
 
+// Once gobuild is out of beta, this will be the verifier key for gobuilds.org.
+const gobuildsOrgVerifierKey = "notyet"
+
 var getLog func(string, ...interface{}) = func(format string, args ...interface{}) {}
 
 func get(args []string) {
 	flags := flag.NewFlagSet("get", flag.ExitOnError)
 
 	var (
-		verifierKey = flags.String("verifierkey", "", "Verifier key for transparency log.")
+		verifierKey = flags.String("verifierkey", gobuildsOrgVerifierKey, "Verifier key for transparency log.")
 		baseURL     = flags.String("url", "", "URL for lookups of hashes at the transparency log. If empty, this is set based on the name of the verifier key, using HTTPS if name contains a dot and plain HTTP otherwise.")
 		verbose     = flags.Bool("verbose", false, "Print actions.")
 		sum         = flags.String("sum", "", "Sum to verify.")
