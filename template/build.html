@@ -2,11 +2,11 @@
 {{ define "content" }}
 	<p><a href="/">&lt; Home</a></p>
 	<h1>
-		<div>{{ .Req.Mod }}@{{ .Req.Version }}{{ .Req.Dir }}</div>
-		<div>{{ .Req.Goos }}/{{ .Req.Goarch }} {{ .Req.Goversion }}</div>
-		{{ if .Success}}<div>{{ .Sum }}<span class="success">✓</span></div>
-		{{ else if .InProgress }}<div><img style="max-height: 1.5rem;" id="dancer" src="/img/gopher-dance-long.gif" title="Dancing gopher, by Ego Elbre, CC0" /> <span id="progress">Connecting for updates... <a href="dl">trigger build</a></span></div>
-		{{ else }}<div>Error<span class="failure">❌</span></div>
+		<div class="charwrap">{{ .Req.Mod }}@{{ .Req.Version }}{{ .Req.Dir }}</div>
+		<div class="charwrap">{{ .Req.Goos }}/{{ .Req.Goarch }} {{ .Req.Goversion }}</div>
+		{{ if .Success}}<div class="charwrap">{{ .Sum }}<span class="success">✓</span></div>
+		{{ else if .InProgress }}<div class="charwrap"><img style="max-height: 1.5rem;" id="dancer" src="/img/gopher-dance-long.gif" title="Dancing gopher, by Ego Elbre, CC0" /> <span id="progress">Connecting for updates... <a href="dl">trigger build</a></span></div>
+		{{ else }}<div class="charwrap">Error<span class="failure">❌</span></div>
 		{{ end }}
 	</h1>
 
@@ -23,7 +23,7 @@
 		</tr>
 	</table>
 	<p>To download using the transparency log:</p>
-	<pre style="margin-left:2rem">gobuild get -sum {{ .Sum }} -target {{ .Req.Goos }}/{{ .Req.Goarch }} -goversion {{ .Req.Goversion }} {{ .Req.Mod }}@{{ .Req.Version }}{{ .Req.Dir }}</pre>
+	<pre class="command charwrap">gobuild get -sum {{ .Sum }} -target {{ .Req.Goos }}/{{ .Req.Goarch }} -goversion {{ .Req.Goversion }} {{ .Req.Mod }}@{{ .Req.Version }}{{ .Req.Dir }}</pre>
 
 {{ else if .InProgress }}
 	<div id="error" style="display: none">
@@ -43,7 +43,7 @@
 		</tr>
 	</table>
 	<p>To download using the transparency log:</p>
-	<pre style="margin-left:2rem">gobuild get -target {{ .Req.Goos }}/{{ .Req.Goarch }} -goversion {{ .Req.Goversion }} {{ .Req.Mod }}@{{ .Req.Version }}{{ .Req.Dir }}</pre>
+	<pre class="command charwrap">gobuild get -target {{ .Req.Goos }}/{{ .Req.Goarch }} -goversion {{ .Req.Goversion }} {{ .Req.Mod }}@{{ .Req.Version }}{{ .Req.Dir }}</pre>
 {{ else }}
 	<h2>Error</h2>
 	<div class="output">
@@ -62,29 +62,28 @@
 
 	<h2>Reproduce</h2>
 	<p>To reproduce locally:</p>
-<pre style="margin-left:2rem">
-GO19CONCURRENTCOMPILATION=0 GO111MODULE=on GOPROXY={{ .GoProxy }} \
-	CGO_ENABLED=0 GOOS={{ .Req.Goos }} GOARCH={{ .Req.Goarch }} \
-	{{ .Req.Goversion }} install -trimpath -ldflags=-buildid= -- {{ .Req.Mod }}{{ .DirPrepend }}@{{ .Req.Version }}
-</pre>
+	<pre class="command charwrap">GO19CONCURRENTCOMPILATION=0 GO111MODULE=on GOPROXY={{ .GoProxy }} CGO_ENABLED=0 GOOS={{ .Req.Goos }} GOARCH={{ .Req.Goarch }} {{ .Req.Goversion }} install -trimpath -ldflags=-buildid= -- {{ .Req.Mod }}{{ .DirPrepend }}@{{ .Req.Version }}
+	</pre>
 
-	<div style="width: 32%; display: inline-block; vertical-align: top">
-		<h2>Module versions</h2>
-	{{ if .Mod.Err }}
-		<div>error: {{ .Mod.Err }}</div>
-	{{ else }}
-	{{ range .Mod.VersionLinks }}	<div><a href="{{ .URLPath }}" class="buildlink{{ if .Active }} active{{ end }} ">{{ .Version }}</a>{{ if .Success }}<span class="success">✓</span>{{ end }}</div>{{ end }}
-	{{ end }}
-	</div>
+	<div style="display:flex; flex-wrap:wrap; justify-content:space-between; max-width: 50rem">
+		<div>
+			<h2>Module versions</h2>
+		{{ if .Mod.Err }}
+			<div>error: {{ .Mod.Err }}</div>
+		{{ else }}
+		{{ range .Mod.VersionLinks }}	<div><a href="{{ .URLPath }}" class="buildlink{{ if .Active }} active{{ end }} ">{{ .Version }}</a>{{ if .Success }}<span class="success">✓</span>{{ end }}</div>{{ end }}
+		{{ end }}
+		</div>
 
-	<div style="width: 32%; display: inline-block; vertical-align: top">
-		<h2>Targets</h2>
-	{{ range .TargetLinks }}	<div><a href="{{ .URLPath }}" class="buildlink{{ if .Active }} active{{ end }} ">{{ .Goos }}/{{ .Goarch }}</a>{{ if .Success }}<span class="success">✓</span>{{ end }}</div>{{ end }}
-	</div>
+		<div>
+			<h2>Targets</h2>
+		{{ range .TargetLinks }}	<div><a href="{{ .URLPath }}" class="buildlink{{ if .Active }} active{{ end }} ">{{ .Goos }}/{{ .Goarch }}</a>{{ if .Success }}<span class="success">✓</span>{{ end }}</div>{{ end }}
+		</div>
 
-	<div style="width: 32%; display: inline-block; vertical-align: top">
-		<h2>Go versions</h2>
-	{{ range .GoversionLinks }}	<div><a href="{{ .URLPath }}" class="buildlink{{ if .Active }} active{{ end }} {{ if not .Supported }} unsupported{{ end }}">{{ .Goversion }}</a>{{ if .Success }}<span class="success">✓</span>{{ end }}</div>{{ end }}
+		<div>
+			<h2>Go versions</h2>
+		{{ range .GoversionLinks }}	<div><a href="{{ .URLPath }}" class="buildlink{{ if .Active }} active{{ end }} {{ if not .Supported }} unsupported{{ end }}">{{ .Goversion }}</a>{{ if .Success }}<span class="success">✓</span>{{ end }}</div>{{ end }}
+		</div>
 	</div>
 {{ end }}
 {{ define "script" }}

@@ -13,27 +13,27 @@
 		<p style="display:none" id="modulenote">Note: Point to the module root, the directory that contains the go.mod file, not a package subdirectory. If your module has multiple main commands, they will be listed.</p>
 
 		<h2>Recent builds</h2>
-		<div style="white-space: nowrap">
+		<div>
 {{ if not .Recents }}<p>No builds yet.</p>{{ end }}
-			<ul>
-{{ range .Recents }}			<li><a href="{{ . }}">{{ . }}</a></li>{{ end }}
+			<ul style="word-break: break-all; padding-left: 1.1rem">
+{{ range .Recents }}			<li style="padding-left: 1rem; text-indent: -1rem"><a href="{{ . }}">{{ . }}</a></li>{{ end }}
 			</ul>
 		</div>
 
 		<h2>URLs</h2>
 		<p>You can compose URLs to a specific module, build or result:</p>
-		<blockquote style="color:#666; white-space: nowrap">
-			<div>/<var>module</var></div>
-			<div>/<var>module</var>@<var>version</var>/<var>package</var>/<var>goos</var>-<var>goarch</var>-<var>goversion</var>/</div>
-			<div>/<var>module</var>@<var>version</var>/<var>package</var>/<var>goos</var>-<var>goarch</var>-<var>goversion</var>/<var>sum</var>/</div>
-		</blockquote>
+		<ul style="color:#666; word-break: break-all; padding-left: 1.1rem">
+			<li style="padding-left: 1rem; text-indent: -1rem">/<var>module</var></li>
+			<li style="padding-left: 1rem; text-indent: -1rem">/<var>module</var>@<var>version</var>/<var>package</var>/<var>goos</var>-<var>goarch</var>-<var>goversion</var>/</li>
+			<li style="padding-left: 1rem; text-indent: -1rem">/<var>module</var>@<var>version</var>/<var>package</var>/<var>goos</var>-<var>goarch</var>-<var>goversion</var>/<var>sum</var>/</li>
+		</ul>
 
 		<h3>Examples</h3>
-		<blockquote style="color:#666; white-space: nowrap">
-			<a href="/github.com/mjl-/gobuild">/github.com/mjl-/gobuild</a><br/>
-			<a href="/github.com/mjl-/sherpa@latest/cmd/sherpaclient/linux-amd64-latest/">/github.com/mjl-/sherpa@latest/cmd/sherpaclient/linux-amd64-latest/</a><br/>
-			<a href="/github.com/mjl-/sherpa@v0.6.0/cmd/sherpaclient/linux-amd64-go1.14.1/0m32pSahHbf-fptQdDyWD87GJNXI/">/github.com/mjl-/sherpa@v0.6.0/cmd/sherpaclient/linux-amd64-go1.14.1/0m32pSahHbf-fptQdDyWD87GJNXI/</a>
-		</blockquote>
+		<ul style="color:#666; word-break: break-all; padding-left: 1.1rem">
+			<li style="padding-left:1rem; text-indent:-1rem"><a href="/github.com/mjl-/gobuild">/github.com/mjl-/gobuild</a></li>
+			<li style="padding-left:1rem; text-indent:-1rem"><a href="/github.com/mjl-/sherpa@latest/cmd/sherpaclient/linux-amd64-latest/">/github.com/mjl-/sherpa@latest/cmd/sherpaclient/linux-amd64-latest/</a></li>
+			<li style="padding-left:1rem; text-indent:-1rem"><a href="/github.com/mjl-/sherpa@v0.6.0/cmd/sherpaclient/linux-amd64-go1.14.1/0m32pSahHbf-fptQdDyWD87GJNXI/">/github.com/mjl-/sherpa@v0.6.0/cmd/sherpaclient/linux-amd64-go1.14.1/0m32pSahHbf-fptQdDyWD87GJNXI/</a></li>
+		</ul>
 
 		<p>The first URL fetches the requested Go module to find the commands (main
 packages). In case of a single command, it redirects to a URL of the second
@@ -58,15 +58,15 @@ command with different module versions, goversions, goos/goarch.</p>
 		<p>Gobuild maintains a transparency log containing the hashes of all successful builds, similar to the <a href="https://sum.golang.org/">Go module checksum database</a>. Gobuild's "get" subcommand looks up a content hash through the transparency log, locally keeping track of the last known tree state.  This ensures the list of successful builds and their hashes is append-only, and modifications or removals by the server will be detected when you run "gobuild get".</p>
 
 		<h3>Examples</h3>
-		<pre style="margin-left: 2rem">gobuild get github.com/mjl-/gobuild@latest
-gobuild get -sum 0N7e6zxGtHCObqNBDA_mXKv7-A9M -target linux/amd64 -goversion go1.14.1 github.com/mjl-/gobuild@v0.0.8</pre>
+		<pre class="command">gobuild get github.com/mjl-/gobuild@latest</pre>
+		<pre class="command">gobuild get -sum 0N7e6zxGtHCObqNBDA_mXKv7-A9M -target linux/amd64 -goversion go1.14.1 github.com/mjl-/gobuild@v0.0.8</pre>
 
-		{{ if .VerifierKey }}
+	{{ if .VerifierKey }}
 		<p>If you run your own gobuild instance, specify the verifierkey on the command-line:</p>
-		<pre style="margin-left:2rem">gobuild get -verifierkey {{ .VerifierKey }} ...</pre>
-		{{ else }}
+		<pre class="command charwrap">gobuild get -verifierkey {{ .VerifierKey }} ...</pre>
+	{{ else }}
 		<p>NOTE: The transparency log is not configured for this gobuild instance.</p>
-		{{ end }}
+	{{ end }}
 
 		<h2>Details</h2>
 		<p>Only "go build" is run, for pure Go code. None of "go test", "go generate", build tags, cgo, custom compile/link flags, makefiles, etc. This means gobuild cannot build all Go applications.</p>
@@ -74,9 +74,7 @@ gobuild get -sum 0N7e6zxGtHCObqNBDA_mXKv7-A9M -target linux/amd64 -goversion go1
 		<p>Gobuild automatically downloads a Go toolchain (SDK) from <a href="https://golang.org/dl/">https://golang.org/dl/</a> when it is first referenced. It also periodically queries that page for the latest supported releases, for redirecting to the latest supported toolchains.</p>
 		<p>Gobuild can be configured to verify builds with other gobuild instances, requiring all to return the same hash for a build to be considered successful.</p>
 		<p>To build, gobuild executes:</p>
-	<pre style="margin-left: 2rem">GO19CONCURRENTCOMPILATION=0 GO111MODULE=on GOPROXY=https://proxy.golang.org/ \
-  CGO_ENABLED=0 GOOS=$goos GOARCH=$goarch \
-  $goversion install -trimpath -ldflags=-buildid= -- $module/$package@$version</pre>
+		<pre class="command">GO19CONCURRENTCOMPILATION=0 GO111MODULE=on GOPROXY=https://proxy.golang.org/ CGO_ENABLED=0 GOOS=$goos GOARCH=$goarch $goversion install -trimpath -ldflags=-buildid= -- $module/$package@$version</pre>
 		<p>It's easy to run a local or internal gobuild instance. For configuration details, see this <a href="/emptyconfig">empty example config</a>.</p>
 		<p>Code is available at <a href="https://github.com/mjl-/gobuild">github.com/mjl-/gobuild</a>, under MIT-license.</p>
 
