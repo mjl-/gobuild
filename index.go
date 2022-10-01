@@ -3,7 +3,7 @@ package main
 import (
 	"compress/gzip"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -68,7 +68,7 @@ func serveIndex(w http.ResponseWriter, r *http.Request, bs buildSpec, br *buildR
 			c <- response{fmt.Errorf("%w: http responss from goproxy: %v", errRemote, resp.Status), nil}
 			return
 		}
-		buf, err := ioutil.ReadAll(resp.Body)
+		buf, err := io.ReadAll(resp.Body)
 		if err != nil {
 			c <- response{fmt.Errorf("%w: reading versions from goproxy: %v", errRemote, err), nil}
 			return
@@ -217,6 +217,6 @@ func readGzipFile(p string) ([]byte, error) {
 	if fgz, err := gzip.NewReader(f); err != nil {
 		return nil, err
 	} else {
-		return ioutil.ReadAll(fgz)
+		return io.ReadAll(fgz)
 	}
 }

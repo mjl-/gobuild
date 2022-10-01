@@ -8,7 +8,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"os"
 	"path/filepath"
@@ -138,7 +137,7 @@ func get(args []string) {
 	gobuildBaseURL := strings.TrimSuffix(clientOps.baseURL, "/tlog")
 
 	// Retrieve file to bindir with temp name, calculate checksum as we go.
-	if f, err := ioutil.TempFile(*bindir, br.filename()+".gobuildget"); err != nil {
+	if f, err := os.CreateTemp(*bindir, br.filename()+".gobuildget"); err != nil {
 		log.Fatalf("creating temp file for downloading: %v", err)
 	} else if err := fetch(f, gobuildBaseURL, br, *bindir); err != nil {
 		if xerr := os.Remove(f.Name()); xerr != nil {
@@ -222,7 +221,7 @@ func resolveLatestGoversion() (string, error) {
 			return "", err
 		} else if time.Since(info.ModTime()) < 1*time.Hour {
 			getLog("latest goversion from cache at %s", p)
-			buf, err := ioutil.ReadAll(f)
+			buf, err := io.ReadAll(f)
 			return string(buf), err
 		}
 	} else if err != nil && !os.IsNotExist(err) {
@@ -236,7 +235,7 @@ func resolveLatestGoversion() (string, error) {
 	}
 	goversion := rels[0].Version
 	os.MkdirAll(filepath.Dir(p), 0777) // error will show later
-	if err := ioutil.WriteFile(p, []byte(goversion), 0666); err != nil {
+	if err := os.WriteFile(p, []byte(goversion), 0666); err != nil {
 		return "", err
 	}
 	return goversion, nil

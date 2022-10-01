@@ -3,7 +3,6 @@ package main
 import (
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"os"
 	"path/filepath"
@@ -146,7 +145,7 @@ var sdk struct {
 
 func initSDK() {
 	sdk.installed = map[string]struct{}{}
-	l, err := ioutil.ReadDir(config.SDKDir)
+	l, err := os.ReadDir(config.SDKDir)
 	if err != nil {
 		log.Fatalf("readdir sdk: %v", err)
 	}
@@ -277,7 +276,7 @@ func ensureSDK(goversion string) error {
 			sdk.fetch.status[goversion] = err
 			return err
 		}
-		tmpdir, err := ioutil.TempDir(config.SDKDir, "tmpsdk")
+		tmpdir, err := os.MkdirTemp(config.SDKDir, "tmpsdk")
 		if err != nil {
 			err = fmt.Errorf("%w: making tempdir for sdk: %v", errServer, err)
 			sdk.fetch.status[goversion] = err
@@ -354,7 +353,7 @@ func ensurePrimedBuildCache(gobin, goos, goarch, goversion string) error {
 		log.Printf("go build std: %v\n%s", err, output)
 		return err
 	}
-	if err := ioutil.WriteFile(primedPath, []byte{}, 0666); err != nil {
+	if err := os.WriteFile(primedPath, []byte{}, 0666); err != nil {
 		log.Printf("writefile %s: %v", primedPath, err)
 		return err
 	}

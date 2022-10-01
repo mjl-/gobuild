@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -118,7 +117,7 @@ func build(bs buildSpec) (int64, *buildResult, error) {
 		defer resp.Body.Close()
 		if resp.StatusCode != 200 {
 			metricVerifyErrors.WithLabelValues(verifierBaseURL, bs.Goos, bs.Goarch, bs.Goversion).Inc()
-			buf, err := ioutil.ReadAll(resp.Body)
+			buf, err := io.ReadAll(resp.Body)
 			msg := string(buf)
 			if err != nil {
 				msg = fmt.Sprintf("reading error message: %v", err)
@@ -126,7 +125,7 @@ func build(bs buildSpec) (int64, *buildResult, error) {
 			return nil, fmt.Errorf("%w: http error response: %s:\n%s", errRemote, resp.Status, msg)
 		}
 
-		if msg, err := ioutil.ReadAll(resp.Body); err != nil {
+		if msg, err := io.ReadAll(resp.Body); err != nil {
 			return nil, fmt.Errorf("reading build result from remote: %v", err)
 		} else if br, err := parseRecord(msg); err != nil {
 			return nil, fmt.Errorf("parsing build record from remote: %v", err)
@@ -187,7 +186,7 @@ func build(bs buildSpec) (int64, *buildResult, error) {
 		// tempdir which we'll pass through GOBUILD_GOBIN. The build command can make only
 		// that directory writable, and with this temp dir it will never clash with other
 		// builds.
-		gobuildbindir, err = ioutil.TempDir("", "gobuildbindir")
+		gobuildbindir, err = os.MkdirTemp("", "gobuildbindir")
 		if err != nil {
 			return -1, nil, fmt.Errorf("making temp dir: %v", err)
 		}
@@ -236,7 +235,7 @@ func build(bs buildSpec) (int64, *buildResult, error) {
 	}
 
 	// Where we store the "recordnumber" file, binary.gz and log.gz.
-	tmpdir, err := ioutil.TempDir(resultDir, "tmpresult")
+	tmpdir, err := os.MkdirTemp(resultDir, "tmpresult")
 	if err != nil {
 		return -1, nil, err
 	}
@@ -316,7 +315,7 @@ func build(bs buildSpec) (int64, *buildResult, error) {
 }
 
 func saveFailure(bs buildSpec, output string) error {
-	tmpdir, err := ioutil.TempDir(resultDir, "tmpfail")
+	tmpdir, err := os.MkdirTemp(resultDir, "tmpfail")
 	if err != nil {
 		return err
 	}

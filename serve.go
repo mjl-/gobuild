@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"html/template"
 	"io"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
@@ -460,7 +459,7 @@ func verifySumState() (int64, error) {
 	if err != nil {
 		return -1, fmt.Errorf("parsing last record: %v", err)
 	}
-	if buf, err := ioutil.ReadFile(filepath.Join(record.storeDir(), "recordnumber")); err != nil {
+	if buf, err := os.ReadFile(filepath.Join(record.storeDir(), "recordnumber")); err != nil {
 		return -1, fmt.Errorf("open recordnumber: %v", err)
 	} else if num, err := strconv.ParseInt(string(buf), 10, 64); err != nil {
 		return -1, fmt.Errorf("parse recordnumber from file: %v", err)

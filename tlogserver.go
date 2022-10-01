@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -97,7 +96,7 @@ func (s serverOps) Lookup(ctx context.Context, key string) (results int64, rerr 
 	}
 
 	p := filepath.Join(bs.storeDir(), "recordnumber")
-	if buf, err := ioutil.ReadFile(p); err != nil {
+	if buf, err := os.ReadFile(p); err != nil {
 		if os.IsNotExist(err) {
 			return lookupBuild(ctx, bs)
 		}
@@ -114,7 +113,7 @@ func (s serverOps) Lookup(ctx context.Context, key string) (results int64, rerr 
 // For other errors, err will be set.
 func (s serverOps) lookupResult(ctx context.Context, bs buildSpec) (recordNumber int64, br *buildResult, failed bool, err error) {
 	p := filepath.Join(bs.storeDir(), "recordnumber")
-	if buf, err := ioutil.ReadFile(p); err != nil {
+	if buf, err := os.ReadFile(p); err != nil {
 		if !os.IsNotExist(err) {
 			return -1, nil, false, err
 		}

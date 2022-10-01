@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"time"
 
@@ -39,7 +39,7 @@ func resolveModuleLatest(ctx context.Context, goproxy, mod string) (*modVersion,
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
 		metricGoproxyLatestErrors.WithLabelValues(fmt.Sprintf("%d", resp.StatusCode)).Inc()
-		buf, err := ioutil.ReadAll(resp.Body)
+		buf, err := io.ReadAll(resp.Body)
 		msg := string(buf)
 		if err != nil {
 			msg = fmt.Sprintf("reading error message: %v", err)

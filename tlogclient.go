@@ -3,7 +3,7 @@ package main
 import (
 	"bytes"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -73,7 +73,7 @@ func (c *clientOps) ReadRemote(path string) ([]byte, error) {
 	if resp.StatusCode != 200 {
 		return nil, fmt.Errorf("http get: %v", resp.Status)
 	}
-	return ioutil.ReadAll(resp.Body)
+	return io.ReadAll(resp.Body)
 }
 
 // ReadConfig reads and returns the content of the named configuration file.
@@ -89,7 +89,7 @@ func (c *clientOps) ReadConfig(file string) ([]byte, error) {
 	// log.Printf("client: ReadConfig %s", file)
 
 	p := filepath.Join(c.localDir, "config", file)
-	buf, err := ioutil.ReadFile(p)
+	buf, err := os.ReadFile(p)
 	if err != nil && os.IsNotExist(err) && strings.HasSuffix(file, "/latest") {
 		return nil, nil
 	}
@@ -116,7 +116,7 @@ func (c *clientOps) WriteConfig(file string, old, new []byte) error {
 		}
 	}
 	os.MkdirAll(filepath.Dir(p), 0777)
-	return ioutil.WriteFile(p, new, 0666)
+	return os.WriteFile(p, new, 0666)
 }
 
 // ReadCache reads and returns the content of the named cache file.
@@ -129,7 +129,7 @@ func (c *clientOps) ReadCache(file string) ([]byte, error) {
 	// log.Printf("client: Readcache %s", file)
 
 	p := filepath.Join(c.localDir, "cache", file)
-	return ioutil.ReadFile(p)
+	return os.ReadFile(p)
 }
 
 // WriteCache writes the named cache file.
@@ -138,7 +138,7 @@ func (c *clientOps) WriteCache(file string, data []byte) {
 
 	p := filepath.Join(c.localDir, "cache", file)
 	os.MkdirAll(filepath.Dir(p), 0777)
-	if err := ioutil.WriteFile(p, data, 0666); err != nil {
+	if err := os.WriteFile(p, data, 0666); err != nil {
 		// todo: should be able to return errors
 		panic(fmt.Sprintf("write failed: %v", err))
 	}
