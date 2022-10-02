@@ -111,6 +111,10 @@ var (
 	//go:embed favicon-error.png
 	fileFaviconErrorPng []byte
 
+	// Dancing gopher, by Egon Elbre, CC0.  See https://github.com/egonelbre/gophers.
+	//go:embed gopher-dance-long.gif
+	fileGopherDanceLongGif []byte
+
 	//go:embed template/base.html
 	baseHTML string
 
