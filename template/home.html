@@ -71,7 +71,7 @@ command with different module versions, goversions, goos/goarch.</p>
 		<h2>Details</h2>
 		<p>Only "go build" is run, for pure Go code. None of "go test", "go generate", build tags, cgo, custom compile/link flags, makefiles, etc. This means gobuild cannot build all Go applications.</p>
 		<p>Gobuild looks up module versions through the Go module proxy. That's why shorthand versions like "@v1" don't resolve.</p>
-		<p>The go.mod of a project must be complete and clean: no missing dependencies, on replace statements.</p>
+		<p>The go.mod of a project must be complete and clean: no missing dependencies, no replace statements, module name must match requested build.</p>
 		<p>Gobuild automatically downloads a Go toolchain (SDK) from <a href="https://golang.org/dl/">https://golang.org/dl/</a> when it is first referenced. It also periodically queries that page for the latest supported releases, for redirecting to the latest supported toolchains.</p>
 		<p>Gobuild can be configured to verify builds with other gobuild instances, requiring all to return the same hash for a build to be considered successful.</p>
 		<p>To build, gobuild executes:</p>

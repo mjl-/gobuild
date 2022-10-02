@@ -57,6 +57,9 @@ func serveHome(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !strings.Contains(r.URL.Path, "@") {
+		if !checkAllowedRespond(w, r.URL.Path[1:]) {
+			return
+		}
 		serveModules(w, r)
 		return
 	}
@@ -70,6 +73,9 @@ func serveHome(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
+	if !checkAllowedRespond(w, req.Mod) {
+		return
+	}
 	what := "build"
 	if req.Sum != "" {
 		what = "result"
@@ -80,4 +86,17 @@ func serveHome(w http.ResponseWriter, r *http.Request) {
 	} else {
 		serveResult(w, r, req)
 	}
+}
+
+func checkAllowedRespond(w http.ResponseWriter, module string) bool {
+	if len(config.ModulePrefixes) == 0 {
+		return true
+	}
+	for _, prefix := range config.ModulePrefixes {
+		if strings.HasPrefix(module, prefix) {
+			return true
+		}
+	}
+	http.Error(w, "403 - Module path not allowed", http.StatusForbidden)
+	return false
 }
