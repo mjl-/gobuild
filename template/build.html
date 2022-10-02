@@ -51,11 +51,7 @@
 	<pre class="command charwrap">gobuild get {{ if ne .VerifierKey .GobuildsOrgVerifierKey }}<span title="This gobuild instance is configured with a non-standard verifierkey (i.e. not for gobuilds.org), so in order to verify the signed append-only transparency log, the (public) verifierkey to check against must be set on the command-line.">-verifierkey {{ .VerifierKey }}</span> {{ end }}-target {{ .Req.Goos }}/{{ .Req.Goarch }} -goversion {{ .Req.Goversion }} {{ .Req.Mod }}@{{ .Req.Version }}{{ .Req.Dir }}</pre>
 {{ else }}
 	<h2>Error</h2>
-	<div class="output">
-		<pre class="prewrap">
-{{ .Output }}
-		</pre>
-	</div>
+	<pre class="prewrap">{{ .Output }}</pre>
 {{ end }}
 
 	<h2>More</h2>
