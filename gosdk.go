@@ -16,6 +16,29 @@ import (
 	"github.com/mjl-/goreleases"
 )
 
+type goVersion struct {
+	major, minor, patch int    // go1.19 would be {1,19,0}.
+	more                string // "rc1" for go1.19rc1.
+}
+
+func (v goVersion) String() string {
+	s := fmt.Sprintf("go%d.%d", v.major, v.minor)
+	if v.patch > 0 {
+		s += fmt.Sprintf(".%d", v.patch)
+	}
+	s += v.more
+	return s
+}
+
+// simple number for comparison. 8 bits should be fine.
+// we disregard "more" for comparisons.
+func (v goVersion) num() int {
+	return v.major<<16 | v.minor<<8 | v.patch<<0
+}
+
+// If not nil, we don't allow using this or newer Go toolchains.
+var sdkVersionStop *goVersion
+
 type target struct {
 	Goos   string
 	Goarch string
@@ -224,21 +247,53 @@ func installedSDK() (supported []string, remainingAvailable []string) {
 
 var errBadGoversion = errors.New("bad goversion")
 
-func ensureSDK(goversion string) error {
+func parseGoVersion(s string) (goVersion, error) {
+	r := goVersion{major: 1}
+
 	// Reproducible builds work from go1.13 onwards. Refuse earlier versions.
-	if !strings.HasPrefix(goversion, "go") {
-		return fmt.Errorf(`%w: must start with "go"`, errBadGoversion)
+	if !strings.HasPrefix(s, "go1.") {
+		return r, fmt.Errorf(`must start with "go1."`)
 	}
-	if strings.HasPrefix(goversion, "go1") {
-		// Handle "rc" and "beta" versions by stripping those parts.
-		v := strings.SplitN(goversion, "rc", 2)[0]
-		v = strings.SplitN(v, "beta", 2)[0]
-		if len(v) < 4 || !strings.HasPrefix(v, "go1.") {
-			return fmt.Errorf("%w: old version, must be >=go1.13", errBadGoversion)
+	s = strings.TrimPrefix(s, "go1.")
+
+	// Handle "rc" and "beta" versions by stripping those parts.
+	if t := strings.SplitN(s, "rc", 2); len(t) == 2 {
+		r.more = "rc" + t[1]
+		s = t[0]
+	} else if t := strings.SplitN(s, "beta", 2); len(t) == 2 {
+		r.more = "beta" + t[1]
+		s = t[0]
+	}
+	t := strings.Split(s, ".")
+	if len(t) != 1 && len(t) != 2 {
+		return r, fmt.Errorf("need 0 or 1 dot")
+	}
+	minor, err := strconv.ParseInt(t[0], 10, 32)
+	if err != nil {
+		return r, fmt.Errorf(`invalid number after "go1."`)
+	}
+	r.minor = int(minor)
+	if len(t) == 2 {
+		patch, err := strconv.ParseInt(t[0], 10, 32)
+		if err != nil {
+			return r, fmt.Errorf("invalid last number")
 		}
-		if num, err := strconv.ParseInt(strings.Split(v[4:], ".")[0], 10, 64); err != nil || num < 13 {
-			return fmt.Errorf("%w: bad version, must be >=go1.13", errBadGoversion)
-		}
+		r.patch = int(patch)
+	}
+	if r.minor < 13 {
+		return r, fmt.Errorf("old version, must be >=go1.13")
+	}
+
+	return r, nil
+}
+
+func ensureSDK(goversion string) error {
+	gv, err := parseGoVersion(goversion)
+	if err != nil {
+		return fmt.Errorf("%w: %s", errBadGoversion, err)
+	}
+	if sdkVersionStop != nil && gv.num() >= sdkVersionStop.num() {
+		return fmt.Errorf("%w: version equal or newer than %s not allowed by config", errBadGoversion, sdkVersionStop.String())
 	}
 
 	// See if this is an SDK we know we have installed.

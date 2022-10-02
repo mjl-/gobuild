@@ -31,7 +31,7 @@ func ensureGobin(goversion string) (string, error) {
 
 func prepareBuild(bs buildSpec) error {
 	if err := ensureSDK(bs.Goversion); err != nil {
-		return fmt.Errorf("missing toolchain %q: %w", bs.Goversion, err)
+		return fmt.Errorf("ensuring toolchain %q: %w", bs.Goversion, err)
 	}
 
 	gobin, err := ensureGobin(bs.Goversion)
