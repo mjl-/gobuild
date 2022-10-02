@@ -24,8 +24,8 @@ type File struct {
 	Kind     string `json:"kind"` // "source", "archive", "package"
 }
 
-const urlCurrent = "https://golang.org/dl/?mode=json"
-const urlAll = "https://golang.org/dl/?mode=json&include=all"
+const urlCurrent = "https://go.dev/dl/?mode=json"
+const urlAll = "https://go.dev/dl/?mode=json&include=all"
 
 // ListSupported returns supported Go releases.
 func ListSupported() ([]Release, error) {

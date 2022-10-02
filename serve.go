@@ -54,7 +54,7 @@ var (
 		SDKDir       string   `sconf-doc:"Directory where SDKs (go toolchains) are installed."`
 		HomeDir      string   `sconf-doc:"Directory set as home directory during builds. Go will store its caches, downloaded and extracted modules here."`
 		MaxBuilds    int      `sconf-doc:"Maximum concurrent builds. Default (0) uses NumCPU+1."`
-		Environment  []string `sconf:"optional" sconf-doc:"Additional environment variables in form KEY=VALUE to use for go command invocations. Useful to configure GOSUMDB."`
+		Environment  []string `sconf:"optional" sconf-doc:"Additional environment variables in form KEY=VALUE to use for go command invocations. Useful to configure GOSUMDB and HTTPS_PROXY."`
 		Run          []string `sconf:"optional" sconf-doc:"Command and parameters to prefix invocations of go with. For example /usr/bin/nice."`
 		BuildGobin   bool     `sconf-doc:"If enabled, sets environment variable GOBUILD_GOBIN during a build to a directory where the build command should write the binary. Configure a wrapper to the build command through the Run config option."`
 		VerifierURLs []string `sconf:"optional" sconf-doc:"URLs of other gobuild instances that are asked to perform the same build. Gobuild requires all of them to create the same binary (same hash) for a build to be successful. Ideally, these instances differ in hardware, goos, goarch, user id/name, home and work directories."`

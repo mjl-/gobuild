@@ -157,7 +157,7 @@ var sdk struct {
 	sync.Mutex
 	installed     map[string]struct{}
 	lastSupported time.Time // When last supported list was fetched. We fetch at most once per hour.
-	supportedList []string  // List of latest supported releases, from https://golang.org/dl/?mode=json.
+	supportedList []string  // List of latest supported releases, from https://go.dev/dl/?mode=json.
 	installedList []string  // List of all other installed releases.
 
 	fetch struct {

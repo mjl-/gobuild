@@ -1,5 +1,9 @@
+- Gather additional metrics for the size of the build cache, module cache, packages dir. Update after a build, on request.
+- Can we allow go.mod's with replace directives of other modules available in the go module proxy?
+- Use the primed build cached?
+- Improve handling of multiple packages, eg github.com/google/gvisor gives an error.
 - Handle @master/@main, and more in URL.
-- Allow retrying failed builds. We will normally show the log of the failure. But if user wants to try again, why not? It will probably fail again. But for some temporary failure (eg out of disk), this will help.
+- Use structured logging with levels.
 - Test using gobuild with other goproxy, sumdb. And with private git modules?
 - Add subcommand to validate all records, hashes and links.
 - Store specifier in result directories? For failed builds, we currently have no way of knowing for which specifier it is.
@@ -30,4 +34,5 @@
 - Add endpoint /s/<sum> that redirects to the result page of that sum. Currently cannot efficiently lookup the build info by hash.
 - Find a way to mark or recognize that a module is not meant to be compiled with just "go build". When it requires additional steps or additional files to work properly.
 - Make list of goos/goarch dependend on version. Different goversions have different supported targets.
-- Add SSE endpoint that streams new sums. We can use the reconnect-with-id mechanism of SSE to make sure a listener never misses a sum.
+- Add SSE endpoint that streams new sums. We can use the reconnect-with-id mechanism of SSE to make sure a listener never misses a sum. Then have a mode for a gobuild instance that uses this endpoint, and a periodic tlog update, to learn of new hashes and to verify the build.
+- Add tests, possibly built-in, builds with a new Go toolchain are indeed reproducible. We could use these to automatically perform sanity checks on a new go toolchain version, before accepting it for new builds.

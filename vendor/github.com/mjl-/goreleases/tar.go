@@ -30,7 +30,7 @@ func fetchTgz(file File, dst string, permissions *Permissions) error {
 
 	dst = filepath.Clean(dst)
 
-	url := "https://golang.org/dl/" + file.Filename
+	url := "https://go.dev/dl/" + file.Filename
 	resp, err := http.Get(url)
 	if err != nil {
 		return fmt.Errorf("downloading file: %w", err)

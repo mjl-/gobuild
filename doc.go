@@ -55,7 +55,7 @@ cannot build all Go applications.
 Gobuild looks up module versions through the Go module proxy. That's why
 shorthandversions like "@v1" don't resolve.
 
-Gobuild automatically downloads a Go toolchain (SDK) from https://golang.org/dl/
+Gobuild automatically downloads a Go toolchain (SDK) from https://go.dev/dl/
 when it is first referenced. It also periodically queries that page for the latest
 supported releases, for redirecting to the latest supported toolchains.
 
@@ -121,7 +121,7 @@ build by a newer Go toolchain version.
 # Running
 
 Gobuild should work on all platforms for which you can download a Go toolchain
-on https://golang.org/dl/, including Linux, macOS, BSDs, Windows.
+on https://go.dev/dl/, including Linux, macOS, BSDs, Windows.
 
 Start gobuild by running:
 
@@ -145,5 +145,28 @@ You can configure your own signer key for your transparency log. Create new keys
 
 Now configure the signer key in the config file. And run "gobuild get" with the
 -verifierkey flag.
+
+Keep security in mind when offering public access to your gobuild instance.
+Run gobuild in a locked down environment, with restricted system access (files,
+network, processes, kernel features), possibly through systemd or with
+containers.
+
+You could make all outgoing network traffic go through an HTTPS proxy by
+setting an environment variable HTTPS_PROXY=... (refuse all other outgoing
+connections). The proxy should allow the following addresses:
+
+	# For fetching Go module source code.
+	proxy.golang.org:443
+	storage.googleapis.com:443
+
+	# For checking the transparency log of the Go module proxy.
+	sum.golang.org:443
+
+	# For listing and fetching go toolchains.
+	go.dev:443
+	dl.google.com:443
+
+	# Optional, when using ACME with Let's Encrypt for HTTPS.
+	acme-v02.api.letsencrypt.org:443
 */
 package main

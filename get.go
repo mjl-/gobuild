@@ -33,7 +33,7 @@ func get(args []string) {
 		sum         = flags.String("sum", "", "Sum to verify.")
 		bindir      = flags.String("bindir", ".", "Directory to store binary in.")
 		target      = flags.String("target", "", "Target to retrieve binary for. Default is current GOOS/GOARCH.")
-		goversion   = flags.String("goversion", "latest", `Go toolchain/SDK version. Default "latest" resolves through golang.org/dl/, caching results for 1 hour.`)
+		goversion   = flags.String("goversion", "latest", `Go toolchain/SDK version. Default "latest" resolves through go.dev/dl/, caching results for 1 hour.`)
 		download    = flags.Bool("download", true, "Download binary.")
 		goproxy     = flags.String("goproxy", "https://proxy.golang.org", `Go proxy to use for resolving "latest" module versions.`)
 	)
@@ -207,7 +207,7 @@ func fetch(f *os.File, gobuildBaseURL string, br *buildResult, bindir string) er
 	return nil
 }
 
-// Read cached latest goversion (1 hour age max), or retrieve through golang.org/dl/.
+// Read cached latest goversion (1 hour age max), or retrieve through go.dev/dl/.
 func resolveLatestGoversion() (string, error) {
 	dir, err := os.UserCacheDir()
 	if err != nil {
@@ -228,7 +228,7 @@ func resolveLatestGoversion() (string, error) {
 		return "", err
 	}
 
-	getLog("retrieving latest goversion through golang.org/dl/")
+	getLog("retrieving latest goversion through go.dev/dl/")
 	rels, err := goreleases.ListSupported()
 	if err != nil {
 		return "", err

@@ -3,7 +3,7 @@ module github.com/mjl-/gobuild
 go 1.18
 
 require (
-	github.com/mjl-/goreleases v0.0.2
+	github.com/mjl-/goreleases v0.0.3
 	github.com/mjl-/sconf v0.0.1
 	github.com/prometheus/client_golang v1.5.1
 	golang.org/x/crypto v0.0.0-20220926161630-eccd6366d1be
