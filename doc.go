@@ -1,6 +1,6 @@
 /*
-Gobuild deterministically compiles programs written in Go that are available
-through the Go module proxy, and returns the binary.
+Gobuild deterministically compiles programs written in Go that are
+availablethrough the Go module proxy, and returns the binary.
 
 The Go module proxy at https://proxy.golang.org ensures source code stays
 available, and you are highly likely to get the same code each time you fetch
@@ -72,13 +72,51 @@ To build, gobuild executes:
 
 # Why gobuild
 
-Get binaries for any module without having a Go toolchain installed: Useful when working on a machine that's not yours, or for your colleagues or friends who don't have a Go compiler installed.
+Get binaries for any module without having a Go toolchain installed: Useful when
+working on a machine that's not yours, or for your colleagues or friends who
+don't have a Go compiler installed.
 
-Simplify your software release process: You no longer need to cross compile for many architectures and upload binaries to a release page. You never forget a GOOS/GOARCH target. Just link to the build URL for your module and binaries will be created on demand.
+Simplify your software release process: You no longer need to cross compile for
+many architectures and upload binaries to a release page. You never forget a
+GOOS/GOARCH target. Just link to the build URL for your module and binaries will
+be created on demand.
 
-Binaries for the most recent Go toolchain: Go binaries include the runtime and standard library of the Go toolchain used to compile, including bugs. Gobuild links or can redirect to binaries built with the latest Go toolchain, so no need to publish new binaries after an updated Go toolchain is released.
+Binaries for the most recent Go toolchain: Go binaries include the runtime and
+standard library of the Go toolchain used to compile, including bugs. Gobuild
+links or can redirect to binaries built with the latest Go toolchain, so no need
+to publish new binaries after an updated Go toolchain is released.
 
-Verify reproducibility: Configure gobuild to check against other gobuild instances with different configuration to build trust that your binaries are indeed reproducible.
+Verify reproducibility: Configure gobuild to check against other gobuild
+instances with different configuration to build trust that your binaries are
+indeed reproducible.
+
+# Caveats
+
+A central service like gobuilds.org that provides binaries is an attractive
+target for attackers. By only building code available through the Go module
+proxy, and only building with official Go toolchains, the options for attack are
+limited. Further security measures are the isolation of the gobuild proces and
+of the build commands (minimal file system view, mostly read-only; limited
+network; disallowing escalation of privileges).
+
+The transparency log is only used when downloading binaries using the "gobuild
+get" command, which uses and updates the users local cache of the signed
+append-only transparency log with hashes of built binaries. If users only
+download binaries through the convenient web interface, no verification of the
+transparency log takes place. The transparency log gives the option of
+verification, that alone may give users confidence the binaries are not tampered
+with. A nice way of continuously verifying that a gobuild instance, such as
+gobuilds.org, is behaving correctly is to set up your own gobuild instance that
+uses gobuilds.org as URL to verify builds against.
+
+Gobuild will build binaries with different (typically newer) Go toolchains than
+an author has tested their software with. So those binary are essentially
+untested. This may cause bugs. However, point releases typically contains only
+stability/security fixes that don't normally cause issues and are desired. The
+Go 1 compatibility promise means code will typically work as intended with new
+Go toolchain versions. But an author can always link to a build with a specific
+Go toolchain version. A user simply has the additional option to download a
+build by a newer Go toolchain version.
 
 # Running
 
