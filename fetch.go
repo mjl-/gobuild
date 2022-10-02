@@ -50,7 +50,11 @@ func fetchModule(goversion, gobin, mod, version string) ([]byte, error) {
 	goproxy := true
 	cgo := true
 	var cmd *exec.Cmd
-	if version1, ok := goversion1(goversion); ok && version1 >= 18 {
+	gv, err := parseGoVersion(goversion)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s", errBadGoversion, err)
+	}
+	if gv.major == 1 && gv.minor >= 18 {
 		// Go1.18 dropped "go get -d" for downloading modules. Using "go mod download" does
 		// not download all dependencies. So we run a later "go list" with goproxy=true for
 		// Go1.18 and later.

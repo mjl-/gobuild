@@ -218,7 +218,11 @@ func build(bs buildSpec) (int64, *buildResult, string, error) {
 	goproxy := false
 	cgo := false
 	var cmd *exec.Cmd
-	if version1, ok := goversion1(bs.Goversion); ok && version1 >= 18 {
+	gv, err := parseGoVersion(bs.Goversion)
+	if err != nil {
+		return -1, nil, "", fmt.Errorf("%w: %s", errBadGoversion, err)
+	}
+	if gv.major == 1 && gv.minor >= 18 {
 		// Since Go1.18 we need to use "go install" to compile external programs.
 		cmd = makeCommand(goproxy, emptyDir, cgo, moreEnv, gobin, "install", "-x", "-v", "-trimpath", "-ldflags=-buildid=", "--", name)
 	} else {
