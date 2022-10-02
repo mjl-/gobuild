@@ -77,16 +77,16 @@ func prepareBuild(bs buildSpec) error {
 // Build does the actual build. It is called from coordinate, ensuring the same
 // buildSpec isn't built multiple times concurrently, and preventing a few other
 // clashes. On success, a record has been added to the transparency log.
-func build(bs buildSpec) (int64, *buildResult, error) {
+func build(bs buildSpec) (int64, *buildResult, string, error) {
 	targets.increase(bs.Goos + "/" + bs.Goarch)
 
 	gobin, err := ensureGobin(bs.Goversion)
 	if err != nil {
-		return -1, nil, fmt.Errorf("ensuring go version is available: %v (%w)", err, errTempFailure)
+		return -1, nil, "", fmt.Errorf("ensuring go version is available: %v (%w)", err, errTempFailure)
 	}
 
 	if _, output, err := ensureModule(bs.Goversion, gobin, bs.Mod, bs.Version); err != nil {
-		return -1, nil, fmt.Errorf("error fetching module from goproxy: %v (%w)\n\n# output from go get:\n%s", err, errTempFailure, output)
+		return -1, nil, "", fmt.Errorf("error fetching module from goproxy: %v (%w)\n\n# output from go get:\n%s", err, errTempFailure, output)
 	}
 
 	// Launch goroutines to let the verifiers build the same code and return their
@@ -147,7 +147,7 @@ func build(bs buildSpec) (int64, *buildResult, error) {
 	t0 := time.Now()
 
 	if err := ensurePrimedBuildCache(gobin, bs.Goos, bs.Goarch, bs.Goversion); err != nil {
-		return -1, nil, fmt.Errorf("%w: ensuring primed go build cache: %v", errServer, err)
+		return -1, nil, "", fmt.Errorf("%w: ensuring primed go build cache: %v", errServer, err)
 	}
 
 	// What to "go get".
@@ -188,7 +188,7 @@ func build(bs buildSpec) (int64, *buildResult, error) {
 		// builds.
 		gobuildbindir, err = os.MkdirTemp("", "gobuildbindir")
 		if err != nil {
-			return -1, nil, fmt.Errorf("making temp dir: %v", err)
+			return -1, nil, "", fmt.Errorf("making temp dir: %v", err)
 		}
 		moreEnv = append(moreEnv, "GOBUILD_GOBIN="+gobuildbindir)
 		resultPath = filepath.Join(gobuildbindir, resultPath)
@@ -201,7 +201,7 @@ func build(bs buildSpec) (int64, *buildResult, error) {
 	// This might be a leftover from some earlier build attempt.
 	err = os.Remove(resultPath)
 	if err != nil && !os.IsNotExist(err) {
-		return -1, nil, fmt.Errorf("attempting to remove preexisting binary: %v (%w)", err, errTempFailure)
+		return -1, nil, "", fmt.Errorf("attempting to remove preexisting binary: %v (%w)", err, errTempFailure)
 	}
 
 	// Always remove binary from $GOBIN when we're done here. We copied it on success.
@@ -228,16 +228,17 @@ func build(bs buildSpec) (int64, *buildResult, error) {
 	metricCompileDuration.WithLabelValues(bs.Goos, bs.Goarch, bs.Goversion).Observe(time.Since(t0).Seconds())
 	if err != nil {
 		metricCompileErrors.WithLabelValues(bs.Goos, bs.Goarch, bs.Goversion).Inc()
-		if xerr := saveFailure(bs, err.Error()+"\n\n"+string(output)); xerr != nil {
-			return -1, nil, fmt.Errorf("storing results of failure: %v (%w)", xerr, errTempFailure)
+		out := string(output)
+		if xerr := saveFailure(bs, err.Error()+"\n\n"+out); xerr != nil {
+			return -1, nil, "", fmt.Errorf("storing results of failure: %v (%w)", xerr, errTempFailure)
 		}
-		return -1, nil, err
+		return -1, nil, out, err
 	}
 
 	// Where we store the "recordnumber" file, binary.gz and log.gz.
 	tmpdir, err := os.MkdirTemp(resultDir, "tmpresult")
 	if err != nil {
-		return -1, nil, err
+		return -1, nil, "", err
 	}
 	// On success, the directory will have been moved to its final destination,
 	// indicated by an empty tmpdir.
@@ -252,21 +253,21 @@ func build(bs buildSpec) (int64, *buildResult, error) {
 	// Calculate our hash.
 	rf, err := os.Open(resultPath)
 	if err != nil {
-		return -1, nil, fmt.Errorf("open result: %v", err)
+		return -1, nil, "", fmt.Errorf("open result: %v", err)
 	}
 	defer rf.Close()
 
 	if info, err := rf.Stat(); err != nil {
-		return -1, nil, fmt.Errorf("stat result: %v", err)
+		return -1, nil, "", fmt.Errorf("stat result: %v", err)
 	} else {
 		br.Filesize = info.Size()
 	}
 
 	h := sha256.New()
 	if _, err := io.Copy(h, rf); err != nil {
-		return -1, nil, fmt.Errorf("read result: %v", err)
+		return -1, nil, "", fmt.Errorf("read result: %v", err)
 	} else if _, err := rf.Seek(0, 0); err != nil {
-		return -1, nil, fmt.Errorf("seek result: %v", err)
+		return -1, nil, "", fmt.Errorf("seek result: %v", err)
 	}
 	br.Sum = "0" + base64.RawURLEncoding.EncodeToString(h.Sum(nil)[:20])
 
@@ -276,7 +277,7 @@ func build(bs buildSpec) (int64, *buildResult, error) {
 	for n := len(config.VerifierURLs); n > 0; n-- {
 		vr := <-verifyResult
 		if vr.err != nil {
-			return -1, nil, fmt.Errorf("build at verifier failed: %v (%w)", vr.err, errTempFailure)
+			return -1, nil, "", fmt.Errorf("build at verifier failed: %v (%w)", vr.err, errTempFailure)
 		}
 		if vr.result.Sum == br.Sum {
 			matchesFrom = append(matchesFrom, vr.verifyURL)
@@ -285,22 +286,22 @@ func build(bs buildSpec) (int64, *buildResult, error) {
 		}
 	}
 	if len(mismatches) > 0 {
-		return -1, nil, fmt.Errorf("build mismatches, we and %d others got %s, but %s (%w)", len(matchesFrom), br.Sum, strings.Join(mismatches, ", "), errTempFailure)
+		return -1, nil, "", fmt.Errorf("build mismatches, we and %d others got %s, but %s (%w)", len(matchesFrom), br.Sum, strings.Join(mismatches, ", "), errTempFailure)
 	}
 
 	// Write binary and log.
 	if err := writeGz(filepath.Join(tmpdir, "binary.gz"), rf); err != nil {
-		return -1, nil, err
+		return -1, nil, "", err
 	}
 	if err := writeGz(filepath.Join(tmpdir, "log.gz"), bytes.NewReader(output)); err != nil {
-		return -1, nil, err
+		return -1, nil, "", err
 	}
 
 	// Finally, add to the transparency log, creating the "recordnumber" file and
 	// renaming tmpdir to the final directory in resultDir.
 	recordNumber, err := addSum(tmpdir, br)
 	if err != nil {
-		return -1, nil, fmt.Errorf("adding sum to tranparency log: %w", err)
+		return -1, nil, "", fmt.Errorf("adding sum to tranparency log: %w", err)
 	}
 	tmpdir = ""
 
@@ -311,7 +312,7 @@ func build(bs buildSpec) (int64, *buildResult, error) {
 	}
 	recentBuilds.Unlock()
 
-	return recordNumber, &br, nil
+	return recordNumber, &br, "", nil
 }
 
 func saveFailure(bs buildSpec, output string) error {

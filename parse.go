@@ -67,6 +67,7 @@ func (bs buildSpec) outputPath() string {
 }
 
 // Local directory where results are stored, both successful and failed.
+// Directories of failed builds can be removed, for a retry.
 func (bs buildSpec) storeDir() string {
 	sha := sha256.Sum256([]byte(bs.String()))
 	sum := base64.RawURLEncoding.EncodeToString(sha[:20])

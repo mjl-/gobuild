@@ -117,14 +117,18 @@ func coordinateBuilds() {
 		active++
 		pathBusy[bs.outputPath()] = struct{}{}
 		go func() {
-			recordNumber, result, err := build(bs)
+			recordNumber, result, errOutput, err := build(bs)
+			var errmsg string
+			if err != nil {
+				errmsg = err.Error() + "\n\n" + errOutput
+			}
 			var msg []byte
 			if err == nil {
 				msg = buildUpdateMsg{Kind: kindSuccess, Result: result}.json()
 			} else if errors.Is(err, errTempFailure) {
-				msg = buildUpdateMsg{Kind: kindTempFail, Error: err.Error()}.json()
+				msg = buildUpdateMsg{Kind: kindTempFail, Error: errmsg}.json()
 			} else {
-				msg = buildUpdateMsg{Kind: kindPermFail, Error: err.Error()}.json()
+				msg = buildUpdateMsg{Kind: kindPermFail, Error: errmsg}.json()
 			}
 			update := buildUpdate{bs: bs, done: true, err: err, result: result, recordNumber: recordNumber, msg: msg}
 			updatec <- update

@@ -10,12 +10,12 @@ import (
 func serveHome(w http.ResponseWriter, r *http.Request) {
 	defer observePage("home", time.Now())
 
-	if r.Method != "GET" {
-		http.Error(w, "405 - Method Not Allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	if r.URL.Path == "/" {
+		if r.Method != "GET" {
+			http.Error(w, "405 - Method Not Allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
 		m := r.FormValue("m")
 		if m != "" {
 			http.Redirect(w, r, "/"+m, http.StatusTemporaryRedirect)
@@ -57,6 +57,11 @@ func serveHome(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !strings.Contains(r.URL.Path, "@") {
+		if r.Method != "GET" {
+			http.Error(w, "405 - Method Not Allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
 		if !checkAllowedRespond(w, r.URL.Path[1:]) {
 			return
 		}
@@ -71,6 +76,10 @@ func serveHome(w http.ResponseWriter, r *http.Request) {
 		} else {
 			http.NotFound(w, r)
 		}
+		return
+	}
+	if req.Page != pageRetry && r.Method != "GET" || req.Page == pageRetry && r.Method != "POST" {
+		http.Error(w, "405 - Method Not Allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	if !checkAllowedRespond(w, req.Mod) {

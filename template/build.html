@@ -34,24 +34,28 @@
 	<div id="error" style="display: none">
 		<h2>Error</h2>
 		<pre class="prewrap" id="errormsg"></pre>
+		<form method="POST" action="retry"><button type="submit">Retry</button></form>
 	</div>
 
-	<h2>Download</h2>
-	<table>
-		<tr>
-			<td>{{ .DownloadFilename }}</td>
-			<td style="padding-left: 1rem; text-align: right">(pending)</td>
-		</tr>
-		<tr>
-			<td>{{ .DownloadFilename }}.gz</td>
-			<td style="padding-left: 1rem; text-align: right">(pending)</td>
-		</tr>
-	</table>
-	<p>To download using the transparency log:</p>
-	<pre class="command charwrap">gobuild get {{ if ne .VerifierKey .GobuildsOrgVerifierKey }}<span title="This gobuild instance is configured with a non-standard verifierkey (i.e. not for gobuilds.org), so in order to verify the signed append-only transparency log, the (public) verifierkey to check against must be set on the command-line.">-verifierkey {{ .VerifierKey }}</span> {{ end }}-target {{ .Req.Goos }}/{{ .Req.Goarch }} -goversion {{ .Req.Goversion }} {{ .Req.Mod }}@{{ .Req.Version }}{{ .Req.Dir }}</pre>
+	<div id="download">
+		<h2>Download</h2>
+		<table>
+			<tr>
+				<td>{{ .DownloadFilename }}</td>
+				<td style="padding-left: 1rem; text-align: right">(pending)</td>
+			</tr>
+			<tr>
+				<td>{{ .DownloadFilename }}.gz</td>
+				<td style="padding-left: 1rem; text-align: right">(pending)</td>
+			</tr>
+		</table>
+		<p>To download using the transparency log:</p>
+		<pre class="command charwrap">gobuild get {{ if ne .VerifierKey .GobuildsOrgVerifierKey }}<span title="This gobuild instance is configured with a non-standard verifierkey (i.e. not for gobuilds.org), so in order to verify the signed append-only transparency log, the (public) verifierkey to check against must be set on the command-line.">-verifierkey {{ .VerifierKey }}</span> {{ end }}-target {{ .Req.Goos }}/{{ .Req.Goarch }} -goversion {{ .Req.Goversion }} {{ .Req.Mod }}@{{ .Req.Version }}{{ .Req.Dir }}</pre>
+	</div>
 {{ else }}
 	<h2>Error</h2>
 	<pre class="prewrap">{{ .Output }}</pre>
+	<form method="POST" action="retry"><button type="submit">Retry</button></form>
 {{ end }}
 
 	<h2>More</h2>
@@ -164,6 +168,8 @@ function copyOneliner() {
 
 		fadein(errormsgElem, details)
 		errorElem.style.display = ''
+
+		document.getElementById('download').remove()
 	}
 
 	function showProgress(lineElem) {
@@ -193,12 +199,12 @@ function copyOneliner() {
 				}
 				break
 			case 'TempFailed':
-				showError('Build failed, temporary failure, try again later.', update.Error)
+				showError('Build failed, temporary failure, try again later.', span(update.Error))
 				src.close()
 				break
 			case 'PermFailed':
 				{
-					showError(span('Build failed. See ', link('log', 'output'), ' for details.'), update.Error)
+					showError(span('Error', elem('span.failure', '❌')), span(update.Error))
 					src.close()
 				}
 				break

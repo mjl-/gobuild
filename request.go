@@ -17,6 +17,7 @@ const (
 	pageDownloadGz
 	pageRecord
 	pageEvents
+	pageRetry
 )
 
 func (p page) String() string {
@@ -35,6 +36,8 @@ func (p page) String() string {
 		return "record"
 	case pageEvents:
 		return "events"
+	case pageRetry:
+		return "retry"
 	}
 	panic("missing case")
 }
@@ -71,6 +74,8 @@ func (r request) pagePart() string {
 		return "record"
 	case pageEvents:
 		return "events"
+	case pageRetry:
+		return "retry"
 	default:
 		panic("missing case")
 	}
@@ -102,7 +107,7 @@ func isSum(s string) bool {
 	return len(buf) == 20
 }
 
-// We'll get paths like /github.com/mjl-/sherpa@v0.6.0/cmd/sherpaclient/linux-amd64-go1.14.1/0m32pSahHbf-fptQdDyWD87GJNXI/{log,dl,<name>,<name>.gz,record, events}
+// We'll get paths like /github.com/mjl-/sherpa@v0.6.0/cmd/sherpaclient/linux-amd64-go1.14.1/0m32pSahHbf-fptQdDyWD87GJNXI/{log,dl,<name>,<name>.gz,record,events,retry}
 // with optional sum.
 func parseRequest(s string) (r request, hint string, ok bool) {
 	if s == "" {
@@ -148,6 +153,8 @@ func parseRequest(s string) (r request, hint string, ok bool) {
 		r.Page = pageRecord
 	case "events":
 		r.Page = pageEvents
+	case "retry":
+		r.Page = pageRetry
 	default:
 		dl := r.downloadFilename()
 		if page == dl {
@@ -160,8 +167,8 @@ func parseRequest(s string) (r request, hint string, ok bool) {
 		}
 	}
 
-	if r.Sum != "" && r.Page == pageEvents {
-		hint = "No events endpoint for results"
+	if r.Sum != "" && (r.Page == pageEvents || r.Page == pageRetry) {
+		hint = fmt.Sprintf("No %s endpoint for results", r.Page.String())
 		return
 	}
 
