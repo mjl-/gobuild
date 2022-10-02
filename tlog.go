@@ -100,7 +100,7 @@ func addSum(tmpdir string, br buildResult) (rnum int64, rerr error) {
 	}
 
 	// We know we are doing this, so log what we are going to write where.
-	if _, err := fmt.Fprintf(sumLogFile, "adding record=%d at records=%d hashes=%d: %s", recordNumber, recordsSize, hashesSize, msg); err != nil {
+	if _, err := fmt.Fprintf(sumLogFile, "adding record=%d at recordoffset=%d hashesoffset=%d: %s", recordNumber, recordsSize, hashesSize, msg); err != nil {
 		return -1, fmt.Errorf("writing sum log: %v", err)
 	}
 
