@@ -384,11 +384,12 @@ func failf(w http.ResponseWriter, format string, args ...interface{}) {
 	msg := err.Error()
 	var status int
 	if errors.Is(err, errServer) {
-		log.Println(msg)
 		msg = "500 - internal server error - " + msg
+		log.Println(msg)
 		status = http.StatusInternalServerError
 	} else {
 		msg = "400 - bad request - " + msg
+		log.Println(msg)
 		status = http.StatusBadRequest
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
