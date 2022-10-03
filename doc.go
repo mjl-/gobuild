@@ -168,5 +168,7 @@ connections). The proxy should allow the following addresses:
 
 	# Optional, when using ACME with Let's Encrypt for HTTPS.
 	acme-v02.api.letsencrypt.org:443
+
+	# Optional, any verifier URLs you have configured.
 */
 package main
