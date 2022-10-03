@@ -389,6 +389,13 @@ func goexe() string {
 // other builds with a read-only cache. This lets builds reuse a good part of their
 // builds, without getting a big cache.
 func ensurePrimedBuildCache(gobin, goos, goarch, goversion string) error {
+	// Disable for now. We are not using the toolchain. This just makes
+	// fetching a new toolchain slow, and only takes up space. Should
+	// enable it again when we want to use it.
+	if true {
+		return nil
+	}
+
 	primedPath := filepath.Join(homedir, ".cache", "gobuild", fmt.Sprintf("%s-%s-%s.primed", goos, goarch, goversion))
 	if _, err := os.Stat(primedPath); err == nil {
 		return nil
