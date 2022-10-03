@@ -6,8 +6,8 @@
 		<p>The <a href="https://proxy.golang.org/">Go module proxy</a> ensures source code stays available, and you are highly likely to get the same code each time you fetch it. Gobuild aims to do the same for binaries.</p>
 
 		<h2>Try a module</h2>
-		<form onsubmit="location.href = '/' + moduleName.value; return false" method="GET" action="/">
-			<input onfocus="modulenote.style.display='block'" id="moduleName" name="m" type="text" placeholder="github.com/your/project containing go.mod" style="width:30rem; max-width:75%" />
+		<form onsubmit="location.href = '/' + moduleName.value.replace(/^https?:\/\//, ''); return false" method="GET" action="/">
+			<input onfocus="modulenote.style.display='block'" id="moduleName" name="m" type="text" placeholder="github.com/your/project containing go.mod" style="width:30rem; max-width:75%" required />
 			<button type="submit">Go!</button>
 		</form>
 		<p style="display:none" id="modulenote">Note: Point to the module root, the directory that contains the go.mod file, not a package subdirectory. If your module has multiple main commands, they will be listed.</p>
