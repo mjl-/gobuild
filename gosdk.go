@@ -207,17 +207,17 @@ func sdkUpdateInstalledList() {
 }
 
 func ensureMostRecentSDK() (string, error) {
-	supported, _ := installedSDK()
-	if len(supported) == 0 {
+	newestAllowed, _, _ := installedSDK()
+	if newestAllowed == "" {
 		return "", fmt.Errorf("%w: no supported go versions", errServer)
 	}
-	if err := ensureSDK(supported[0]); err != nil {
+	if err := ensureSDK(newestAllowed); err != nil {
 		return "", err
 	}
-	return supported[0], nil
+	return newestAllowed, nil
 }
 
-func installedSDK() (supported []string, remainingAvailable []string) {
+func installedSDK() (newestAllowed string, supported []string, remainingAvailable []string) {
 	now := time.Now()
 	sdk.Lock()
 	defer sdk.Unlock() // note: we unlock and relock below!
@@ -236,12 +236,26 @@ func installedSDK() (supported []string, remainingAvailable []string) {
 			sdk.supportedList = []string{}
 			for _, rel := range rels {
 				sdk.supportedList = append(sdk.supportedList, rel.Version)
+				if newestAllowed != "" {
+					continue
+				}
+				if sdkVersionStop == nil {
+					newestAllowed = rel.Version
+				} else if gv, err := parseGoVersion(rel.Version); err != nil {
+					log.Printf("parsing go version from listing released go toolchain %q: %s", rel.Version, err)
+				} else if gv.num() < sdkVersionStop.num() {
+					newestAllowed = gv.String()
+				}
 			}
 			sdkUpdateInstalledList()
 		}
 	}
 	supported = sdk.supportedList
 	remainingAvailable = sdk.installedList
+	// Better to return a toolchain that will result in later ensure failure, than to claim there is no toolchain.
+	if newestAllowed == "" && len(supported) > 0 {
+		newestAllowed = supported[0]
+	}
 	return
 }
 
@@ -274,7 +288,7 @@ func parseGoVersion(s string) (goVersion, error) {
 	}
 	r.minor = int(minor)
 	if len(t) == 2 {
-		patch, err := strconv.ParseInt(t[0], 10, 32)
+		patch, err := strconv.ParseInt(t[1], 10, 32)
 		if err != nil {
 			return r, fmt.Errorf("invalid last number")
 		}

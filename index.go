@@ -113,7 +113,7 @@ func serveIndex(w http.ResponseWriter, r *http.Request, bs buildSpec, br *buildR
 		Active    bool
 	}
 	goversionLinks := []goversionLink{}
-	supported, remaining := installedSDK()
+	_, supported, remaining := installedSDK()
 	for _, goversion := range supported {
 		gvbs := bs
 		gvbs.Goversion = goversion
