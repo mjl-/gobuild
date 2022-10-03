@@ -13,6 +13,7 @@ import (
 	"html/template"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -242,6 +243,16 @@ func serve(args []string) {
 	} else {
 		metricTlogRecords.Set(float64(recordCount))
 	}
+
+	// Lower limits on http DefaultTransport. We typically only connect to a few
+	// places, so we can keep fewer idle connections, and for shorter period.
+	defaultTransport := http.DefaultTransport.(*http.Transport)
+	defaultTransport.MaxIdleConns = 10
+	defaultTransport.IdleConnTimeout = 30 * time.Second
+	defaultTransport.DialContext = (&net.Dialer{
+		Timeout:   10 * time.Second,
+		KeepAlive: 30 * time.Second,
+	}).DialContext
 
 	initSDK()
 	readRecentBuilds()
