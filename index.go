@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -146,8 +147,7 @@ func serveIndex(w http.ResponseWriter, r *http.Request, bs buildSpec, br *buildR
 		targetLinks = append(targetLinks, targetLink{target.Goos, target.Goarch, p, success, p == xlink})
 	}
 
-	pkgGoDevURL := fmt.Sprintf("https://pkg.go.dev/%s@%s/%s", bs.Mod, bs.Version, bs.Dir[1:])
-	pkgGoDevURL = pkgGoDevURL[:len(pkgGoDevURL)-1] + "?tab=doc"
+	pkgGoDevURL := "https://pkg.go.dev/" + path.Join(bs.Mod+"@"+bs.Version, bs.Dir[1:]) + "?tab=doc"
 
 	resp := <-c
 
