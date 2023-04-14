@@ -98,7 +98,7 @@ function copyOneliner() {
 	if (!navigator.clipboard) {
 		return
 	}
-	const oneliner = `python3 -c 'import sys, hashlib, base64; print("0" + base64.urlsafe_b64encode(hashlib.sha256(sys.stdin.buffer.read()).digest()[:20]).decode("utf-8").rstrip("="))' < {{ .DownloadFilename }}`;
+	const oneliner = 'python3 -c \'import sys, hashlib, base64; print("0" + base64.urlsafe_b64encode(hashlib.sha256(sys.stdin.buffer.read()).digest()[:20]).decode("utf-8").rstrip("="))\' < {{ .DownloadFilename }}';
 	navigator.clipboard.writeText(oneliner)
 	return false;
 }
