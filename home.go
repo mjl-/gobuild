@@ -2,10 +2,25 @@ package main
 
 import (
 	"fmt"
+	"html"
+	"log"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 )
+
+func readInstanceNotes() string {
+	if config.InstanceNotesFile == "" {
+		return ""
+	}
+
+	buf, err := os.ReadFile(config.InstanceNotesFile)
+	if err != nil {
+		log.Printf("reading instance notes: %v, skipping", err)
+	}
+	return html.EscapeString(string(buf))
+}
 
 func serveHome(w http.ResponseWriter, r *http.Request) {
 	defer observePage("home", time.Now())
@@ -39,12 +54,14 @@ func serveHome(w http.ResponseWriter, r *http.Request) {
 			VerifierKey     string
 			GobuildVersion  string
 			GobuildPlatform string
+			InstanceNotes   string
 		}{
 			"favicon.ico",
 			recentLinks,
 			config.VerifierKey,
 			gobuildVersion,
 			gobuildPlatform,
+			readInstanceNotes(),
 		}
 		if err := homeTemplate.Execute(w, args); err != nil {
 			failf(w, "%w: executing template: %v", errServer, err)

@@ -20,6 +20,11 @@
 			</ul>
 		</div>
 
+{{ if .InstanceNotes }}
+		<h2>Notes about this gobuild instance</h2>
+		<pre style="white-space: pre-wrap; background-color: #eee; display: inline-block; padding: 1em; border-radius: .5ex; margin: 0">{{ .InstanceNotes }}</pre>
+{{ end }}
+
 		<h2>URLs</h2>
 		<p>You can compose URLs to a specific module, build or result:</p>
 		<ul style="color:#666; word-break: break-all; padding-left: 1.1rem">
