@@ -24,18 +24,26 @@ func Parse(src io.Reader, dst interface{}) error {
 }
 
 // Describe writes an example sconf file describing v to w. The file includes all
-// fields and documentation on the fields as configured with the "sconf-doc" tags.
+// fields, values and documentation on the fields as configured with the "sconf"
+// and "sconf-doc" struct tags. Describe does not detect recursive values and will
+// attempt to write them.
 func Describe(w io.Writer, v interface{}) error {
-	return describe(w, v, true)
+	return describe(w, v, true, true)
 }
 
-// Write writes a valid sconf file describing v to w, without comments and without
-// optional fields set to their zero values.
+// Write writes a valid sconf file describing v to w, without comments, without
+// zero values of optional fields. Write does not detect recursive values and
+// will attempt to write them.
 func Write(w io.Writer, v interface{}) error {
-	return describe(w, v, false)
+	return describe(w, v, false, false)
 }
 
-func describe(w io.Writer, v interface{}, full bool) (err error) {
+// WriteDocs is like Write, but does write comments.
+func WriteDocs(w io.Writer, v interface{}) error {
+	return describe(w, v, false, true)
+}
+
+func describe(w io.Writer, v interface{}, keepZero bool, docs bool) (err error) {
 	value := reflect.ValueOf(v)
 	t := value.Type()
 	if t.Kind() == reflect.Ptr {
@@ -56,7 +64,7 @@ func describe(w io.Writer, v interface{}, full bool) (err error) {
 			panic(x)
 		}
 	}()
-	wr := &writer{out: bufio.NewWriter(w), full: full}
+	wr := &writer{out: bufio.NewWriter(w), keepZero: keepZero, docs: docs}
 	wr.describeStruct(value)
 	wr.flush()
 	return nil

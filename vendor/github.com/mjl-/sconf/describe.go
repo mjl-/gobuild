@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"sort"
 	"strings"
 
 	"github.com/mjl-/xfmt"
@@ -15,9 +16,10 @@ var errNoElem = errors.New("no elements")
 type writeError struct{ error }
 
 type writer struct {
-	out    *bufio.Writer
-	prefix string
-	full   bool // If set, we also write default values and comments.
+	out      *bufio.Writer
+	prefix   string
+	keepZero bool // If set, we also write zero values.
+	docs     bool // If set, we write comments.
 }
 
 func (w *writer) error(err error) {
@@ -49,13 +51,100 @@ func (w *writer) unindent() {
 }
 
 func isOptional(sconfTag string) bool {
+	return hasTagWord(sconfTag, "optional")
+}
+
+func isIgnore(sconfTag string) bool {
+	return hasTagWord(sconfTag, "-") || hasTagWord(sconfTag, "ignore")
+}
+
+func hasTagWord(sconfTag, word string) bool {
 	l := strings.Split(sconfTag, ",")
 	for _, s := range l {
-		if s == "optional" {
+		if s == word {
 			return true
 		}
 	}
 	return false
+}
+
+func (w *writer) describeMap(v reflect.Value) {
+	t := v.Type()
+	if t.Key().Kind() != reflect.String {
+		w.error(fmt.Errorf("map key must be string"))
+	}
+	keys := v.MapKeys()
+	sort.Slice(keys, func(i, j int) bool {
+		return keys[i].String() < keys[j].String()
+	})
+	have := false
+	for _, k := range keys {
+		have = true
+		w.write(w.prefix)
+		w.write(k.String() + ":")
+		mv := v.MapIndex(k)
+		if !w.keepZero && mv.Kind() == reflect.Struct && isEmptyStruct(mv) {
+			w.write(" nil\n")
+			continue
+		}
+		w.describeValue(mv)
+	}
+	if have {
+		return
+	}
+	w.write(w.prefix)
+	w.write("x:")
+	w.describeValue(reflect.Zero(t.Elem()))
+}
+
+// whether v is a zero value of a struct type with all fields optional or
+// ignored, causing it to write nothing when using Write.
+func isEmptyStruct(v reflect.Value) bool {
+	if v.Kind() != reflect.Struct {
+		panic("not a struct")
+	}
+	t := v.Type()
+	n := t.NumField()
+	for i := 0; i < n; i++ {
+		ft := t.Field(i)
+		tag := ft.Tag.Get("sconf")
+		if isIgnore(tag) {
+			continue
+		}
+		if !isOptional(tag) {
+			return false
+		}
+		if !isZeroIgnored(v.Field(i)) {
+			return false
+		}
+	}
+	return true
+}
+
+// whether v is zero, taking ignored values into account.
+func isZeroIgnored(v reflect.Value) bool {
+	switch v.Kind() {
+	case reflect.Slice, reflect.Map:
+		return v.Len() == 0
+	case reflect.Ptr:
+		return v.IsZero() || isZeroIgnored(v.Elem())
+	case reflect.Struct:
+		t := v.Type()
+		n := t.NumField()
+		for i := 0; i < n; i++ {
+			ft := t.Field(i)
+			tag := ft.Tag.Get("sconf")
+			if isIgnore(tag) {
+				continue
+			}
+			if !isZeroIgnored(v.Field(i)) {
+				return false
+			}
+		}
+		return true
+	default:
+		return v.IsZero()
+	}
 }
 
 func (w *writer) describeStruct(v reflect.Value) {
@@ -64,10 +153,13 @@ func (w *writer) describeStruct(v reflect.Value) {
 	for i := 0; i < n; i++ {
 		f := t.Field(i)
 		fv := v.Field(i)
-		if !w.full && isOptional(f.Tag.Get("sconf")) && reflect.DeepEqual(reflect.Zero(fv.Type()).Interface(), fv.Interface()) {
+		if isIgnore(f.Tag.Get("sconf")) {
 			continue
 		}
-		if w.full {
+		if !w.keepZero && isOptional(f.Tag.Get("sconf")) && isZeroIgnored(fv) {
+			continue
+		}
+		if w.docs {
 			doc := f.Tag.Get("sconf-doc")
 			optional := isOptional(f.Tag.Get("sconf"))
 			if doc != "" || optional {
@@ -95,6 +187,12 @@ func (w *writer) describeStruct(v reflect.Value) {
 func (w *writer) describeValue(v reflect.Value) {
 	t := v.Type()
 	i := v.Interface()
+
+	if t == durationType {
+		w.write(fmt.Sprintf(" %s\n", i))
+		return
+	}
+
 	switch t.Kind() {
 	default:
 		w.error(fmt.Errorf("unsupported value %v", t.Kind()))
@@ -135,6 +233,12 @@ func (w *writer) describeValue(v reflect.Value) {
 		w.indent()
 		w.describeStruct(v)
 		w.unindent()
+
+	case reflect.Map:
+		w.write("\n")
+		w.indent()
+		w.describeMap(v)
+		w.unindent()
 	}
 }
 
@@ -147,7 +251,7 @@ func (w *writer) describeSlice(v reflect.Value) {
 
 	n := v.Len()
 	if n == 0 {
-		if w.full {
+		if w.keepZero {
 			describeElem(reflect.New(v.Type().Elem()))
 		} else {
 			w.error(errNoElem)

@@ -4,10 +4,10 @@ go 1.18
 
 require (
 	github.com/mjl-/goreleases v0.0.3
-	github.com/mjl-/sconf v0.0.1
+	github.com/mjl-/sconf v0.0.4
 	github.com/prometheus/client_golang v1.14.0
-	golang.org/x/crypto v0.7.0
-	golang.org/x/mod v0.8.0
+	golang.org/x/crypto v0.10.0
+	golang.org/x/mod v0.11.0
 )
 
 require (
@@ -19,8 +19,8 @@ require (
 	github.com/prometheus/client_model v0.3.0 // indirect
 	github.com/prometheus/common v0.37.0 // indirect
 	github.com/prometheus/procfs v0.8.0 // indirect
-	golang.org/x/net v0.8.0 // indirect
-	golang.org/x/sys v0.6.0 // indirect
-	golang.org/x/text v0.8.0 // indirect
+	golang.org/x/net v0.10.0 // indirect
+	golang.org/x/sys v0.9.0 // indirect
+	golang.org/x/text v0.10.0 // indirect
 	google.golang.org/protobuf v1.28.1 // indirect
 )

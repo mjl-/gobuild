@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type parser struct {
@@ -84,10 +85,7 @@ func (p *parser) next() bool {
 		if strings.HasPrefix(strings.TrimSpace(s), "#") {
 			continue
 		}
-		if strings.HasSuffix(s, "\n") {
-			s = s[:len(s)-1]
-		}
-		p.line = s
+		p.line = strings.TrimSuffix(s, "\n")
 	}
 
 	// Less indenting than expected. Let caller stop, returning to its caller for lower-level indent.
@@ -106,8 +104,19 @@ func (p *parser) unindent() {
 	p.prefix = p.prefix[1:]
 }
 
+var durationType = reflect.TypeOf(time.Duration(0))
+
 func (p *parser) parseValue(v reflect.Value) reflect.Value {
 	t := v.Type()
+
+	if t == durationType {
+		s := p.consume()
+		d, err := time.ParseDuration(s)
+		p.check(err, "parsing duration")
+		v.Set(reflect.ValueOf(d))
+		return v
+	}
+
 	switch t.Kind() {
 	default:
 		p.stop(fmt.Sprintf("cannot parse type %v", t.Kind()))
@@ -154,6 +163,10 @@ func (p *parser) parseValue(v reflect.Value) reflect.Value {
 
 	case reflect.Struct:
 		p.parseStruct(v)
+
+	case reflect.Map:
+		v = reflect.MakeMap(t)
+		p.parseMap(v)
 	}
 	return v
 }
@@ -230,7 +243,10 @@ func (p *parser) parseStruct0(v reflect.Value) {
 
 		vv := v.FieldByName(k)
 		if vv == zeroValue {
-			p.stop("unknown key")
+			p.stop(fmt.Sprintf("unknown key %q", k))
+		}
+		if ft, _ := t.FieldByName(k); isIgnore(ft.Tag.Get("sconf")) {
+			p.stop(fmt.Sprintf("unknown key %q (has ignore tag)", k))
 		}
 		vv.Set(p.parseValue(vv))
 	}
@@ -238,11 +254,55 @@ func (p *parser) parseStruct0(v reflect.Value) {
 	n := t.NumField()
 	for i := 0; i < n; i++ {
 		f := t.Field(i)
-		if isOptional(f.Tag.Get("sconf")) {
+		if isIgnore(f.Tag.Get("sconf")) || isOptional(f.Tag.Get("sconf")) {
 			continue
 		}
 		if _, ok := seen[f.Name]; !ok {
 			p.stop(fmt.Sprintf("missing required key %q", f.Name))
 		}
+	}
+}
+
+func (p *parser) parseMap(v reflect.Value) {
+	p.indent()
+	defer p.unindent()
+	p.parseMap0(v)
+}
+
+func (p *parser) parseMap0(v reflect.Value) {
+	seen := map[string]struct{}{}
+	t := v.Type()
+	for p.next() {
+		s := p.string()
+		s = s[len(p.prefix):]
+		l := strings.SplitN(s, ":", 2)
+		if len(l) != 2 {
+			p.stop("missing key: value")
+		}
+		k := l[0]
+		if k == "" {
+			p.stop("empty key")
+		}
+		if _, ok := seen[k]; ok {
+			p.stop("duplicate key")
+		}
+		seen[k] = struct{}{}
+		s = l[1]
+		if s != "" && !strings.HasPrefix(s, " ") {
+			p.stop("no space after colon")
+		}
+		if s != "" {
+			s = s[1:]
+		}
+
+		vv := reflect.New(t.Elem()).Elem()
+		if s == "nil" {
+			// Special value "nil" means the zero value, no further parsing of a value.
+			p.leave("")
+		} else {
+			p.leave(s)
+			vv = p.parseValue(vv)
+		}
+		v.SetMapIndex(reflect.ValueOf(k), vv)
 	}
 }
