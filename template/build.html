@@ -208,7 +208,7 @@ function copyOneliner() {
 				}
 				break
 			case 'TempFailed':
-				showError('Build failed, temporary failure, try again later.', span(update.Error))
+				showError(span('Build failed, temporary failure, try again later.'), span(update.Error))
 				src.close()
 				break
 			case 'PermFailed':
