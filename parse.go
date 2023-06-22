@@ -238,7 +238,7 @@ func (br buildResult) packRecord() ([]byte, error) {
 		variant,
 	}
 	for i, f := range fields {
-		if f == "" {
+		if f == "" && i != 8 {
 			return nil, fmt.Errorf("bad empty field %d", i)
 		}
 		for _, c := range f {
