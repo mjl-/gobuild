@@ -73,17 +73,19 @@ func serveModules(w http.ResponseWriter, r *http.Request) {
 		mainPkgs = append(mainPkgs, mainPkg{link, md})
 	}
 	args := struct {
-		Favicon        string
-		Module         string
-		Version        string
-		Mains          []mainPkg
-		GobuildVersion string
+		Favicon         string
+		Module          string
+		Version         string
+		Mains           []mainPkg
+		GobuildVersion  string
+		GobuildPlatform string
 	}{
 		"/favicon.ico",
 		bs.Mod,
 		bs.Version,
 		mainPkgs,
 		gobuildVersion,
+		gobuildPlatform,
 	}
 	if err := moduleTemplate.Execute(w, args); err != nil {
 		failf(w, "%w: executing template: %v", errServer, err)
