@@ -23,7 +23,8 @@ type goVersion struct {
 
 func (v goVersion) String() string {
 	s := fmt.Sprintf("go%d.%d", v.major, v.minor)
-	if v.patch > 0 {
+	// Per go1.21, the first release is go1.21.0.
+	if v.patch > 0 || v.major == 1 && v.minor >= 21 {
 		s += fmt.Sprintf(".%d", v.patch)
 	}
 	s += v.more
