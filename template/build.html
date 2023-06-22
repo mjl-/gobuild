@@ -15,6 +15,10 @@
 	{{ end }}
 	</h1>
 
+{{ if ne .NewerText "" }}
+	<div><span style="background-color: #ffdc9b; display: inline-block; padding: .25ex .5ex; border-radius: .25ex">{{ .NewerText }}:</span> <a href="{{ .NewerURL }}">{{ .NewerURL }}</a></div>
+{{ end }}
+
 {{ if .Success }}
 	<h2>Download</h2>
 	<table>

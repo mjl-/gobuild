@@ -34,8 +34,9 @@ func serveIndex(w http.ResponseWriter, r *http.Request, bs buildSpec, br *buildR
 		Active  bool
 	}
 	type response struct {
-		Err          error
-		VersionLinks []versionLink
+		Err           error
+		LatestVersion string
+		VersionLinks  []versionLink
 	}
 
 	// Do a lookup to the goproxy in the background, to list the module versions.
@@ -48,30 +49,30 @@ func serveIndex(w http.ResponseWriter, r *http.Request, bs buildSpec, br *buildR
 
 		modPath, err := module.EscapePath(bs.Mod)
 		if err != nil {
-			c <- response{fmt.Errorf("bad module path: %v", err), nil}
+			c <- response{fmt.Errorf("bad module path: %v", err), "", nil}
 			return
 		}
 		u := fmt.Sprintf("%s%s/@v/list", config.GoProxy, modPath)
 		mreq, err := http.NewRequestWithContext(r.Context(), "GET", u, nil)
 		if err != nil {
-			c <- response{fmt.Errorf("%w: preparing new http request: %v", errServer, err), nil}
+			c <- response{fmt.Errorf("%w: preparing new http request: %v", errServer, err), "", nil}
 			return
 		}
 		mreq.Header.Set("User-Agent", userAgent)
 		resp, err := http.DefaultClient.Do(mreq)
 		if err != nil {
-			c <- response{fmt.Errorf("%w: http request: %v", errServer, err), nil}
+			c <- response{fmt.Errorf("%w: http request: %v", errServer, err), "", nil}
 			return
 		}
 		defer resp.Body.Close()
 		if resp.StatusCode != 200 {
 			metricGoproxyListErrors.WithLabelValues(fmt.Sprintf("%d", resp.StatusCode)).Inc()
-			c <- response{fmt.Errorf("%w: http responss from goproxy: %v", errRemote, resp.Status), nil}
+			c <- response{fmt.Errorf("%w: http response from goproxy: %v", errRemote, resp.Status), "", nil}
 			return
 		}
 		buf, err := io.ReadAll(resp.Body)
 		if err != nil {
-			c <- response{fmt.Errorf("%w: reading versions from goproxy: %v", errRemote, err), nil}
+			c <- response{fmt.Errorf("%w: reading versions from goproxy: %v", errRemote, err), "", nil}
 			return
 		}
 		l := []versionLink{}
@@ -88,7 +89,11 @@ func serveIndex(w http.ResponseWriter, r *http.Request, bs buildSpec, br *buildR
 		sort.Slice(l, func(i, j int) bool {
 			return semver.Compare(l[i].Version, l[j].Version) > 0
 		})
-		c <- response{nil, l}
+		var latestVersion string
+		if len(l) > 0 {
+			latestVersion = l[0].Version
+		}
+		c <- response{nil, latestVersion, l}
 	}()
 
 	// Non-emptiness means we'll serve the error page instead of doing a SSE request for events.
@@ -114,7 +119,7 @@ func serveIndex(w http.ResponseWriter, r *http.Request, bs buildSpec, br *buildR
 		Active    bool
 	}
 	goversionLinks := []goversionLink{}
-	_, supported, remaining := installedSDK()
+	newestAllowed, supported, remaining := installedSDK()
 	for _, goversion := range supported {
 		gvbs := bs
 		gvbs.Goversion = goversion
@@ -165,6 +170,21 @@ func serveIndex(w http.ResponseWriter, r *http.Request, bs buildSpec, br *buildR
 		prependDir = ""
 	}
 
+	var newerText, newerURL string
+	if xreq.Goversion != newestAllowed && newestAllowed != "" && xreq.Version != resp.LatestVersion && resp.LatestVersion != "" {
+		newerText = "A newer version of both this module and the Go toolchain is available"
+	} else if xreq.Version != resp.LatestVersion && resp.LatestVersion != "" {
+		newerText = "A newer version of this module is available"
+	} else if xreq.Goversion != newestAllowed && newestAllowed != "" {
+		newerText = "A newer Go toolchain version available"
+	}
+	if newerText != "" {
+		nbs := bs
+		nbs.Version = resp.LatestVersion
+		nbs.Goversion = newestAllowed
+		newerURL = request{nbs, "", pageIndex}.link()
+	}
+
 	favicon := "/favicon.ico"
 	if output != "" {
 		favicon = "/favicon-error.png"
@@ -188,6 +208,8 @@ func serveIndex(w http.ResponseWriter, r *http.Request, bs buildSpec, br *buildR
 		"GobuildPlatform":        gobuildPlatform,
 		"VerifierKey":            config.VerifierKey,
 		"GobuildsOrgVerifierKey": gobuildsOrgVerifierKey,
+		"NewerText":              newerText,
+		"NewerURL":               newerURL,
 
 		// Whether we will do SSE request for updates.
 		"InProgress": br.Sum == "" && output == "",
