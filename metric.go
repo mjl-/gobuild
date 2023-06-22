@@ -93,6 +93,13 @@ var (
 		},
 		[]string{"baseurl", "goos", "goarch", "goversion"},
 	)
+	metricVerifyMismatch = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "gobuild_verify_mismatch_total",
+			Help: "Number of sum mismatches with other backends.",
+		},
+		[]string{"baseurl", "goos", "goarch", "goversion"},
+	)
 
 	metricTlogAddErrors = promauto.NewCounter(
 		prometheus.CounterOpts{

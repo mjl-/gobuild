@@ -34,10 +34,10 @@ func serveHome(w http.ResponseWriter, r *http.Request) {
 		}
 
 		var args = struct {
-			Favicon        string
-			Recents        []string
-			VerifierKey    string
-			GobuildVersion string
+			Favicon         string
+			Recents         []string
+			VerifierKey     string
+			GobuildVersion  string
 			GobuildPlatform string
 		}{
 			"favicon.ico",
