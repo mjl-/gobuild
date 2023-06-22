@@ -38,11 +38,13 @@ func serveHome(w http.ResponseWriter, r *http.Request) {
 			Recents        []string
 			VerifierKey    string
 			GobuildVersion string
+			GobuildPlatform string
 		}{
 			"favicon.ico",
 			recentLinks,
 			config.VerifierKey,
 			gobuildVersion,
+			gobuildPlatform,
 		}
 		if err := homeTemplate.Execute(w, args); err != nil {
 			failf(w, "%w: executing template: %v", errServer, err)

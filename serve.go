@@ -42,6 +42,7 @@ var (
 	emptyDir string
 
 	gobuildVersion = "(no module)"
+	gobuildPlatform = runtime.GOOS + "/" + runtime.GOARCH
 
 	// We keep track of the 10 most recent successful builds to display on home page.
 	recentBuilds struct {

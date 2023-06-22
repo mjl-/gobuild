@@ -185,6 +185,7 @@ func serveIndex(w http.ResponseWriter, r *http.Request, bs buildSpec, br *buildR
 		"DownloadFilename":       xreq.downloadFilename(),
 		"PkgGoDevURL":            pkgGoDevURL,
 		"GobuildVersion":         gobuildVersion,
+		"GobuildPlatform":         gobuildPlatform,
 		"VerifierKey":            config.VerifierKey,
 		"GobuildsOrgVerifierKey": gobuildsOrgVerifierKey,
 

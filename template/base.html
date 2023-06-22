@@ -42,7 +42,7 @@ var { color: #111; font-style: normal; }
 	<body>
 		<div style="margin:1rem 1rem 3rem 1rem">
 {{ template "content" . }}
-			<p style="text-align: center; margin-top: 2rem; font-size: .85rem; color: #888"><a style="color:#888" href="https://github.com/mjl-/gobuild">gobuild</a> {{ .GobuildVersion }}</p>
+			<p style="text-align: center; margin-top: 2rem; font-size: .85rem; color: #888"><a style="color:#888" href="https://github.com/mjl-/gobuild">gobuild</a> {{ .GobuildVersion }} on {{ .GobuildPlatform }}</p>
 		</div>
 {{ template "script" . }}
 	</body>
