@@ -17,6 +17,7 @@ type buildSpec struct {
 	Goos      string
 	Goarch    string
 	Goversion string
+	Stripped  bool
 }
 
 // filename to store the binary as. With .exe for windows.
@@ -46,7 +47,11 @@ func (bs buildSpec) appendDir() string {
 // Used in transparency log lookups, and used to calculate directory where build results are stored.
 // Can be parsed with parseBuildSpec.
 func (bs buildSpec) String() string {
-	return fmt.Sprintf("%s@%s/%s%s-%s-%s/", bs.Mod, bs.Version, bs.appendDir(), bs.Goos, bs.Goarch, bs.Goversion)
+	var variant string
+	if bs.Stripped {
+		variant = "-stripped"
+	}
+	return fmt.Sprintf("%s@%s/%s%s-%s-%s%s/", bs.Mod, bs.Version, bs.appendDir(), bs.Goos, bs.Goarch, bs.Goversion, variant)
 }
 
 // GOBIN-relative name of file created by "go get". Used as key to prevent
@@ -80,12 +85,12 @@ type buildResult struct {
 	Sum      string
 }
 
-// Parse string of the form: module@version/dir/goos-goarch-goversion/.
+// Parse string of the form: module@version/dir/goos-goarch-goversion[-stripped]/.
 // String generates strings that parseBuildSpec parses.
 func parseBuildSpec(s string) (buildSpec, error) {
 	bs := buildSpec{}
 
-	// First peel off goos-goarch-goversion/ from end.
+	// First peel off goos-goarch-goversion[-stripped]/ from end.
 	if !strings.HasSuffix(s, "/") {
 		return bs, fmt.Errorf("missing trailing slash")
 	}
@@ -95,8 +100,8 @@ func parseBuildSpec(s string) (buildSpec, error) {
 	s = s[:len(s)-len(last)]
 
 	t = strings.Split(last, "-")
-	if len(t) != 3 {
-		return bs, fmt.Errorf("bad goos-goarch-goversion %q", last)
+	if len(t) != 3 && len(t) != 4 {
+		return bs, fmt.Errorf("bad goos-goarch-goversion[-stripped] %q", last)
 	}
 	bs.Goos = t[0]
 	bs.Goarch = t[1]
@@ -104,6 +109,12 @@ func parseBuildSpec(s string) (buildSpec, error) {
 		return bs, fmt.Errorf("unsupported target %s/%s", bs.Goos, bs.Goarch)
 	}
 	bs.Goversion = t[2]
+	if len(t) == 4 {
+		if t[3] != "stripped" {
+			return bs, fmt.Errorf("unrecognized variant %s", t[3])
+		}
+		bs.Stripped = true
+	}
 
 	t = strings.SplitN(s, "@", 2)
 	if len(t) != 2 {
@@ -189,18 +200,32 @@ func parseRecord(data []byte) (*buildResult, error) {
 	}
 	msg = msg[:len(msg)-1]
 	t := strings.Split(msg, " ")
-	if len(t) != 8 {
-		return nil, fmt.Errorf("bad record, got %d records, expected 8", len(t))
+	if len(t) != 8 && len(t) != 9 {
+		return nil, fmt.Errorf("bad record, got %d records, expected 8 or 9", len(t))
 	}
 	size, err := strconv.ParseInt(t[6], 10, 64)
 	if err != nil {
 		return nil, fmt.Errorf("bad filesize %s: %v", t[6], err)
 	}
-	br := &buildResult{buildSpec{t[0], t[1], t[2], t[3], t[4], t[5]}, size, t[7]}
+	var stripped bool
+	if len(t) == 9 {
+		switch t[8] {
+		case "":
+		case "stripped":
+			stripped = true
+		default:
+			return nil, fmt.Errorf("bad variant %s", t[8])
+		}
+	}
+	br := &buildResult{buildSpec{t[0], t[1], t[2], t[3], t[4], t[5], stripped}, size, t[7]}
 	return br, nil
 }
 
 func (br buildResult) packRecord() ([]byte, error) {
+	var variant string
+	if br.Stripped {
+		variant = "stripped"
+	}
 	fields := []string{
 		br.Mod,
 		br.Version,
@@ -210,6 +235,7 @@ func (br buildResult) packRecord() ([]byte, error) {
 		br.Goversion,
 		fmt.Sprintf("%d", br.Filesize),
 		br.Sum,
+		variant,
 	}
 	for i, f := range fields {
 		if f == "" {

@@ -36,6 +36,7 @@ func get(args []string) {
 		goversion   = flags.String("goversion", "latest", `Go toolchain/SDK version. Default "latest" resolves through go.dev/dl/, caching results for 1 hour.`)
 		download    = flags.Bool("download", true, "Download binary.")
 		goproxy     = flags.String("goproxy", "https://proxy.golang.org", `Go proxy to use for resolving "latest" module versions.`)
+		stripped    = flags.Bool("stripped", false, "Retrieve binary without symbol table and debug information.")
 	)
 
 	flags.Usage = func() {
@@ -76,6 +77,9 @@ func get(args []string) {
 		}
 		bs.Goos = t[0]
 		bs.Goarch = t[1]
+	}
+	if *stripped {
+		bs.Stripped = true
 	}
 
 	// Resolve latest version of go if needed.

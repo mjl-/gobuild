@@ -152,6 +152,24 @@ func serveIndex(w http.ResponseWriter, r *http.Request, bs buildSpec, br *buildR
 		targetLinks = append(targetLinks, targetLink{target.Goos, target.Goarch, p, success, p == xlink})
 	}
 
+	type variantLink struct {
+		Variant string // "default" or "stripped"
+		Title   string // Displayed on hover in UI.
+		URLPath string
+		Success bool
+		Active  bool
+	}
+	var variantLinks []variantLink
+	addVariant := func(v, title string, stripped bool) {
+		vbs := bs
+		vbs.Stripped = stripped
+		success := fileExists(filepath.Join(vbs.storeDir(), "recordnumber"))
+		p := request{vbs, "", pageIndex}.link()
+		variantLinks = append(variantLinks, variantLink{v, title, p, success, p == xlink})
+	}
+	addVariant("default", "", false)
+	addVariant("stripped", "Symbol table and debug information stripped, reducing binary size.", true)
+
 	pkgGoDevURL := "https://pkg.go.dev/" + path.Join(bs.Mod+"@"+bs.Version, bs.Dir[1:]) + "?tab=doc"
 
 	resp := <-c
@@ -200,6 +218,7 @@ func serveIndex(w http.ResponseWriter, r *http.Request, bs buildSpec, br *buildR
 		"DirPrepend":             prependDir,       // eg "" or /cmd/x"
 		"GoversionLinks":         goversionLinks,
 		"TargetLinks":            targetLinks,
+		"VariantLinks":           variantLinks,
 		"Mod":                    resp,
 		"GoProxy":                config.GoProxy,
 		"DownloadFilename":       xreq.downloadFilename(),

@@ -3,7 +3,7 @@
 	<p><a href="/">&lt; Home</a></p>
 	<h1>
 		<div class="charwrap">{{ .Req.Mod }}@{{ .Req.Version }}{{ .Req.Dir }}</div>
-		<div class="charwrap">{{ .Req.Goos }}/{{ .Req.Goarch }} {{ .Req.Goversion }}</div>
+		<div class="charwrap">{{ .Req.Goos }}/{{ .Req.Goarch }} {{ .Req.Goversion }}{{ if .Req.Stripped }} stripped{{ end }}</div>
 	{{ if .Success -}}
 		<div class="charwrap"><span style="cursor:pointer" onclick="return copyOneliner()" title="SHA256 hash of the binary, truncated to 20 bytes, encoded as url-safe base64, with a 0 prepended as a version. You can generate the same hash with the following one-liner (click to copy to clipboard):
 
@@ -32,7 +32,7 @@
 		</tr>
 	</table>
 	<p>To download while <span title="Only if you download with the &quot;gobuild get&quot; command will you verify that the hash shown on this page is present in the signed append-only transparency log, and update your local copy of the log. If you download through the links above, no verification with the transparency log takes place." style="text-decoration: underline; text-decoration-style: dotted">verifying with the transparency log:</span></p>
-	<pre class="command charwrap">gobuild get {{ if ne .VerifierKey .GobuildsOrgVerifierKey }}<span title="This gobuild instance is configured with a non-standard verifierkey (i.e. not for gobuilds.org), so in order to verify the signed append-only transparency log, the (public) verifierkey to check against must be specified on the command-line.">-verifierkey {{ .VerifierKey }}</span> {{ end }}-sum {{ .Sum }} -target {{ .Req.Goos }}/{{ .Req.Goarch }} -goversion {{ .Req.Goversion }} {{ .Req.Mod }}@{{ .Req.Version }}{{ .Req.Dir }}</pre>
+	<pre class="command charwrap">gobuild get {{ if ne .VerifierKey .GobuildsOrgVerifierKey }}<span title="This gobuild instance is configured with a non-standard verifierkey (i.e. not for gobuilds.org), so in order to verify the signed append-only transparency log, the (public) verifierkey to check against must be specified on the command-line.">-verifierkey {{ .VerifierKey }}</span> {{ end }}-sum {{ .Sum }} -target {{ .Req.Goos }}/{{ .Req.Goarch }} -goversion {{ .Req.Goversion }} {{ if .Req.Stripped }}-stripped {{ end }}{{ .Req.Mod }}@{{ .Req.Version }}{{ .Req.Dir }}</pre>
 
 {{ else if .InProgress }}
 	<div id="error" style="display: none">
@@ -65,13 +65,13 @@
 	<h2>More</h2>
 	<ul>
 		<li><a href="log">Build log</a></li>
-		<li><a href="/{{ .Req.Mod }}@latest/{{ .DirAppend }}{{ .Req.Goos }}-{{ .Req.Goarch }}-latest/">{{ .Req.Mod }}@<b>latest</b>/{{ .DirAppend }}{{ .Req.Goos }}-{{ .Req.Goarch }}-<b>latest</b>/</a> (<a href="/{{ .Req.Mod }}@latest/{{ .DirAppend }}{{ .Req.Goos }}-{{ .Req.Goarch }}-latest/dl">direct download</a>)</li>
+		<li><a href="/{{ .Req.Mod }}@latest/{{ .DirAppend }}{{ .Req.Goos }}-{{ .Req.Goarch }}-latest{{ if .Req.Stripped }}-stripped{{ end }}/">{{ .Req.Mod }}@<b>latest</b>/{{ .DirAppend }}{{ .Req.Goos }}-{{ .Req.Goarch }}-<b>latest</b>{{ if .Req.Stripped }}-stripped{{ end }}/</a> (<a href="/{{ .Req.Mod }}@latest/{{ .DirAppend }}{{ .Req.Goos }}-{{ .Req.Goarch }}-latest{{ if .Req.Stripped }}-stripped{{ end }}/dl">direct download</a>)</li>
 		<li>Documentation at <a href="{{ .PkgGoDevURL }}">pkg.go.dev</a></li>
 	</ul>
 
 	<h2>Reproduce</h2>
 	<p>To reproduce locally:</p>
-	<pre class="command charwrap"><span title="Disabled when a (now old) version of the Go toolchain could generate different binaries with concurrent compilation.">GO19CONCURRENTCOMPILATION=0</span> <span title="Use modules, this is the default in current Go toolchain versions">GO111MODULE=on</span> <span title="Only fetch code through the Go module proxy by, never directly connecting to source code repository by leaving out the default &quot;,direct&quot; suffix.">GOPROXY={{ .GoProxy }}</span> <span title="No cgo since it is much harder to create deterministic binaries because much more than just the Go toolchain version would have to be specified.">CGO_ENABLED=0</span> GOOS={{ .Req.Goos }} GOARCH={{ .Req.Goarch }} {{ .Req.Goversion }} install <span title="Do not include working directory during build into binary as that would make reproducing the binary much more cumbersome.">-trimpath</span> <span title="Clear the buildid. It consists of 4 slash-separated hashes. The first hash changes based on Go toolchain platform and/or installation directory. Ideally we would only strip the first hash, but that would require an additional command invocation.">-ldflags=-buildid=</span> -- {{ .Req.Mod }}{{ .DirPrepend }}@{{ .Req.Version }}
+	<pre class="command charwrap"><span title="Disabled when a (now old) version of the Go toolchain could generate different binaries with concurrent compilation.">GO19CONCURRENTCOMPILATION=0</span> <span title="Use modules, this is the default in current Go toolchain versions">GO111MODULE=on</span> <span title="Only fetch code through the Go module proxy by, never directly connecting to source code repository by leaving out the default &quot;,direct&quot; suffix.">GOPROXY={{ .GoProxy }}</span> <span title="No cgo since it is much harder to create deterministic binaries because much more than just the Go toolchain version would have to be specified.">CGO_ENABLED=0</span> GOOS={{ .Req.Goos }} GOARCH={{ .Req.Goarch }} {{ .Req.Goversion }} install <span title="Do not include working directory during build into binary as that would make reproducing the binary much more cumbersome.">-trimpath</span> <span title="Clear the buildid. It consists of 4 slash-separated hashes. The first hash changes based on Go toolchain platform and/or installation directory. Ideally we would only strip the first hash, but that would require an additional command invocation.">{{ if .Req.Stripped }}-ldflags='-buildid= -s'{{ else }}-ldflags='-buildid='{{ end }}</span> -- {{ .Req.Mod }}{{ .DirPrepend }}@{{ .Req.Version }}
 	</pre>
 
 	<div style="display:flex; flex-wrap:wrap; justify-content:space-between; max-width: 50rem">
@@ -92,6 +92,11 @@
 		<div>
 			<h2>Go versions</h2>
 		{{ range .GoversionLinks }}	<div><a href="{{ .URLPath }}" class="buildlink{{ if .Active }} active{{ end }} {{ if not .Supported }} unsupported{{ end }}">{{ .Goversion }}</a>{{ if .Success }}<span class="success">✓</span>{{ end }}</div>{{ end }}
+		</div>
+
+		<div>
+			<h2>Variants</h2>
+		{{ range .VariantLinks }}	<div><a href="{{ .URLPath }}" class="buildlink{{ if .Active }} active{{ end }}" title="{{ .Title }}">{{ .Variant }}</a>{{ if .Success }}<span class="success">✓</span>{{ end }}</div>{{ end }}
 		</div>
 	</div>
 {{ end }}

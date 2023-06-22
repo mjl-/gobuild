@@ -70,6 +70,8 @@ To build, gobuild executes:
 		CGO_ENABLED=0 GOOS=$goos GOARCH=$goarch \
 		$goversion install -x -v -trimpath -ldflags=-buildid= -- $module/$package@$version
 
+For the stripped variant, -ldflags="-buildid= -s" is used.
+
 # Why gobuild
 
 Get binaries for any module without having a Go toolchain installed: Useful when

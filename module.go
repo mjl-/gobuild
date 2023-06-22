@@ -43,7 +43,7 @@ func serveModules(w http.ResponseWriter, r *http.Request) {
 
 	goos, goarch := autodetectTarget(r)
 
-	bs := buildSpec{mod, info.Version, "", goos, goarch, goversion}
+	bs := buildSpec{mod, info.Version, "", goos, goarch, goversion, false}
 
 	mainDirs, err := listMainPackages(gobin, modDir)
 	if err != nil {

@@ -223,11 +223,15 @@ func build(bs buildSpec) (int64, *buildResult, string, error) {
 	if err != nil {
 		return -1, nil, "", fmt.Errorf("%w: %s", errBadGoversion, err)
 	}
+	ldflags := "-buildid="
+	if bs.Stripped {
+		ldflags += " -s"
+	}
 	if gv.major == 1 && gv.minor >= 18 {
 		// Since Go1.18 we need to use "go install" to compile external programs.
-		cmd = makeCommand(goproxy, emptyDir, cgo, moreEnv, gobin, "install", "-x", "-v", "-trimpath", "-ldflags=-buildid=", "--", name)
+		cmd = makeCommand(goproxy, emptyDir, cgo, moreEnv, gobin, "install", "-x", "-v", "-trimpath", "-ldflags="+ldflags, "--", name)
 	} else {
-		cmd = makeCommand(goproxy, emptyDir, cgo, moreEnv, gobin, "get", "-x", "-v", "-trimpath", "-ldflags=-buildid=", "--", name)
+		cmd = makeCommand(goproxy, emptyDir, cgo, moreEnv, gobin, "get", "-x", "-v", "-trimpath", "-ldflags="+ldflags, "--", name)
 	}
 	output, err := cmd.CombinedOutput()
 	metricCompileDuration.WithLabelValues(bs.Goos, bs.Goarch, bs.Goversion).Observe(time.Since(t0).Seconds())

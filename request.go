@@ -50,7 +50,11 @@ type request struct {
 
 // Path in URL for this request, for linking to other pages.
 func (r request) link() string {
-	s := fmt.Sprintf("/%s@%s/%s%s-%s-%s/", r.Mod, r.Version, r.appendDir(), r.Goos, r.Goarch, r.Goversion)
+	var variant string
+	if r.Stripped {
+		variant = "-stripped"
+	}
+	s := fmt.Sprintf("/%s@%s/%s%s-%s-%s%s/", r.Mod, r.Version, r.appendDir(), r.Goos, r.Goarch, r.Goversion, variant)
 	if r.Sum != "" {
 		s += r.Sum + "/"
 	}
@@ -93,7 +97,11 @@ func (r request) downloadFilename() string {
 	if r.Goos == "windows" {
 		ext = ".exe"
 	}
-	return fmt.Sprintf("%s-%s-%s%s", name, r.Version, r.Goversion, ext)
+	var variant string
+	if r.Stripped {
+		variant = "-stripped"
+	}
+	return fmt.Sprintf("%s-%s-%s%s%s", name, r.Version, r.Goversion, variant, ext)
 }
 
 func isSum(s string) bool {
