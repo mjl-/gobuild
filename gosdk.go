@@ -137,7 +137,7 @@ func (t *xtargets) valid(target string) bool {
 func (t *xtargets) sort() {
 	n := make([]target, len(t.list))
 	copy(n, t.list)
-	sort.Slice(n, func(i, j int) bool {
+	sort.SliceStable(n, func(i, j int) bool {
 		return t.use[n[i].osarch()] > t.use[n[j].osarch()]
 	})
 	t.list = n
