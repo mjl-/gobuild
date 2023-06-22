@@ -354,7 +354,7 @@ func serve(args []string) {
 
 	httpErrorLog := log.New(httpErrorWriter, "", log.LstdFlags)
 
-	msg := "listening on"
+	msg := fmt.Sprintf("gobuild %s, listening on", gobuildVersion)
 	if *listenHTTP != "" {
 		msg += " http " + *listenHTTP
 		go func() {
