@@ -95,7 +95,7 @@ indeed reproducible.
 A central service like gobuilds.org that provides binaries is an attractive
 target for attackers. By only building code available through the Go module
 proxy, and only building with official Go toolchains, the options for attack are
-limited. Further security measures are the isolation of the gobuild proces and
+limited. Further security measures are the isolation of the gobuild process and
 of the build commands (minimal file system view, mostly read-only; limited
 network; disallowing escalation of privileges).
 

@@ -55,7 +55,7 @@ func serveBuild(w http.ResponseWriter, r *http.Request, req request) {
 			}
 			// Just a sanity check that we aren't removing successful build results.
 			if _, err := os.Stat(filepath.Join(dir, "recordnumber")); err == nil {
-				os.Rename(tmpdir, dir) // Attemp to restore order...
+				os.Rename(tmpdir, dir) // Attempt to restore order...
 				failf(w, "%w: directory with failed build contains recordnumber-file", errServer)
 				return
 			}
