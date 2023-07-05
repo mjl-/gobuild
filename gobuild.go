@@ -54,7 +54,7 @@ func prepareBuild(bs buildSpec) error {
 		"GOOS=" + bs.Goos,
 		"GOARCH=" + bs.Goarch,
 	}
-	cmd := makeCommand(goproxy, pkgDir, cgo, moreEnv, gobin, "list", "-f", "{{.Name}}")
+	cmd := makeCommand(bs.Goversion, goproxy, pkgDir, cgo, moreEnv, gobin, "list", "-f", "{{.Name}}")
 	stderr := &strings.Builder{}
 	cmd.Stderr = stderr
 	if nameOutput, err := cmd.Output(); err != nil {
@@ -64,7 +64,7 @@ func prepareBuild(bs buildSpec) error {
 	}
 
 	// Check that package does not depend on any cgo.
-	cmd = makeCommand(goproxy, pkgDir, cgo, moreEnv, gobin, "list", "-mod=mod", "-deps", "-f", `{{ if and (not .Standard) .CgoFiles }}{{ .ImportPath }}{{ end }}`)
+	cmd = makeCommand(bs.Goversion, goproxy, pkgDir, cgo, moreEnv, gobin, "list", "-mod=mod", "-deps", "-f", `{{ if and (not .Standard) .CgoFiles }}{{ .ImportPath }}{{ end }}`)
 	stderr = &strings.Builder{}
 	cmd.Stderr = stderr
 	if cgoOutput, err := cmd.Output(); err != nil {
@@ -229,9 +229,9 @@ func build(bs buildSpec) (int64, *buildResult, string, error) {
 	}
 	if gv.major == 1 && gv.minor >= 18 {
 		// Since Go1.18 we need to use "go install" to compile external programs.
-		cmd = makeCommand(goproxy, emptyDir, cgo, moreEnv, gobin, "install", "-x", "-v", "-trimpath", "-ldflags="+ldflags, "--", name)
+		cmd = makeCommand(bs.Goversion, goproxy, emptyDir, cgo, moreEnv, gobin, "install", "-x", "-v", "-trimpath", "-ldflags="+ldflags, "--", name)
 	} else {
-		cmd = makeCommand(goproxy, emptyDir, cgo, moreEnv, gobin, "get", "-x", "-v", "-trimpath", "-ldflags="+ldflags, "--", name)
+		cmd = makeCommand(bs.Goversion, goproxy, emptyDir, cgo, moreEnv, gobin, "get", "-x", "-v", "-trimpath", "-ldflags="+ldflags, "--", name)
 	}
 	output, err := cmd.CombinedOutput()
 	metricCompileDuration.WithLabelValues(bs.Goos, bs.Goarch, bs.Goversion).Observe(time.Since(t0).Seconds())

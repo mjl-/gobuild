@@ -1,3 +1,4 @@
+- Should find a way to make directories non-executable, as measure to prevent the Go toolchain to automatically fetch new toolchains and execute them. Bubblewrap (bwrap) doesn't currently support binding directories non-executable though.
 - Gather additional metrics for the size of the build cache, module cache, packages dir. Update after a build, on request.
 - Can we allow go.mod's with replace directives of other modules available in the go module proxy?
 - Use the primed build cached?

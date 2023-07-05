@@ -425,7 +425,7 @@ func ensurePrimedBuildCache(gobin, goos, goarch, goversion string) error {
 		"GOOS=" + goos,
 		"GOARCH=" + goarch,
 	}
-	cmd := makeCommand(goproxy, emptyDir, cgo, moreEnv, gobin, "build", "-trimpath", "std")
+	cmd := makeCommand(goversion, goproxy, emptyDir, cgo, moreEnv, gobin, "build", "-trimpath", "std")
 	if output, err := cmd.CombinedOutput(); err != nil {
 		log.Printf("go build std: %v\n%s", err, output)
 		return err

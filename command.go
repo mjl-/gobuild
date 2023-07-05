@@ -10,7 +10,7 @@ import (
 // Prepare command, typically for running go get. We sometimes need CGO_ENABLED to
 // properly list the cgo files that would be used during a build. Only set
 // withGoproxy for downloading modules, not doing builds or listing packages.
-func makeCommand(withGoproxy bool, dir string, cgoEnabled bool, extraEnv []string, argv ...string) *exec.Cmd {
+func makeCommand(goversion string, withGoproxy bool, dir string, cgoEnabled bool, extraEnv []string, argv ...string) *exec.Cmd {
 	cgo := "CGO_ENABLED=0"
 	if cgoEnabled {
 		cgo = "CGO_ENABLED=1"
@@ -31,6 +31,7 @@ func makeCommand(withGoproxy bool, dir string, cgoEnabled bool, extraEnv []strin
 		cgo,
 		"GO111MODULE=on",
 		"GO19CONCURRENTCOMPILATION=0",
+		"GOTOOLCHAIN=" + goversion,
 	}
 	switch runtime.GOOS {
 	case "windows":

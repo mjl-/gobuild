@@ -45,7 +45,7 @@ func serveModules(w http.ResponseWriter, r *http.Request) {
 
 	bs := buildSpec{mod, info.Version, "", goos, goarch, goversion, false}
 
-	mainDirs, err := listMainPackages(gobin, modDir)
+	mainDirs, err := listMainPackages(goversion, gobin, modDir)
 	if err != nil {
 		failf(w, "listing main packages in module: %w", err)
 		return
@@ -92,10 +92,10 @@ func serveModules(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func listMainPackages(gobin string, modDir string) ([]string, error) {
+func listMainPackages(goversion, gobin string, modDir string) ([]string, error) {
 	goproxy := true
 	cgo := true
-	cmd := makeCommand(goproxy, modDir, cgo, nil, gobin, "list", "-f", "{{.Name}} {{ .Dir }}", "./...")
+	cmd := makeCommand(goversion, goproxy, modDir, cgo, nil, gobin, "list", "-f", "{{.Name}} {{ .Dir }}", "./...")
 	stderr := &strings.Builder{}
 	cmd.Stderr = stderr
 	output, err := cmd.Output()

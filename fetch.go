@@ -58,9 +58,9 @@ func fetchModule(goversion, gobin, mod, version string) ([]byte, error) {
 		// Go1.18 dropped "go get -d" for downloading modules. Using "go mod download" does
 		// not download all dependencies. So we run a later "go list" with goproxy=true for
 		// Go1.18 and later.
-		cmd = makeCommand(goproxy, emptyDir, cgo, nil, gobin, "mod", "download", "-x", "--", mod+"@"+version)
+		cmd = makeCommand(goversion, goproxy, emptyDir, cgo, nil, gobin, "mod", "download", "-x", "--", mod+"@"+version)
 	} else {
-		cmd = makeCommand(goproxy, emptyDir, cgo, nil, gobin, "get", "-d", "-x", "-v", "--", mod+"@"+version)
+		cmd = makeCommand(goversion, goproxy, emptyDir, cgo, nil, gobin, "get", "-d", "-x", "-v", "--", mod+"@"+version)
 	}
 	if output, err := cmd.CombinedOutput(); err != nil {
 		metricGogetErrors.Inc()

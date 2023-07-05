@@ -80,7 +80,9 @@ command with different module versions, goversions, goos/goarch.</p>
 		<p>Gobuild automatically downloads a Go toolchain (SDK) from <a href="https://go.dev/dl/">https://go.dev/dl/</a> when it is first referenced. It also periodically queries that page for the latest supported releases, for redirecting to the latest supported toolchains.</p>
 		<p>Gobuild can be configured to verify builds with other gobuild instances, requiring all to return the same hash for a build to be considered successful.</p>
 		<p>To build, gobuild executes:</p>
-		<pre class="command">GO19CONCURRENTCOMPILATION=0 GO111MODULE=on GOPROXY=https://proxy.golang.org/ CGO_ENABLED=0 GOOS=$goos GOARCH=$goarch $goversion install -trimpath -ldflags=-buildid= -- $module/$package@$version</pre>
+		<pre class="command">GO19CONCURRENTCOMPILATION=0 GO111MODULE=on GOPROXY=https://proxy.golang.org/ \
+	CGO_ENABLED=0 GOOS=$goos GOARCH=$goarch GOTOOLCHAIN=$goversion \
+	$goversion install -trimpath -ldflags=-buildid= -- $module/$package@$version</pre>
 		<p>For the stripped variant, <code>-ldflags='-buildid= -s'</code> is used.</p>
 		<p>It's easy to run a local or internal gobuild instance. For configuration details, see this <a href="/emptyconfig">empty example config</a>.</p>
 		<p>Code is available at <a href="https://github.com/mjl-/gobuild">github.com/mjl-/gobuild</a>, under MIT-license.</p>

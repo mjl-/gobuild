@@ -67,7 +67,7 @@ It's easy to run a local instance, or an instance internal to your organization.
 To build, gobuild executes:
 
 	GO19CONCURRENTCOMPILATION=0 GO111MODULE=on GOPROXY=https://proxy.golang.org/ \
-		CGO_ENABLED=0 GOOS=$goos GOARCH=$goarch \
+		CGO_ENABLED=0 GOOS=$goos GOARCH=$goarch GOTOOLCHAIN=$goversion \
 		$goversion install -x -v -trimpath -ldflags=-buildid= -- $module/$package@$version
 
 For the stripped variant, -ldflags="-buildid= -s" is used.
