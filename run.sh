@@ -21,6 +21,7 @@ fi
 # Only "go get -d", "go mod download" and "go list" get access to the network.
 net="--unshare-net"
 gopkgbind="--ro-bind"
+morebind=""
 if test "$2" = 'get' -a "$3" = '-d'; then
 	gopkgbind="--bind"
 	net=""
@@ -30,6 +31,12 @@ elif test "$2" = 'mod' -a "$3" = 'download'; then
 elif test "$2" = 'list'; then
 	gopkgbind="--bind"
 	net=""
+elif test "$2" = 'install'; then
+	# go install will check checksums again over the network, even though all are
+	# already present. It also wants to open $HOME/go/pkg/sumdb/sum.golang.org/latest
+	# for writing, even though it won't change (if all is good).
+	net=""
+	morebind="--bind $HOME/go/pkg/sumdb/sum.golang.org/latest $HOME/go/pkg/sumdb/sum.golang.org/latest"
 fi
 
 cachebind="--bind"
@@ -72,6 +79,7 @@ exec /usr/bin/bwrap \
 	--ro-bind $GOSDK $GOSDK \
 	--bind $HOME/.cache $HOME/.cache \
 	$gopkgbind $HOME/go/pkg $HOME/go/pkg \
+	$morebind \
 	$gobinbind \
 	$net \
 	/usr/bin/nice \
