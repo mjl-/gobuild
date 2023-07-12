@@ -194,7 +194,7 @@ func serveIndex(w http.ResponseWriter, r *http.Request, bs buildSpec, br *buildR
 	} else if xreq.Version != resp.LatestVersion && resp.LatestVersion != "" {
 		newerText = "A newer version of this module is available"
 	} else if xreq.Goversion != newestAllowed && newestAllowed != "" {
-		newerText = "A newer Go toolchain version available"
+		newerText = "A newer Go toolchain version is available"
 	}
 	if newerText != "" {
 		nbs := bs
