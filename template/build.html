@@ -37,6 +37,8 @@
 {{ else if .InProgress }}
 	<div id="error" style="display: none">
 		<h2>Error</h2>
+		<div><span style="background-color: #ffdc9b; display: inline-block; padding: .25ex .5ex; border-radius: .25ex">Note: This software possibly does not have support for the selected operating system ("{{ .Req.Goos }}") and architecture ("{{ .Req.Goarch }}").</span> See <a href="#versions">below</a> for other options.</div>
+		<p>The last lines of the following build log typically indicate the failure.</p>
 		<pre class="prewrap" id="errormsg"></pre>
 		<form method="POST" action="retry"><button type="submit">Retry</button></form>
 	</div>
@@ -58,6 +60,8 @@
 	</div>
 {{ else }}
 	<h2>Error</h2>
+	<div><span style="background-color: #ffdc9b; display: inline-block; padding: .25ex .5ex; border-radius: .25ex">Note: This software possibly does not have support for the selected operating system ("{{ .Req.Goos }}") and architecture ("{{ .Req.Goarch }}").</span> See <a href="#versions">below</a> for other options.</div>
+	<p>The last lines of the following build log typically indicate the failure.</p>
 	<pre class="prewrap">{{ .Output }}</pre>
 	<form method="POST" action="retry"><button type="submit">Retry</button></form>
 {{ end }}
@@ -74,7 +78,7 @@
 	<pre class="command charwrap"><span title="Disabled when a (now old) version of the Go toolchain could generate different binaries with concurrent compilation.">GO19CONCURRENTCOMPILATION=0</span> <span title="Use modules, this is the default in current Go toolchain versions">GO111MODULE=on</span> <span title="Only fetch code through the Go module proxy by, never directly connecting to source code repository by leaving out the default &quot;,direct&quot; suffix.">GOPROXY={{ .GoProxy }}</span> <span title="No cgo since it is much harder to create deterministic binaries because much more than just the Go toolchain version would have to be specified.">CGO_ENABLED=0</span> GOOS={{ .Req.Goos }} GOARCH={{ .Req.Goarch }} {{ .Req.Goversion }} <span title="Since Go 1.21, the toolchain directive in go.mod sets a toolchain to use, which could automatically build with a newer Go toolchain, which Go wants to download automatically. In gobuild, we always build with exactly the requested toolchain. You can always select a newer toolchain if needed.">GOTOOLCHAIN={{ .Req.Goversion }}</span> install <span title="Do not include working directory during build into binary as that would make reproducing the binary much more cumbersome.">-trimpath</span> <span title="Clear the buildid. It consists of 4 slash-separated hashes. The first hash changes based on Go toolchain platform and/or installation directory. Ideally we would only strip the first hash, but that would require an additional command invocation.">{{ if .Req.Stripped }}-ldflags='-buildid= -s'{{ else }}-ldflags='-buildid='{{ end }}</span> -- {{ .Req.Mod }}{{ .DirPrepend }}@{{ .Req.Version }}
 	</pre>
 
-	<div style="display:flex; flex-wrap:wrap; justify-content:space-between; max-width: 50rem">
+	<div style="display:flex; flex-wrap:wrap; justify-content:space-between; max-width: 50rem" id="versions">
 		<div>
 			<h2>Module versions</h2>
 		{{ if .Mod.Err }}
