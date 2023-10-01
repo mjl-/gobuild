@@ -29,13 +29,13 @@ func serveModules(w http.ResponseWriter, r *http.Request) {
 		failf(w, "ensuring most recent goversion: %w", err)
 		return
 	}
-	gobin, err := ensureGobin(goversion)
+	gobin, err := ensureGobin(goversion.String())
 	if err != nil {
 		failf(w, "%w", err)
 		return
 	}
 
-	modDir, getOutput, err := ensureModule(goversion, gobin, mod, info.Version)
+	modDir, getOutput, err := ensureModule(goversion.String(), gobin, mod, info.Version)
 	if err != nil {
 		failf(w, "error fetching module from goproxy: %w\n\n# output from go get:\n%s", err, string(getOutput))
 		return
@@ -43,7 +43,7 @@ func serveModules(w http.ResponseWriter, r *http.Request) {
 
 	goos, goarch := autodetectTarget(r)
 
-	bs := buildSpec{mod, info.Version, "", goos, goarch, goversion, false}
+	bs := buildSpec{mod, info.Version, "", goos, goarch, goversion.String(), false}
 
 	mainDirs, err := listMainPackages(goversion, gobin, modDir)
 	if err != nil {
@@ -92,10 +92,16 @@ func serveModules(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func listMainPackages(goversion, gobin string, modDir string) ([]string, error) {
+func listMainPackages(goversion goVersion, gobin string, modDir string) ([]string, error) {
 	goproxy := true
 	cgo := true
-	cmd := makeCommand(goversion, goproxy, modDir, cgo, nil, gobin, "list", "-f", "{{.Name}} {{ .Dir }}", "./...")
+
+	argv := []string{gobin, "list"}
+	if goversion.major == 1 && (goversion.minor == 21 && goversion.patch >= 1 || goversion.minor > 21) {
+		argv = append(argv, "-mod=readonly")
+	}
+	argv = append(argv, "-f", "{{.Name}} {{ .Dir }}", "./...")
+	cmd := makeCommand(goversion.String(), goproxy, modDir, cgo, nil, argv...)
 	stderr := &strings.Builder{}
 	cmd.Stderr = stderr
 	output, err := cmd.Output()

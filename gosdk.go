@@ -207,15 +207,16 @@ func sdkUpdateInstalledList() {
 	sdk.installedList = l
 }
 
-func ensureMostRecentSDK() (string, error) {
+func ensureMostRecentSDK() (goVersion, error) {
 	newestAllowed, _, _ := installedSDK()
 	if newestAllowed == "" {
-		return "", fmt.Errorf("%w: no supported go versions", errServer)
+		return goVersion{}, fmt.Errorf("%w: no supported go versions", errServer)
 	}
-	if err := ensureSDK(newestAllowed); err != nil {
-		return "", err
+	if gv, err := ensureSDK(newestAllowed); err != nil {
+		return goVersion{}, err
+	} else {
+		return gv, nil
 	}
-	return newestAllowed, nil
 }
 
 func installedSDK() (newestAllowed string, supported []string, remainingAvailable []string) {
@@ -302,20 +303,20 @@ func parseGoVersion(s string) (goVersion, error) {
 	return r, nil
 }
 
-func ensureSDK(goversion string) error {
+func ensureSDK(goversion string) (goVersion, error) {
 	gv, err := parseGoVersion(goversion)
 	if err != nil {
-		return fmt.Errorf("%w: %s", errBadGoversion, err)
+		return goVersion{}, fmt.Errorf("%w: %s", errBadGoversion, err)
 	}
 	if sdkVersionStop != nil && gv.num() >= sdkVersionStop.num() {
-		return fmt.Errorf("%w: version equal or newer than %s not allowed by config", errBadGoversion, sdkVersionStop.String())
+		return goVersion{}, fmt.Errorf("%w: version equal or newer than %s not allowed by config", errBadGoversion, sdkVersionStop.String())
 	}
 
 	// See if this is an SDK we know we have installed.
 	sdk.Lock()
 	if _, ok := sdk.installed[goversion]; ok {
 		sdk.Unlock()
-		return nil
+		return gv, nil
 	}
 	sdk.Unlock()
 
@@ -326,14 +327,14 @@ func ensureSDK(goversion string) error {
 	sdk.fetch.Lock()
 	defer sdk.fetch.Unlock()
 	if err, ok := sdk.fetch.status[goversion]; ok {
-		return err
+		return goVersion{}, err
 	}
 
 	rels, err := goreleases.ListAll()
 	if err != nil {
 		err = fmt.Errorf("%w: listing known releases: %v", errRemote, err)
 		sdk.fetch.status[goversion] = err
-		return err
+		return goVersion{}, err
 	}
 	for _, rel := range rels {
 		if rel.Version != goversion {
@@ -344,13 +345,13 @@ func ensureSDK(goversion string) error {
 		if err != nil {
 			err = fmt.Errorf("%w: finding release file: %v", errServer, err)
 			sdk.fetch.status[goversion] = err
-			return err
+			return goVersion{}, err
 		}
 		tmpdir, err := os.MkdirTemp(config.SDKDir, "tmpsdk")
 		if err != nil {
 			err = fmt.Errorf("%w: making tempdir for sdk: %v", errServer, err)
 			sdk.fetch.status[goversion] = err
-			return err
+			return goVersion{}, err
 		}
 		defer os.RemoveAll(tmpdir)
 
@@ -359,7 +360,7 @@ func ensureSDK(goversion string) error {
 		if err := goreleases.Fetch(f, tmpdir, nil); err != nil {
 			err = fmt.Errorf("%w: installing sdk: %v", errServer, err)
 			sdk.fetch.status[goversion] = err
-			return err
+			return goVersion{}, err
 		}
 		gobin := filepath.Join(tmpdir, "go", "bin", "go"+goexe())
 		if !filepath.IsAbs(gobin) {
@@ -371,11 +372,11 @@ func ensureSDK(goversion string) error {
 		if err := ensurePrimedBuildCache(gobin, runtime.GOOS, runtime.GOARCH, goversion); err != nil {
 			err = fmt.Errorf("%w: priming build cache: %v", errServer, err)
 			sdk.fetch.status[goversion] = err
-			return err
+			return goVersion{}, err
 		} else if err := os.Rename(filepath.Join(tmpdir, "go"), filepath.Join(config.SDKDir, goversion)); err != nil {
 			err = fmt.Errorf("%w: putting sdk in place: %v", errServer, err)
 			sdk.fetch.status[goversion] = err
-			return err
+			return goVersion{}, err
 		} else {
 			sdk.fetch.status[goversion] = nil
 
@@ -384,13 +385,13 @@ func ensureSDK(goversion string) error {
 			sdk.installed[goversion] = struct{}{}
 			sdkUpdateInstalledList()
 		}
-		return nil
+		return gv, nil
 	}
 
 	// Release not found. It may be a future release. Don't mark it as
 	// tried-and-failed.
 	// We may want to ratelimit how often we ask...
-	return fmt.Errorf("%w: no such version", errBadGoversion)
+	return goVersion{}, fmt.Errorf("%w: no such version", errBadGoversion)
 }
 
 func goexe() string {
