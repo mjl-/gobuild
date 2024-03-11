@@ -6,13 +6,12 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 )
 
-func fetchZip(file File, dst string, permissions *Permissions) error {
+func fetchZip(f *os.File, file File, dst string, permissions *Permissions) error {
 	fi, err := os.Stat(dst)
 	if err != nil {
 		return err
@@ -28,18 +27,8 @@ func fetchZip(file File, dst string, permissions *Permissions) error {
 
 	dst = filepath.Clean(dst)
 
-	url := "https://go.dev/dl/" + file.Filename
-	resp, err := http.Get(url)
-	if err != nil {
-		return fmt.Errorf("downloading file: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		return fmt.Errorf("downloading file: status %d: %s", resp.StatusCode, resp.Status)
-	}
-
 	b := &bytes.Buffer{}
-	hr := &hashReader{resp.Body, sha256.New()}
+	hr := &hashReader{f, sha256.New()}
 	_, err = io.Copy(b, hr)
 	if err != nil {
 		return fmt.Errorf("fetching zip file: %v", err)

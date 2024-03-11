@@ -6,12 +6,11 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"path/filepath"
 )
 
-func fetchTgz(file File, dst string, permissions *Permissions) error {
+func fetchTgz(f *os.File, file File, dst string, permissions *Permissions) error {
 	fi, err := os.Stat(dst)
 	if err != nil && os.IsNotExist(err) {
 		return fmt.Errorf("dst does not exist")
@@ -30,18 +29,7 @@ func fetchTgz(file File, dst string, permissions *Permissions) error {
 
 	dst = filepath.Clean(dst)
 
-	url := "https://go.dev/dl/" + file.Filename
-	resp, err := http.Get(url)
-	if err != nil {
-		return fmt.Errorf("downloading file: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		return fmt.Errorf("downloading file: status %d: %s", resp.StatusCode, resp.Status)
-	}
-
-	hr := &hashReader{resp.Body, sha256.New()}
-
+	hr := &hashReader{f, sha256.New()}
 	gzr, err := gzip.NewReader(hr)
 	if err != nil {
 		return fmt.Errorf("gzip reader: %s", err)
