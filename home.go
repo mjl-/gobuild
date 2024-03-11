@@ -88,6 +88,22 @@ func serveHome(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// If last part contains an "@" and no part before it does, and last part doesn't
+	// have a slash, we'll assume a path like /github.com/mjl-/sherpa@v0.6.0 and
+	// redirect to a path with guessed goos/goarch and latest goversion.
+	if mod, version, _ := strings.Cut(r.URL.Path[1:], "@"); mod != "" && version != "" && !strings.Contains(version, "@") && !strings.Contains(version, "/") {
+		goversion, err := ensureMostRecentSDK()
+		if err != nil {
+			http.Error(w, "500 - Internal Server Error - "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		goos, goarch := autodetectTarget(r)
+		bs := buildSpec{mod, version, "/", goos, goarch, goversion.String(), false}
+		req := request{bs, "", pageIndex}
+		http.Redirect(w, r, req.link(), http.StatusTemporaryRedirect)
+		return
+	}
+
 	req, hint, ok := parseRequest(r.URL.Path)
 	if !ok {
 		if hint != "" {

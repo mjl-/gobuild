@@ -11,6 +11,7 @@ it. Gobuild aims to do the same for binaries.
 You can compose URLs to a specific module, build or result:
 
 	/<module>
+	/<module>@<version>
 	/<module>@<version>/<package>/<goos>-<goarch>-<goversion>/
 	/<module>@<version>/<package>/<goos>-<goarch>-<goversion>/<sum>/
 

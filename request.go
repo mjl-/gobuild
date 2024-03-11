@@ -119,7 +119,6 @@ func isSum(s string) bool {
 // with optional sum.
 func parseRequest(s string) (r request, hint string, ok bool) {
 	if s == "" {
-		hint = ""
 		return
 	}
 
