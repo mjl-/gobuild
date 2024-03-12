@@ -91,9 +91,20 @@ func (s serverOps) Lookup(ctx context.Context, key string) (results int64, rerr 
 		return -1, os.ErrNotExist
 	}
 
+	if bs.Goversion == "latest" {
+		bs.Goversion, _, _ = installedSDK()
+	}
+
 	if !targets.valid(bs.Goos + "/" + bs.Goarch) {
 		return -1, os.ErrNotExist
 	}
+
+	// Resolve module version. Could be a git hash.
+	info, err := resolveModuleVersion(ctx, bs.Mod, bs.Version)
+	if err != nil {
+		return -1, err
+	}
+	bs.Version = info.Version
 
 	p := filepath.Join(bs.storeDir(), "recordnumber")
 	if buf, err := os.ReadFile(p); err != nil {

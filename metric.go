@@ -9,19 +9,12 @@ import (
 )
 
 var (
-	metricGoproxyLatestDuration = promauto.NewHistogram(
+	metricGoproxyResolveVersionDuration = promauto.NewHistogram(
 		prometheus.HistogramOpts{
-			Name:    "gobuild_goproxy_latest_duration_seconds",
-			Help:    "Duration of request to goproxy to resolve latest module version in seconds.",
+			Name:    "gobuild_goproxy_resolve_version_duration_seconds",
+			Help:    "Duration of request to goproxy to resolve module version in seconds.",
 			Buckets: []float64{0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2, 4, 8, 16, 32, 64, 128},
 		},
-	)
-	metricGoproxyLatestErrors = promauto.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "gobuild_goproxy_latest_errors_total",
-			Help: "Number of error reponses from goproxy for resolving latest module version, per http response code.",
-		},
-		[]string{"code"},
 	)
 
 	metricGoproxyListDuration = promauto.NewHistogram(

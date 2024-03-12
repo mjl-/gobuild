@@ -18,7 +18,7 @@ func serveModules(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	info, err := resolveModuleLatest(r.Context(), config.GoProxy, mod)
+	info, err := resolveModuleVersion(r.Context(), mod, "latest")
 	if err != nil {
 		failf(w, "resolving latest for module: %w", err)
 		return

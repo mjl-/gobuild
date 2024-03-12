@@ -3,7 +3,6 @@
 - Can we allow go.mod's with replace directives of other modules available in the go module proxy?
 - Use the primed build cached?
 - Improve handling of multiple packages, eg github.com/google/gvisor gives an error.
-- Handle @master/@main, and more in URL.
 - Use structured logging with levels.
 - Test using gobuild with other goproxy, sumdb. And with private git modules?
 - Add subcommand to validate all records, hashes and links.
@@ -14,7 +13,6 @@
 - Write tests.
 - Attempt to build with run.sh without sharing homedir/go/pkg/mod, except the "cache" dir. Only write during go get -d. Then do a go get with read-only mod directory, for extracting and verification.
 - Implement better backend with transactions for tlog server. To ensure we either have all information about a build, or none. Now we could get a mismatch between the records, hashes, and index files.
-- When we have a public gobuilds.org, mention in docs that people can set up their local instance, and configure the public gobuilds.org as a verifier.
 - Improve error messages shown to users, and the http status codes.
 - Better detect if module, version or package does not exist, and propagate it to lookup sum calls as 404 does not exist (instead of 500 server error). Either match strings in output from go get, or talk to goproxy directly.
  - With GOPROXY=https://proxy.golang.org (no ",direct"), on a module with a replace directive for a zero-revision requirement, "go get" tries to fetch the zero-revision (which is replaced) from the proxy, which fails. "go build" doesn't fetch those deps and will build.

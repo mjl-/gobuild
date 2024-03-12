@@ -97,8 +97,18 @@ func serveHome(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "500 - Internal Server Error - "+err.Error(), http.StatusInternalServerError)
 			return
 		}
+
+		// Resolve module version. Could be a git hash.
+		info, err := resolveModuleVersion(r.Context(), mod, version)
+		if err != nil {
+			http.Error(w, "400 - bad request - resolving module version: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		version = info.Version
+
 		goos, goarch := autodetectTarget(r)
 		bs := buildSpec{mod, version, "/", goos, goarch, goversion.String(), false}
+
 		req := request{bs, "", pageIndex}
 		http.Redirect(w, r, req.link(), http.StatusTemporaryRedirect)
 		return
@@ -120,6 +130,20 @@ func serveHome(w http.ResponseWriter, r *http.Request) {
 	if !checkAllowedRespond(w, req.Mod) {
 		return
 	}
+
+	// Resolve module version. Could be a git hash.
+	info, err := resolveModuleVersion(r.Context(), req.Mod, req.Version)
+	if err != nil {
+		http.Error(w, "400 - bad request - resolving module version: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if req.Version != info.Version {
+		req.Version = info.Version
+		http.Redirect(w, r, req.link(), http.StatusTemporaryRedirect)
+		req.link()
+		return
+	}
+
 	what := "build"
 	if req.Sum != "" {
 		what = "result"

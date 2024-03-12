@@ -22,7 +22,7 @@ func serveBuild(w http.ResponseWriter, r *http.Request, req request) {
 
 	// Resolve "latest" module version with a redirect.
 	if req.Version == "latest" {
-		if info, err := resolveModuleLatest(r.Context(), config.GoProxy, req.Mod); err != nil {
+		if info, err := resolveModuleVersion(r.Context(), req.Mod, req.Version); err != nil {
 			failf(w, "resolving latest for module: %w", err)
 		} else {
 			mreq := req

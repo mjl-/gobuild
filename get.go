@@ -2,7 +2,6 @@ package main
 
 import (
 	"compress/gzip"
-	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"flag"
@@ -13,9 +12,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
-	"time"
-
-	"github.com/mjl-/goreleases"
 )
 
 // Once gobuild is out of beta, this will be the verifier key for gobuilds.org.
@@ -37,6 +33,7 @@ func get(args []string) {
 		download    = flags.Bool("download", true, "Download binary.")
 		goproxy     = flags.String("goproxy", "https://proxy.golang.org", `Go proxy to use for resolving "latest" module versions.`)
 		stripped    = flags.Bool("stripped", false, "Retrieve binary without symbol table and debug information.")
+		quiet       = flags.Bool("quiet", false, "Do not print path that is written.")
 	)
 
 	flags.Usage = func() {
@@ -65,6 +62,7 @@ func get(args []string) {
 	if err != nil {
 		log.Fatalf("parsing module@version/package: %v", err)
 	}
+	bs.Goversion = *goversion
 
 	// Set goos & goarch based on -target or runtime.
 	if *target == "" {
@@ -82,29 +80,6 @@ func get(args []string) {
 		bs.Stripped = true
 	}
 
-	// Resolve latest version of go if needed.
-	if *goversion == "latest" {
-		getLog("resolving latest goversion")
-		bs.Goversion, err = resolveLatestGoversion()
-		if err != nil {
-			log.Fatalf("resolving latest go version: %v", err)
-		}
-		getLog("latest goversion is %s", bs.Goversion)
-	} else {
-		bs.Goversion = *goversion
-	}
-
-	// Resolve latest module version at goproxy.
-	if bs.Version == "latest" {
-		getLog("resolving latest module version through goproxy")
-		if modVer, err := resolveModuleLatest(context.Background(), *goproxy, bs.Mod); err != nil {
-			log.Fatalf("resolving latest module: %v", err)
-		} else {
-			bs.Version = modVer.Version
-			log.Printf("latest module version is %s", bs.Version)
-		}
-	}
-
 	client, clientOps, err := newClient(*verifierKey, *baseURL)
 	if err != nil {
 		log.Fatalf("new client: %v", err)
@@ -120,11 +95,10 @@ func get(args []string) {
 	if err != nil {
 		log.Fatalf("parsing record from remote: %v", err)
 	}
-	getLog("filesize %.1fmb, sum %s", float64(br.Filesize)/(1024*1024), br.Sum)
 
 	rkey := br.String()
-	if rkey != key {
-		log.Fatalf("remote sent record for other key, got %s expected %s", rkey, key)
+	if rkey != key && *sum != "" {
+		log.Fatalf("lookup resolved to %s", rkey)
 	}
 
 	if *sum != "" {
@@ -134,8 +108,20 @@ func get(args []string) {
 		getLog("sum matches")
 	}
 
+	if (rkey != key || *sum == "") && !*quiet {
+		log.Printf("resolved to %s, sum %s", rkey, br.Sum)
+	}
+
 	if !*download {
 		return
+	}
+
+	dst := filepath.Join(*bindir, br.filename())
+	if !*quiet {
+		log.Printf("writing to %s, size %.1fmb", dst, float64(br.Filesize)/(1024*1024))
+	}
+	if _, err := os.Stat(dst); err == nil {
+		log.Fatalf("aborted: destination path %s already exists", dst)
 	}
 
 	gobuildBaseURL := strings.TrimSuffix(clientOps.baseURL, "/tlog")
@@ -143,7 +129,7 @@ func get(args []string) {
 	// Retrieve file to bindir with temp name, calculate checksum as we go.
 	if f, err := os.CreateTemp(*bindir, br.filename()+".gobuildget"); err != nil {
 		log.Fatalf("creating temp file for downloading: %v", err)
-	} else if err := fetch(f, gobuildBaseURL, br, *bindir); err != nil {
+	} else if err := fetch(f, gobuildBaseURL, br, dst); err != nil {
 		if xerr := os.Remove(f.Name()); xerr != nil {
 			log.Printf("removing tempfile %s: %v", f.Name(), xerr)
 		}
@@ -151,7 +137,7 @@ func get(args []string) {
 	}
 }
 
-func fetch(f *os.File, gobuildBaseURL string, br *buildResult, bindir string) error {
+func fetch(f *os.File, gobuildBaseURL string, br *buildResult, dst string) error {
 	link := gobuildBaseURL + request{br.buildSpec, br.Sum, pageDownloadGz}.link()
 	getLog("downloading and verifying binary at %s", link)
 	resp, err := httpGet(link)
@@ -169,8 +155,8 @@ func fetch(f *os.File, gobuildBaseURL string, br *buildResult, bindir string) er
 	}
 
 	h := sha256.New()
-	dst := io.MultiWriter(h, f)
-	if _, err := io.Copy(dst, gzr); err != nil {
+	df := io.MultiWriter(h, f)
+	if _, err := io.Copy(df, gzr); err != nil {
 		return fmt.Errorf("downloading binary: %v", err)
 	}
 	if err := gzr.Close(); err != nil {
@@ -201,46 +187,11 @@ func fetch(f *os.File, gobuildBaseURL string, br *buildResult, bindir string) er
 	}
 
 	// Rename binary to final name.
-	p := filepath.Join(bindir, br.filename())
-	if err := os.Rename(tmpName, p); err != nil {
+	if err := os.Rename(tmpName, dst); err != nil {
 		return fmt.Errorf("rename to final destination: %v", err)
 	}
 
-	getLog("wrote %s", p)
+	getLog("wrote %s", dst)
 
 	return nil
-}
-
-// Read cached latest goversion (1 hour age max), or retrieve through go.dev/dl/.
-func resolveLatestGoversion() (string, error) {
-	dir, err := os.UserCacheDir()
-	if err != nil {
-		return "", err
-	}
-
-	p := filepath.Join(dir, "gobuild", "get", "goversion")
-	if f, err := os.Open(p); err == nil {
-		defer f.Close()
-		if info, err := f.Stat(); err != nil {
-			return "", err
-		} else if time.Since(info.ModTime()) < 1*time.Hour {
-			getLog("latest goversion from cache at %s", p)
-			buf, err := io.ReadAll(f)
-			return string(buf), err
-		}
-	} else if err != nil && !os.IsNotExist(err) {
-		return "", err
-	}
-
-	getLog("retrieving latest goversion through go.dev/dl/")
-	rels, err := goreleases.ListSupported()
-	if err != nil {
-		return "", err
-	}
-	goversion := rels[0].Version
-	os.MkdirAll(filepath.Dir(p), 0777) // error will show later
-	if err := os.WriteFile(p, []byte(goversion), 0666); err != nil {
-		return "", err
-	}
-	return goversion, nil
 }
