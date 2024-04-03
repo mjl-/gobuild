@@ -92,7 +92,7 @@ func (s serverOps) Lookup(ctx context.Context, key string) (results int64, rerr 
 	}
 
 	if bs.Goversion == "latest" {
-		bs.Goversion, _, _ = installedSDK()
+		bs.Goversion, _, _ = listSDK()
 	}
 
 	if !targets.valid(bs.Goos + "/" + bs.Goarch) {

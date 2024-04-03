@@ -19,18 +19,18 @@ func resolveModuleVersion(ctx context.Context, mod, version string) (*modVersion
 		metricGoproxyResolveVersionDuration.Observe(time.Since(t0).Seconds())
 	}()
 
-	goversion, _, _ := installedSDK()
-	if goversion == "" {
-		return nil, fmt.Errorf("no supported go toolchains available: %w", errServer)
-	}
-	gobin, err := ensureGobin(goversion)
+	goversion, err := ensureMostRecentSDK()
 	if err != nil {
-		return nil, fmt.Errorf("ensuring go version is available: %v (%w)", err, errTempFailure)
+		return nil, fmt.Errorf("ensuring most recent toolchain while resolving module version: %v (%w)", err, errTempFailure)
+	}
+	gobin, err := ensureGobin(goversion.String())
+	if err != nil {
+		return nil, fmt.Errorf("ensuring go version is available while resolving module version: %v (%w)", err, errTempFailure)
 	}
 
 	const goproxy = true
 	const cgo = false
-	cmd := makeCommand(goversion, goproxy, emptyDir, cgo, nil, gobin, "list", "-x", "-m", "-json", "--", mod+"@"+version)
+	cmd := makeCommand(goversion.String(), goproxy, emptyDir, cgo, nil, gobin, "list", "-x", "-m", "-json", "--", mod+"@"+version)
 	stderr := &strings.Builder{}
 	cmd.Stderr = stderr
 	output, err := cmd.Output()

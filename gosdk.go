@@ -208,7 +208,7 @@ func sdkUpdateInstalledList() {
 }
 
 func ensureMostRecentSDK() (goVersion, error) {
-	newestAllowed, _, _ := installedSDK()
+	newestAllowed, _, _ := listSDK()
 	if newestAllowed == "" {
 		return goVersion{}, fmt.Errorf("%w: no supported go versions", errServer)
 	}
@@ -219,7 +219,7 @@ func ensureMostRecentSDK() (goVersion, error) {
 	}
 }
 
-func installedSDK() (newestAllowed string, supported []string, remainingAvailable []string) {
+func listSDK() (newestAllowed string, supported []string, remainingAvailable []string) {
 	now := time.Now()
 	sdk.Lock()
 	defer sdk.Unlock() // note: we unlock and relock below!

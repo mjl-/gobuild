@@ -10,7 +10,7 @@ import (
 func serveBuild(w http.ResponseWriter, r *http.Request, req request) {
 	// Resolve "latest" goversion with a redirect.
 	if req.Goversion == "latest" {
-		if newestAllowed, _, _ := installedSDK(); newestAllowed == "" {
+		if newestAllowed, _, _ := listSDK(); newestAllowed == "" {
 			failf(w, "no supported go toolchains available: %w", errServer)
 		} else {
 			vreq := req
