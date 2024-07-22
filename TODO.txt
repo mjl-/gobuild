@@ -1,15 +1,18 @@
 - Should find a way to make directories non-executable, as measure to prevent the Go toolchain to automatically fetch new toolchains and execute them. Bubblewrap (bwrap) doesn't currently support binding directories non-executable though.
+- The commands executed for a build were initially more isolated. Over time, as the Go command needs more access to the module cache and module proxy, the isolation has been reduced. May need a reevaluation of approach. It's probably time to move away from a shared module cache for builds, instead giving each build a clean module cache (but with copied sumdb state).
 - Gather additional metrics for the size of the build cache, module cache, packages dir. Update after a build, on request.
 - Can we allow go.mod's with replace directives of other modules available in the go module proxy?
 - Use the primed build cached?
 - Improve handling of multiple packages, eg github.com/google/gvisor gives an error.
 - Use structured logging with levels.
+- Add IP/subnet-based request rate limiter and max open connections limiter. We already don't do too many concurrent builds. But build preprations, like fetching modules, isn't part of that coordination, so many commands can be spawned by walking all links on a page.
 - Test using gobuild with other goproxy, sumdb. And with private git modules?
 - Add subcommand to validate all records, hashes and links.
 - Store specifier in result directories? For failed builds, we currently have no way of knowing for which specifier it is.
 - When downloading an SDK, explain it on a page, possibly with progress updates.
 - For next go release, use concurrentcompilation again.
 - For next go release, consider stripping only part of the buildid.
+- Keep track of build failures, for easy (periodic) evaluation, to find & solve problems.
 - Write tests.
 - Attempt to build with run.sh without sharing homedir/go/pkg/mod, except the "cache" dir. Only write during go get -d. Then do a go get with read-only mod directory, for extracting and verification.
 - Implement better backend with transactions for tlog server. To ensure we either have all information about a build, or none. Now we could get a mismatch between the records, hashes, and index files.
@@ -35,3 +38,4 @@
 - Make list of goos/goarch dependend on version. Different goversions have different supported targets.
 - Add SSE endpoint that streams new sums. We can use the reconnect-with-id mechanism of SSE to make sure a listener never misses a sum. Then have a mode for a gobuild instance that uses this endpoint, and a periodic tlog update, to learn of new hashes and to verify the build.
 - Add tests, possibly built-in, builds with a new Go toolchain are indeed reproducible. We could use these to automatically perform sanity checks on a new go toolchain version, before accepting it for new builds.
+- Consider a mode where we create docker images for a binary. Perhaps only for a specific dockerfile in the module zip, taking command/entrypoint/ports, or perhaps a base image like alpine.
