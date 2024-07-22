@@ -35,6 +35,7 @@ elif test "$2" = 'install'; then
 	# go install will check checksums again over the network, even though all are
 	# already present. It also wants to open $HOME/go/pkg/sumdb/sum.golang.org/latest
 	# for writing, even though it won't change (if all is good).
+	# Go1.23 started checking module deprecations with "go install", needing GOPROXY.
 	net=""
 	morebind="--bind $HOME/go/pkg/sumdb/sum.golang.org/latest $HOME/go/pkg/sumdb/sum.golang.org/latest"
 fi

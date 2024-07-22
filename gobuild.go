@@ -227,8 +227,13 @@ func build(bs buildSpec) (int64, *buildResult, string, error) {
 	if bs.Stripped {
 		ldflags += " -s"
 	}
+	// Since Go1.18 we need to use "go install" to compile external programs.
 	if gv.major == 1 && gv.minor >= 18 {
-		// Since Go1.18 we need to use "go install" to compile external programs.
+		// Go1.23 started checking for deprecations during "go install", requiring GOPROXY
+		// access. https://golang.org/cl/528775
+		if gv.major == 1 && gv.minor >= 23 {
+			goproxy = true
+		}
 		cmd = makeCommand(bs.Goversion, goproxy, emptyDir, cgo, moreEnv, gobin, "install", "-x", "-v", "-trimpath", "-ldflags="+ldflags, "--", name)
 	} else {
 		cmd = makeCommand(bs.Goversion, goproxy, emptyDir, cgo, moreEnv, gobin, "get", "-x", "-v", "-trimpath", "-ldflags="+ldflags, "--", name)
