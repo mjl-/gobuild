@@ -1,13 +1,13 @@
 module github.com/mjl-/gobuild
 
-go 1.18
+go 1.22.0
 
 require (
 	github.com/mjl-/goreleases v0.0.4
 	github.com/mjl-/sconf v0.0.4
 	github.com/prometheus/client_golang v1.14.0
 	golang.org/x/crypto v0.21.0
-	golang.org/x/mod v0.11.0
+	golang.org/x/mod v0.21.0
 )
 
 require (
