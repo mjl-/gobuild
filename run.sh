@@ -56,7 +56,8 @@ ulimit -f 256000  # max file size in kb
 ulimit -t 1800 # max cpu time in seconds
 ulimit -d 4096000 # max data memory segment in kb
 
-exec /usr/bin/bwrap \
+exec setpriv --ambient-caps -all \
+	/usr/bin/bwrap \
 	--dev /dev \
 	--tmpfs /tmp \
 	--proc /proc \
