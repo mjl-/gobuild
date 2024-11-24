@@ -154,6 +154,11 @@ func lookupBuild(ctx context.Context, bs buildSpec) (int64, error) {
 		return -1, os.ErrNotExist
 	}
 
+	// note: We don't check for abusive clients. The problems are more likely web
+	// crawlers, they won't find these endpoints. Allowing lookups through the lookup
+	// endpoint keeps automated downloads, e.g. of updates, working from networks that
+	// may also host bad crawlers.
+
 	// Attempt to build.
 	if err := prepareBuild(bs); err != nil {
 		if errors.Is(err, errBadGoversion) || errors.Is(err, os.ErrNotExist) || errors.Is(err, errNotExist) || errors.Is(err, errBadModule) || errors.Is(err, errBadVersion) {

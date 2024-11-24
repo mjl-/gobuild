@@ -9,6 +9,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"strings"
 
 	"github.com/mjl-/sconf"
 	"golang.org/x/mod/sumdb/note"
@@ -49,7 +50,7 @@ func main() {
 		if len(args) != 1 {
 			usage()
 		}
-		if err := sconf.ParseFile(args[0], &config); err != nil {
+		if err := parseConfig(args[0], &config); err != nil {
 			log.Fatalf("parsing config file: %v", err)
 		}
 		log.Printf("config OK")
@@ -80,4 +81,16 @@ func main() {
 			log.Fatalf("write: %v", err)
 		}
 	}
+}
+
+func parseConfig(p string, c *Config) error {
+	if err := sconf.ParseFile(p, c); err != nil {
+		return err
+	}
+	for i, cp := range c.BadClients {
+		cp.UserAgent = strings.ToLower(cp.UserAgent)
+		cp.HostnameSuffix = strings.ToLower(cp.HostnameSuffix)
+		c.BadClients[i] = cp
+	}
+	return nil
 }

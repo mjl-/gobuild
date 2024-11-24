@@ -17,6 +17,10 @@ func serveResult(w http.ResponseWriter, r *http.Request, req request) {
 		http.NotFound(w, r)
 		return
 	} else if br == nil {
+		if handleBadClient(w, r) {
+			return
+		}
+
 		// Attempt to build.
 		if err := prepareBuild(req.buildSpec); err != nil {
 			failf(w, "preparing build: %w", err)

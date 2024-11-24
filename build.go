@@ -7,6 +7,17 @@ import (
 	"path/filepath"
 )
 
+func handleBadClient(w http.ResponseWriter, r *http.Request) bool {
+	for _, cp := range config.BadClients {
+		if hostname, ok := cp.Match(r); ok {
+			log.Printf("bad client, user-agent %q, remote address %s, hostname %q", r.UserAgent(), r.RemoteAddr, hostname)
+			statusfailf(http.StatusForbidden, w, "Your request matched a list of clients/networks with known bad behaviour. Please respect the robots.txt (no crawling that triggers builds!) and be kind. Contact the admins to get access again.")
+			return true
+		}
+	}
+	return false
+}
+
 func serveBuild(w http.ResponseWriter, r *http.Request, req request) {
 	// Resolve "latest" goversion with a redirect.
 	if req.Goversion == "latest" {
@@ -78,6 +89,10 @@ func serveBuild(w http.ResponseWriter, r *http.Request, req request) {
 		default:
 			failf(w, "build failed, see index page for details")
 		}
+		return
+	}
+
+	if handleBadClient(w, r) {
 		return
 	}
 
