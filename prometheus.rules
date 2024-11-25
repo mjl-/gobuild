@@ -6,41 +6,49 @@ groups:
     for: 15s
     annotations:
       summary: adding sum to transparency log failed
-    page: always
+    labels:
+      page: always
 
   - alert: tlog-consistency-errors
     expr: rate(gobuild_tlog_consistency_errors_total[5m]) > 0
     for: 15s
     annotations:
       summary: consistency error in records, hashes and recordnumber files
-    page: always
+    labels:
+      page: always
 
   - alert: tlog-serverop-lookup-errors
     expr: rate(gobuild_tlog_ops_lookup_errors_total[5m]) > 0
     for: 15s
-    page: always
+    labels:
+      page: always
 
   - alert: tlog-serverop-readrecords-errors
     expr: rate(gobuild_tlog_ops_readrecords_errors_total[5m]) > 0
     for: 15s
-    page: always
+    labels:
+      page: always
 
   - alert: tlog-serverop-readtiledata-errors
     expr: rate(gobuild_tlog_ops_readtiledata_errors_total[5m]) > 0
     for: 15s
-    page: always
+    labels:
+      page: always
 
   - alert: tlog-serverop-signed-errors
     expr: rate(gobuild_tlog_ops_signed_errors_total[5m]) > 0
     for: 15s
-    page: always
+    labels:
+      page: always
 
   - alert: verifier-sum-mismatch
     expr: rate(gobuild_verify_mismatch_total[5m]) > 0
     for: 15s
-    page: always
+    labels:
+      page: always
 
   - alert: recompile-sum-mismatch
     expr: rate(gobuild_recompile_mismatch_total[5m]) > 0
     for: 15s
-    page: always
+    labels:
+      page: always
