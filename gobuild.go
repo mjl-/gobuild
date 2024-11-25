@@ -8,7 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -326,7 +326,7 @@ func build(bs buildSpec, expSumOpt string) (int64, *buildResult, string, error) 
 			matchesFrom = append(matchesFrom, vr.verifyURL)
 		} else {
 			metricVerifyMismatch.WithLabelValues(vr.verifyURL, bs.Goos, bs.Goarch, bs.Goversion).Inc()
-			log.Printf("checksum mismatch: verifierURL %s got sum %s, expected sum %s", vr.verifyURL, vr.result.Sum, br.Sum)
+			slog.Error("checksum mismatch from verifier", "verifierurl", vr.verifyURL, "verifiersum", vr.result.Sum, "expectsum", br.Sum)
 			mismatches = append(mismatches, fmt.Sprintf("%s got %s", vr.verifyURL, vr.result.Sum))
 		}
 	}

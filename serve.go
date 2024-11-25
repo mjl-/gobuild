@@ -14,6 +14,7 @@ import (
 	"io"
 	"io/fs"
 	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -52,6 +53,7 @@ var (
 	}
 
 	config = Config{
+		"info",
 		"https://proxy.golang.org/",
 		"data",
 		"sdk",
@@ -70,6 +72,7 @@ var (
 		"",
 		nil,
 		12 * 7 * 24 * time.Hour, // 12 weeks
+		&slog.LevelVar{},
 	}
 	emptyConfig = config
 
@@ -86,6 +89,7 @@ var (
 )
 
 type Config struct {
+	LogLevel     string   `sconf:"optional" sconf-doc:"Log level: debug, info, warn, error. Default info."`
 	GoProxy      string   `sconf-doc:"URL to Go module proxy. Used to resolve \"latest\" module versions."`
 	DataDir      string   `sconf-doc:"Directory where the sumdb and builds files (binary, log) are stored."`
 	SDKDir       string   `sconf-doc:"Directory where SDKs (go toolchains) are installed."`
@@ -110,6 +114,8 @@ type Config struct {
 	InstanceNotesFile            string          `sconf:"optional" sconf-doc:"If set, a path to a plain text file with notes about this gobuild instance that is included on the main page."`
 	BadClients                   []ClientPattern `sconf:"optional" sconf-doc:"Clients for which we won't start a new build. To prevent bad bots that ignore robots.txt from causing lots of builds."`
 	CleanupBinariesAccessTimeAge time.Duration   `sconf:"optional" sconf-doc:"Remove build result binaries with an access time longer this duration ago, if > 0. Binaries will be rebuilt, and verified to match the expected sum, when requested again."`
+
+	loglevel *slog.LevelVar
 }
 
 // ClientPattern has fields for matching client requests.
@@ -412,8 +418,22 @@ func serve(args []string) {
 
 	mux.HandleFunc("/", serveHome)
 
+	slogOpts := slog.HandlerOptions{
+		Level: config.loglevel,
+		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
+			if a.Key == "time" {
+				return slog.Attr{}
+			}
+			return a
+		},
+	}
+
+	logHandler := slog.NewTextHandler(os.Stderr, &slogOpts)
+	logger := slog.New(logHandler)
+	slog.SetDefault(logger)
+
 	var handler http.Handler = mux
-	var httpErrorWriter io.Writer
+	var httpErrorLog *log.Logger
 	if config.LogDir != "" {
 		os.MkdirAll(config.LogDir, 0777)
 		handler = newLogHandler(mux, config.LogDir)
@@ -426,29 +446,33 @@ func serve(args []string) {
 		if httperror, err := os.OpenFile(filepath.Join(config.LogDir, "httperror.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0666); err != nil {
 			log.Fatalf("open httperror.log: %v", err)
 		} else {
-			httpErrorWriter = httperror
+			httpErrorLog = log.New(httperror, "", log.LstdFlags)
 		}
+
 	} else {
 		sumLogFile = os.Stderr
-		httpErrorWriter = os.Stderr
+		httpErrorLog = slog.NewLogLogger(logHandler.WithAttrs([]slog.Attr{slog.String("httperr", "")}), slog.LevelInfo)
 	}
 
-	httpErrorLog := log.New(httpErrorWriter, "", log.LstdFlags)
+	var httpsaddr string
+	if config.HTTPS != nil {
+		httpsaddr = ":443"
+	}
+	slog.Info("starting gobuild", "httpaddr", *listenHTTP, "httpsaddr", httpsaddr, "adminaddr", *listenAdmin, "version", gobuildVersion, "goversion", runtime.Version, "goos", runtime.GOOS, "goarch", runtime.GOARCH)
 
-	msg := fmt.Sprintf("gobuild %s, listening on", gobuildVersion)
 	if *listenHTTP != "" {
-		msg += " http " + *listenHTTP
 		go func() {
 			server := &http.Server{
 				Addr:     *listenHTTP,
 				Handler:  handler,
 				ErrorLog: httpErrorLog,
 			}
-			log.Fatal(server.ListenAndServe())
+			err := server.ListenAndServe()
+			slog.Error("listen and serve on http", "err", err)
+			os.Exit(1)
 		}()
 	}
 	if config.HTTPS != nil {
-		msg += " https :443"
 		os.MkdirAll(config.HTTPS.ACME.CertDir, 0700) // errors will come up later
 		m := &autocert.Manager{
 			Prompt:     autocert.AcceptTOS,
@@ -461,17 +485,26 @@ func serve(args []string) {
 				Handler:  handler,
 				ErrorLog: httpErrorLog,
 			}
-			log.Fatal(server.Serve(m.Listener()))
+			err := server.Serve(m.Listener())
+			slog.Error("listen and serve on https", "err", err)
+			os.Exit(1)
 		}()
 	}
 	if *listenAdmin != "" {
-		msg += " admin " + *listenAdmin
 		go func() {
-			log.Fatal(http.ListenAndServe(*listenAdmin, nil))
+			err := http.ListenAndServe(*listenAdmin, nil)
+			slog.Error("listen and serve on admin", "err", err)
+			os.Exit(1)
 		}()
 	}
-	log.Print(msg)
 	select {}
+}
+
+func logCheck(err error, msg string, args ...any) {
+	if err != nil {
+		args = append([]any{"err", err}, args...)
+		slog.Error(msg, args...)
+	}
 }
 
 func failf(w http.ResponseWriter, format string, args ...interface{}) {
@@ -488,11 +521,19 @@ func failf(w http.ResponseWriter, format string, args ...interface{}) {
 
 func statusfailf(status int, w http.ResponseWriter, errmsg string) {
 	msg := fmt.Sprintf("%d - %s - %s", status, http.StatusText(status), errmsg)
-	log.Println(msg)
+	if status/100 == 5 {
+		slog.Error("http server error", "status", status, "err", errmsg)
+		debug.PrintStack()
+	} else {
+		slog.Debug("http user error", "status", status, "err", errmsg)
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(status)
-	errorTemplate.Execute(w, map[string]string{"Message": msg})
+	err := errorTemplate.Execute(w, map[string]string{"Message": msg})
+	if err != nil {
+		slog.Error("executing template for error", "err", err)
+	}
 }
 
 func serveLog(w http.ResponseWriter, r *http.Request, p string) {

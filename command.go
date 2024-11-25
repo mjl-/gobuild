@@ -1,7 +1,7 @@
 package main
 
 import (
-	"log"
+	"log/slog"
 	"os/exec"
 	"path/filepath"
 	"runtime"
@@ -51,6 +51,6 @@ func makeCommand(goversion string, withGoproxy bool, dir string, cgoEnabled bool
 	if len(extraEnv) > 0 {
 		cmd.Env = append(cmd.Env, extraEnv...)
 	}
-	log.Printf("command: workdir=%q argv=%#v environment=%#v", dir, l, cmd.Env)
+	slog.Debug("prepared command", "workdir", dir, "argv", l, "environment", cmd.Env)
 	return cmd
 }

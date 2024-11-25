@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"log/slog"
 	"net"
 	"os"
 	"strings"
@@ -88,6 +89,12 @@ func parseConfig(p string, c *Config) error {
 	if err := sconf.ParseFile(p, c); err != nil {
 		return err
 	}
+
+	c.loglevel = &slog.LevelVar{}
+	if err := c.loglevel.UnmarshalText([]byte(c.LogLevel)); err != nil {
+		return fmt.Errorf("parsing loglevel %q: %v", c.LogLevel, err)
+	}
+
 	for i, cp := range c.BadClients {
 		cp.UserAgent = strings.ToLower(cp.UserAgent)
 		cp.HostnameSuffix = strings.ToLower(cp.HostnameSuffix)

@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 	"html"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"strings"
@@ -17,7 +17,7 @@ func readInstanceNotes() string {
 
 	buf, err := os.ReadFile(config.InstanceNotesFile)
 	if err != nil {
-		log.Printf("reading instance notes: %v, skipping", err)
+		slog.Error("reading instance notes failed, skipping", "err", err)
 	}
 	return html.EscapeString(string(buf))
 }

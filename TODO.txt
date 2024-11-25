@@ -2,7 +2,6 @@
 - The commands executed for a build were initially more isolated. Over time, as the Go command needs more access to the module cache and module proxy, the isolation has been reduced. May need a reevaluation of approach. It's probably time to move away from a shared module cache for builds, instead giving each build a clean module cache (but with copied sumdb state).
 - Can we allow go.mod's with replace directives of other modules available in the go module proxy?
 - Improve handling of multiple packages, eg github.com/google/gvisor gives an error.
-- Use structured logging with levels.
 - Add IP/subnet-based request rate limiter and max open connections limiter. We already don't do too many concurrent builds. But build preprations, like fetching modules, isn't part of that coordination, so many commands can be spawned by walking all links on a page.
 - Test using gobuild with other goproxy, sumdb. And with private git modules? Make some known invalid modules and check we get the right error.
 - Add subcommand to validate all records, hashes and links.

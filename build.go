@@ -1,7 +1,7 @@
 package main
 
 import (
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -10,7 +10,7 @@ import (
 func handleBadClient(w http.ResponseWriter, r *http.Request) bool {
 	for _, cp := range config.BadClients {
 		if hostname, ok := cp.Match(r); ok {
-			log.Printf("bad client, user-agent %q, remote address %s, hostname %q", r.UserAgent(), r.RemoteAddr, hostname)
+			slog.Info("bad client", "user-agent", r.UserAgent(), "remoteaddr", r.RemoteAddr, "hostname", hostname)
 			statusfailf(http.StatusForbidden, w, "Your request matched a list of clients/networks with known bad behaviour. Please respect the robots.txt (no crawling that triggers builds!) and be kind. Contact the admins to get access again.")
 			return true
 		}
@@ -127,7 +127,7 @@ func serveBuild(w http.ResponseWriter, r *http.Request, req request) {
 		// For the events endpoint, we send updates as they come in.
 		flusher, ok := w.(http.Flusher)
 		if !ok {
-			log.Println("ResponseWriter not a http.Flusher")
+			slog.Error("ResponseWriter not a http.Flusher")
 			failf(w, "%w: implementation limitation: cannot stream updates", errServer)
 			return
 		}

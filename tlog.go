@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sync"
@@ -119,7 +119,7 @@ func addSum(tmpdir string, br buildResult) (rnum int64, rerr error) {
 	defer func() {
 		if rerr != nil {
 			metricTlogConsistencyErrors.Inc()
-			log.Printf("CRITICAL: Failure while adding record number %d, key %s, storeDir %s. This means the records and hashes files and result dir are likely in inconsistent state! Error: %s", recordNumber, br.String(), br.storeDir(), rerr)
+			slog.Error("CRITICAL: Failure while adding record. This means the records and hashes files and result dir are likely in inconsistent state!", "recordnumber", recordNumber, "key", br.String(), "storedir", br.storeDir(), "err", rerr)
 		}
 	}()
 	if err := hashesFile.Sync(); err != nil {

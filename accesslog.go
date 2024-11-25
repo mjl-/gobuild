@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -36,7 +36,7 @@ func (lw *logResponseWriter) Flush() {
 	if f, ok := lw.ResponseWriter.(http.Flusher); ok {
 		f.Flush()
 	} else {
-		log.Printf("ResponseWriter not a http.Flusher")
+		slog.Error("ResponseWriter not a http.Flusher")
 	}
 }
 
@@ -113,15 +113,14 @@ func accessLogger(dir string, logc chan logLine) {
 	writeLog := func(lines []logLine) {
 		if file == nil || lines[0].date != fileDate {
 			if file != nil {
-				if err := file.Close(); err != nil {
-					log.Printf("closing access log file: %v", err)
-				}
+				err := file.Close()
+				logCheck(err, "closing access log file")
 			}
 
 			d := lines[0].date
 			p := filepath.Join(dir, fmt.Sprintf("httpaccess-%d%02d%02d.log", d.year, d.month, d.day))
 			if f, err := os.OpenFile(p, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0666); err != nil {
-				log.Printf("creating access log file %s: %v", p, err)
+				slog.Error("creating access log file", "err", err, "path", p)
 				return
 			} else {
 				file = f
@@ -132,9 +131,8 @@ func accessLogger(dir string, logc chan logLine) {
 		for _, l := range lines {
 			b.WriteString(l.text)
 		}
-		if _, err := file.Write([]byte(b.String())); err != nil {
-			log.Printf("writing access log: %v", err)
-		}
+		_, err := file.Write([]byte(b.String()))
+		logCheck(err, "writing access log")
 	}
 
 	// We write lines as fast as possible. When we have a first line, we try to gather

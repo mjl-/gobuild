@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -35,16 +36,18 @@ func (h hashReader) ReadHashes(indexes []int64) ([]tlog.Hash, error) {
 	return hashes, nil
 }
 
-func observeOp(rerr *error, t0 time.Time, errorCounter prometheus.Counter, histo prometheus.Histogram) {
-	histo.Observe(time.Since(t0).Seconds())
+func observeOp(op string, rerr *error, t0 time.Time, errorCounter prometheus.Counter, histo prometheus.Histogram) {
+	delta := time.Since(t0)
+	histo.Observe(delta.Seconds())
 	if *rerr != nil {
 		errorCounter.Inc()
+		slog.Error("serverop error", "op", op, "err", *rerr, "duration", delta)
 	}
 }
 
 // Signed returns the signed hash of the latest tree.
 func (s serverOps) Signed(ctx context.Context) (result []byte, rerr error) {
-	defer observeOp(&rerr, time.Now(), metricTlogOpsSignedErrors, metricTlogOpsSignedDuration)
+	defer observeOp("signed", &rerr, time.Now(), metricTlogOpsSignedErrors, metricTlogOpsSignedDuration)
 
 	if n, err := treeSize(); err != nil {
 		return nil, err
@@ -59,7 +62,7 @@ func (s serverOps) Signed(ctx context.Context) (result []byte, rerr error) {
 // ReadRecords returns the content for the n records id through id+n-1.
 func (s serverOps) ReadRecords(ctx context.Context, id, n int64) (results [][]byte, rerr error) {
 	// log.Printf("server: ReadRecords %d %d", id, n)
-	defer observeOp(&rerr, time.Now(), metricTlogOpsReadrecordsErrors, metricTlogOpsReadrecordsDuration)
+	defer observeOp("readrecord", &rerr, time.Now(), metricTlogOpsReadrecordsErrors, metricTlogOpsReadrecordsDuration)
 
 	if n <= 0 {
 		return nil, fmt.Errorf("bad n")
@@ -90,7 +93,7 @@ func (s serverOps) Lookup(ctx context.Context, key string) (results int64, rerr 
 		if err != nil && errors.Is(err, os.ErrNotExist) {
 			err = nil
 		}
-		observeOp(&err, time.Now(), metricTlogOpsLookupErrors, metricTlogOpsLookupDuration)
+		observeOp("lookup", &err, time.Now(), metricTlogOpsLookupErrors, metricTlogOpsLookupDuration)
 	}()
 
 	bs, err := parseBuildSpec(key)
@@ -204,7 +207,7 @@ func lookupBuild(ctx context.Context, bs buildSpec) (int64, error) {
 // It is only invoked for hash tiles (t.L ≥ 0).
 func (s serverOps) ReadTileData(ctx context.Context, t tlog.Tile) (results []byte, rerr error) {
 	// log.Printf("server: ReadTileData %#v", t)
-	defer observeOp(&rerr, time.Now(), metricTlogOpsReadtiledataErrors, metricTlogOpsReadtiledataDuration)
+	defer observeOp("readtiledata", &rerr, time.Now(), metricTlogOpsReadtiledataErrors, metricTlogOpsReadtiledataDuration)
 
 	return tlog.ReadTileData(t, hashReader{})
 }

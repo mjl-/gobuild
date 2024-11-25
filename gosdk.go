@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -233,7 +234,7 @@ func listSDK() (newestAllowed string, supported []string, remainingAvailable []s
 		sdk.Lock()
 
 		if err != nil {
-			log.Printf("listing supported go releases: %v", err)
+			slog.Error("listing supported go releases", "err", err)
 		} else {
 			sdk.supportedList = []string{}
 			for _, rel := range rels {
@@ -244,7 +245,7 @@ func listSDK() (newestAllowed string, supported []string, remainingAvailable []s
 				if sdkVersionStop == nil {
 					newestAllowed = rel.Version
 				} else if gv, err := parseGoVersion(rel.Version); err != nil {
-					log.Printf("parsing go version from listing released go toolchain %q: %s", rel.Version, err)
+					slog.Error("parsing go version from listing released go toolchain", "goversion", rel.Version, "err", err)
 				} else if gv.num() < sdkVersionStop.num() {
 					newestAllowed = gv.String()
 				}
@@ -355,7 +356,7 @@ func ensureSDK(goversion string) (goVersion, error) {
 		}
 		defer os.RemoveAll(tmpdir)
 
-		log.Printf("fetching sdk for %v", goversion)
+		slog.Info("fetching sdk", "goversion", goversion)
 
 		if err := goreleases.Fetch(f, tmpdir, nil); err != nil {
 			err = fmt.Errorf("%w: installing sdk: %v", errServer, err)
@@ -428,11 +429,11 @@ func ensurePrimedBuildCache(gobin, goos, goarch, goversion string) error {
 	}
 	cmd := makeCommand(goversion, goproxy, emptyDir, cgo, moreEnv, gobin, "build", "-trimpath", "std")
 	if output, err := cmd.CombinedOutput(); err != nil {
-		log.Printf("go build std: %v\n%s", err, output)
+		slog.Error("go build std", "err", err, "output", output)
 		return err
 	}
 	if err := os.WriteFile(primedPath, []byte{}, 0666); err != nil {
-		log.Printf("writefile %s: %v", primedPath, err)
+		slog.Error("writefile for primed path", "path", primedPath, "err", err)
 		return err
 	}
 	return nil
