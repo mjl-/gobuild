@@ -46,6 +46,7 @@ type buildUpdate struct {
 
 type buildRequest struct {
 	bs     buildSpec
+	expSum string // If non-empty, build must result in this sum. Used for rebuilding a binary that was cleaned up.
 	eventc chan buildUpdate
 }
 
@@ -57,12 +58,12 @@ var coordinate = struct {
 	make(chan buildRequest, 1),
 }
 
-func registerBuild(bs buildSpec, eventc chan buildUpdate) {
-	coordinate.register <- buildRequest{bs, eventc}
+func registerBuild(bs buildSpec, expSum string, eventc chan buildUpdate) {
+	coordinate.register <- buildRequest{bs, expSum, eventc}
 }
 
 func unregisterBuild(bs buildSpec, eventc chan buildUpdate) {
-	coordinate.unregister <- buildRequest{bs, eventc}
+	coordinate.unregister <- buildRequest{bs, "", eventc}
 }
 
 func coordinateBuilds() {
@@ -87,7 +88,7 @@ func coordinateBuilds() {
 
 	// Build requests always go through the queue. We'll pick up the next for which the
 	// output path is available, but only if we are below maxBuilds builds in progress.
-	queue := []buildSpec{}
+	queue := []buildRequest{}
 
 	// Keep track of output paths that are "busy", i.e. paths that currently running
 	// builds will write the resulting binary to.
@@ -113,11 +114,11 @@ func coordinateBuilds() {
 		}
 	}
 
-	startBuild := func(bs buildSpec, b *wipBuild) {
+	startBuild := func(breq buildRequest, b *wipBuild) {
 		active++
-		pathBusy[bs.outputPath()] = struct{}{}
+		pathBusy[breq.bs.outputPath()] = struct{}{}
 		go func() {
-			recordNumber, result, errOutput, err := build(bs)
+			recordNumber, result, errOutput, err := build(breq.bs, breq.expSum)
 			var errmsg string
 			if err != nil {
 				errmsg = err.Error() + "\n\n" + errOutput
@@ -130,7 +131,7 @@ func coordinateBuilds() {
 			} else {
 				msg = buildUpdateMsg{Kind: kindPermFail, Error: errmsg}.json()
 			}
-			update := buildUpdate{bs: bs, done: true, err: err, result: result, recordNumber: recordNumber, msg: msg}
+			update := buildUpdate{bs: breq.bs, done: true, err: err, result: result, recordNumber: recordNumber, msg: msg}
 			updatec <- update
 		}()
 	}
@@ -141,21 +142,21 @@ func coordinateBuilds() {
 		}
 
 		for i := 0; i < len(queue); {
-			bs := queue[i]
-			if _, busy := pathBusy[bs.outputPath()]; busy {
+			breq := queue[i]
+			if _, busy := pathBusy[breq.bs.outputPath()]; busy {
 				i++
 				continue
 			}
 			queue = append(queue[:i], queue[i+1:]...)
-			nb := builds[bs]
+			nb := builds[breq.bs]
 			if len(nb.events) == 0 {
 				// All parties interested have gone, don't build.
 				continue
 			}
 			sendPending(nb, 0)
-			startBuild(bs, nb)
-			for j, wbs := range queue[i:] {
-				sendPending(builds[wbs], i+j+1)
+			startBuild(breq, nb)
+			for j, wbreq := range queue[i:] {
+				sendPending(builds[wbreq.bs], i+j+1)
 			}
 			break
 		}
@@ -170,17 +171,17 @@ func coordinateBuilds() {
 				builds[reg.bs] = b
 
 				// We may have just finished a build. Before starting any new work, try reading a result.
-				if recordNumber, br, failed, err := (serverOps{}.lookupResult(context.Background(), reg.bs)); err != nil || failed {
+				if recordNumber, br, binaryPresent, failed, err := (serverOps{}.lookupResult(context.Background(), reg.bs)); err != nil || failed {
 					if err == nil {
 						err = fmt.Errorf("build failed")
 					}
 					msg := buildUpdateMsg{Kind: kindTempFail, Error: err.Error()}.json()
 					b.final = &buildUpdate{reg.bs, true, err, nil, 0, 0, msg}
-				} else if br != nil {
+				} else if br != nil && binaryPresent {
 					msg := buildUpdateMsg{Kind: kindSuccess, Result: br}.json()
 					b.final = &buildUpdate{reg.bs, true, nil, br, recordNumber, 0, msg}
 				}
-				// Else no result, we'll continue as normal, starting a build.
+				// Else no result or no binary, we'll continue as normal, starting a build.
 			}
 			b.events = append(b.events, reg.eventc)
 			if b.final != nil {
@@ -189,7 +190,7 @@ func coordinateBuilds() {
 			}
 
 			if !ok {
-				queue = append(queue, reg.bs)
+				queue = append(queue, reg)
 				kick()
 			}
 			update := buildUpdate{

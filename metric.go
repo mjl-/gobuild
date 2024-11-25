@@ -71,10 +71,18 @@ var (
 		[]string{"goos", "goarch", "goversion"},
 	)
 
+	metricRecompileMismatch = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "gobuild_recompile_mismatch_total",
+			Help: "Number of sum mismatches when recompiling cleaned up binaries.",
+		},
+		[]string{"goos", "goarch", "goversion"},
+	)
+
 	metricVerifyDuration = promauto.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Name:    "gobuild_verify_duration_seconds",
-			Help:    "Duration of go build to compile program in seconds.",
+			Help:    "Duration of verifying build with other backend, in seconds.",
 			Buckets: []float64{0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2, 4, 8, 16, 32, 64, 128, 256},
 		},
 		[]string{"baseurl", "goos", "goarch", "goversion"},

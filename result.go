@@ -9,14 +9,14 @@ import (
 func serveResult(w http.ResponseWriter, r *http.Request, req request) {
 	storeDir := req.storeDir()
 
-	_, br, failed, err := serverOps{}.lookupResult(r.Context(), req.buildSpec)
+	_, br, binaryPresent, failed, err := serverOps{}.lookupResult(r.Context(), req.buildSpec)
 	if err != nil {
 		failf(w, "%w: lookup record: %v", errServer, err)
 		return
 	} else if failed {
 		http.NotFound(w, r)
 		return
-	} else if br == nil {
+	} else if br == nil || !binaryPresent {
 		if handleBadClient(w, r) {
 			return
 		}
@@ -27,8 +27,12 @@ func serveResult(w http.ResponseWriter, r *http.Request, req request) {
 			return
 		}
 
+		var expSum string
+		if br != nil {
+			expSum = br.Sum
+		}
 		eventc := make(chan buildUpdate, 100)
-		registerBuild(req.buildSpec, eventc)
+		registerBuild(req.buildSpec, expSum, eventc)
 		ctx := r.Context()
 
 	loop:

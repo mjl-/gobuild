@@ -39,3 +39,8 @@ groups:
     expr: rate(gobuild_verify_mismatch_total[5m]) > 0
     for: 15s
     page: always
+
+  - alert: recompile-sum-mismatch
+    expr: rate(gobuild_recompile_mismatch_total[5m]) > 0
+    for: 15s
+    page: always

@@ -44,7 +44,7 @@ func serveBuild(w http.ResponseWriter, r *http.Request, req request) {
 	}
 
 	// See if we have a completed build, and handle it.
-	if _, br, failed, err := (serverOps{}).lookupResult(r.Context(), req.buildSpec); err != nil {
+	if _, br, _, failed, err := (serverOps{}).lookupResult(r.Context(), req.buildSpec); err != nil {
 		failf(w, "%w: lookup record: %v", errServer, err)
 		return
 	} else if br != nil {
@@ -118,7 +118,7 @@ func serveBuild(w http.ResponseWriter, r *http.Request, req request) {
 	}
 
 	eventc := make(chan buildUpdate, 100)
-	registerBuild(req.buildSpec, eventc)
+	registerBuild(req.buildSpec, "", eventc)
 
 	ctx := r.Context()
 

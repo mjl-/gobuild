@@ -118,32 +118,35 @@ func (s serverOps) Lookup(ctx context.Context, key string) (results int64, rerr 
 }
 
 // Attempt to read a result.
-// For a successful build, the recordNumber and buildResult are returned.
+// For a successful build, the recordNumber and buildResult are returned, and whether the binary is present.
 // For a failed build (not in the tlog), failed will be true.
 // For an absent build, err wil be nil.
 // For other errors, err will be set.
-func (s serverOps) lookupResult(ctx context.Context, bs buildSpec) (recordNumber int64, br *buildResult, failed bool, err error) {
+func (s serverOps) lookupResult(ctx context.Context, bs buildSpec) (recordNumber int64, br *buildResult, binaryPresent, failed bool, err error) {
 	p := filepath.Join(bs.storeDir(), "recordnumber")
 	if buf, err := os.ReadFile(p); err != nil {
 		if !os.IsNotExist(err) {
-			return -1, nil, false, err
+			return -1, nil, false, false, err
 		}
 		lp := filepath.Join(bs.storeDir(), "log.gz")
 		if _, err := os.Stat(lp); err == nil {
-			return -1, nil, true, nil
+			return -1, nil, false, true, nil
 		} else if os.IsNotExist(err) {
-			return -1, nil, false, nil
+			return -1, nil, false, false, nil
 		} else {
-			return 0, nil, false, err
+			return 0, nil, false, false, err
 		}
 	} else if num, err := strconv.ParseInt(string(buf), 10, 64); err != nil {
-		return -1, nil, false, err
+		return -1, nil, false, false, err
 	} else if records, err := s.ReadRecords(ctx, num, 1); err != nil {
-		return -1, nil, false, err
+		return -1, nil, false, false, err
 	} else if record, err := parseRecord(records[0]); err != nil {
-		return -1, nil, false, err
+		return -1, nil, false, false, err
 	} else {
-		return num, record, false, nil
+		if _, err := os.Stat(filepath.Join(bs.storeDir(), "binary.gz")); err == nil {
+			binaryPresent = true
+		}
+		return num, record, binaryPresent, false, nil
 	}
 }
 
@@ -168,7 +171,7 @@ func lookupBuild(ctx context.Context, bs buildSpec) (int64, error) {
 	}
 
 	eventc := make(chan buildUpdate, 100)
-	registerBuild(bs, eventc)
+	registerBuild(bs, "", eventc)
 
 	for {
 		select {

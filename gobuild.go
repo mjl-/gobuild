@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -77,8 +78,12 @@ func prepareBuild(bs buildSpec) error {
 
 // Build does the actual build. It is called from coordinate, ensuring the same
 // buildSpec isn't built multiple times concurrently, and preventing a few other
-// clashes. On success, a record has been added to the transparency log.
-func build(bs buildSpec) (int64, *buildResult, string, error) {
+// clashes.
+//
+// If expSumOpt is non-empty, a build was done in the past but the binary removed.
+// This build will restore the binary. If expSumOpt is empty and the build is
+// successful, a record is added to the transparency log.
+func build(bs buildSpec, expSumOpt string) (int64, *buildResult, string, error) {
 	targets.increase(bs.Goos + "/" + bs.Goarch)
 
 	gobin, err := ensureGobin(bs.Goversion)
@@ -284,6 +289,30 @@ func build(bs buildSpec) (int64, *buildResult, string, error) {
 		return -1, nil, "", fmt.Errorf("seek result: %v", err)
 	}
 	br.Sum = "0" + base64.RawURLEncoding.EncodeToString(h.Sum(nil)[:20])
+
+	// If we already have a sum, we've done this build before and are now restoring the
+	// binary. The sum of the newly compiled file must match.
+	if expSumOpt != "" {
+		if br.Sum != expSumOpt {
+			metricRecompileMismatch.WithLabelValues(bs.Goos, bs.Goarch, bs.Goversion).Inc()
+			return -1, nil, "", fmt.Errorf("sum of rebuilt binary %s does not match previous sum %s", br.Sum, expSumOpt)
+		}
+		storeDir := br.storeDir()
+		ptmp := filepath.Join(tmpdir, "binary.gz")
+		pdst := filepath.Join(storeDir, "binary.gz")
+		if err := writeGz(ptmp, rf); err != nil {
+			return -1, nil, "", err
+		}
+		if recBuf, err := os.ReadFile(filepath.Join(storeDir, "recordnumber")); err != nil {
+			return -1, nil, "", fmt.Errorf("reading previous recordnumber file: %w", err)
+		} else if v, err := strconv.ParseInt(strings.TrimSpace(string(recBuf)), 10, 64); err != nil {
+			return -1, nil, "", fmt.Errorf("parsing previous recordnumber %q: %v", recBuf, err)
+		} else if err := os.Rename(ptmp, pdst); err != nil {
+			return -1, nil, "", fmt.Errorf("moving binary.gz to destination: %w", err)
+		} else {
+			return v, &br, "", nil
+		}
+	}
 
 	// Verify the sums of the verifiers.
 	matchesFrom := []string{}
