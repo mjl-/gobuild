@@ -133,6 +133,11 @@ func coordinateBuilds() {
 			}
 			update := buildUpdate{bs: breq.bs, done: true, err: err, result: result, recordNumber: recordNumber, msg: msg}
 			updatec <- update
+
+			// Once every 20 builds, clear the build cache, to prevent the disk from filling up too easily.
+			if err == nil && recordNumber%20 == 0 {
+				cleanupGoBuildCache()
+			}
 		}()
 	}
 

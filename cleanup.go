@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -33,5 +34,26 @@ func cleanupBinariesAtime(atimeAge time.Duration) {
 	})
 	if err != nil {
 		log.Printf("walking result directory for old binary.gz files: %s", err)
+	}
+}
+
+func cleanupGoBuildCache() {
+	log.Printf("clearing go build cache")
+
+	goversion, err := ensureMostRecentSDK()
+	if err != nil {
+		log.Printf("cleaning up go build cache: ensuring most recent toolchain while resolving module version: %v", err)
+		return
+	}
+	gobin, err := ensureGobin(goversion.String())
+	if err != nil {
+		log.Printf("cleaning up go build cache: ensuring go version is available while resolving module version: %v", err)
+		return
+	}
+
+	cmd := makeCommand(goversion.String(), false, emptyDir, false, nil, gobin, "clean", "-cache")
+	output, err := cmd.Output()
+	if err != nil {
+		log.Printf("running go clean -cache: %s (%q)", err, strings.TrimSpace(string(output)))
 	}
 }
