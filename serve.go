@@ -383,6 +383,11 @@ func serve(args []string) {
 		sconf.Describe(w, &emptyConfig) // nothing to do for errors
 	})
 
+	mux.HandleFunc("/buildfailures.txt", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		http.ServeFile(w, r, filepath.Join(config.DataDir, "buildfailures.txt"))
+	})
+
 	if config.SignerKeyFile != "" {
 		skey, err := os.ReadFile(config.SignerKeyFile)
 		if err != nil {

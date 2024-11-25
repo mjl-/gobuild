@@ -13,7 +13,7 @@ type modVersion struct {
 	Time    time.Time
 }
 
-func resolveModuleVersion(ctx context.Context, mod, version string) (*modVersion, error) {
+func resolveModuleVersion(ctx context.Context, mod, version string) (mv *modVersion, rerr error) {
 	t0 := time.Now()
 	defer func() {
 		metricGoproxyResolveVersionDuration.Observe(time.Since(t0).Seconds())
@@ -27,6 +27,12 @@ func resolveModuleVersion(ctx context.Context, mod, version string) (*modVersion
 	if err != nil {
 		return nil, fmt.Errorf("ensuring go version is available while resolving module version: %v (%w)", err, errTempFailure)
 	}
+
+	defer func() {
+		if rerr != nil {
+			metricResolveVersionErrors.Inc()
+		}
+	}()
 
 	const goproxy = true
 	const cgo = false

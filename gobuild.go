@@ -59,8 +59,10 @@ func prepareBuild(bs buildSpec) error {
 	stderr := &strings.Builder{}
 	cmd.Stderr = stderr
 	if nameOutput, err := cmd.Output(); err != nil {
+		metricListPackageErrors.Inc()
 		return fmt.Errorf("error finding package name; perhaps package does not exist: %v\n\n# stdout from go list:\n%s\n\nstderr:\n%s", err, nameOutput, stderr.String())
 	} else if string(nameOutput) != "main\n" {
+		metricNotMainErrors.Inc()
 		return fmt.Errorf("package main %w, building would not result in executable binary (package %s)", errNotExist, strings.TrimRight(string(nameOutput), "\n"))
 	}
 
@@ -69,8 +71,10 @@ func prepareBuild(bs buildSpec) error {
 	stderr = &strings.Builder{}
 	cmd.Stderr = stderr
 	if cgoOutput, err := cmd.Output(); err != nil {
+		metricCheckCgoErrors.Inc()
 		return fmt.Errorf("error determining whether cgo is required: %v\n\n# output from go list:\n%s\n\nstderr:\n%s", err, cgoOutput, stderr.String())
 	} else if len(cgoOutput) != 0 {
+		metricNeedsCgoErrors.Inc()
 		return fmt.Errorf("build %w due to cgo dependencies:\n\n%s", errNotExist, cgoOutput)
 	}
 	return nil
@@ -248,7 +252,7 @@ func build(bs buildSpec, expSumOpt string) (int64, *buildResult, string, error) 
 	if err != nil {
 		metricCompileErrors.WithLabelValues(bs.Goos, bs.Goarch, bs.Goversion).Inc()
 		out := string(output)
-		if xerr := saveFailure(bs, err.Error()+"\n\n"+out); xerr != nil {
+		if xerr := saveFailure(bs, err, out); xerr != nil {
 			return -1, nil, "", fmt.Errorf("storing results of failure: %v (%w)", xerr, errTempFailure)
 		}
 		return -1, nil, out, err
@@ -360,7 +364,9 @@ func build(bs buildSpec, expSumOpt string) (int64, *buildResult, string, error) 
 	return recordNumber, &br, "", nil
 }
 
-func saveFailure(bs buildSpec, output string) error {
+func saveFailure(bs buildSpec, buildErr error, output string) error {
+	slog.Error("build failure", "err", buildErr, "buildspec", bs, "output", output)
+
 	tmpdir, err := os.MkdirTemp(resultDir, "tmpfail")
 	if err != nil {
 		return err
@@ -371,8 +377,22 @@ func saveFailure(bs buildSpec, output string) error {
 		}
 	}()
 
+	output = err.Error() + "\n\n" + output
 	if err := writeGz(filepath.Join(tmpdir, "log.gz"), strings.NewReader(output)); err != nil {
 		return err
+	}
+	if err := os.WriteFile(filepath.Join(tmpdir, "builderror.txt"), []byte(fmt.Sprintf("%s\n%v\n", bs, err)), 0666); err != nil {
+		return err
+	}
+
+	fp := filepath.Join(config.DataDir, "buildfailures.txt")
+	if f, err := os.OpenFile(fp, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0666); err != nil {
+		slog.Error("open buildfailures.txt", "err", err)
+	} else {
+		_, err := fmt.Fprintln(f, bs.String())
+		logCheck(err, "writing buildspec to buildfailures.txt")
+		err = f.Close()
+		logCheck(err, "close buildfailures.txt")
 	}
 
 	if err := os.Rename(tmpdir, bs.storeDir()); err != nil {

@@ -106,6 +106,7 @@ func listMainPackages(goversion goVersion, gobin string, modDir string) ([]strin
 	cmd.Stderr = stderr
 	output, err := cmd.Output()
 	if err != nil {
+		metricListPackageErrors.Inc()
 		return nil, fmt.Errorf("%w\n\n# output from go list:\n%s\n\nstderr:\n%s", err, output, stderr.String())
 	}
 	r := []string{}

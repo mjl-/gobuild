@@ -59,26 +59,20 @@ func serveBuild(w http.ResponseWriter, r *http.Request, req request) {
 			// We'll move away the directory with the failed build, remove it, and redirect
 			// user to the index page so a new build is triggered.
 			dir := req.buildSpec.storeDir()
+			// Just a sanity check that we aren't removing successful build results.
+			if _, err := os.Stat(filepath.Join(dir, "recordnumber")); err == nil {
+				failf(w, "%w: directory with failed build contains recordnumber-file", errServer)
+				return
+			}
+
 			tmpdir := dir + ".remove"
 			if err := os.Rename(dir, tmpdir); err != nil {
 				failf(w, "%w: moving away directory with log of failed build: %v", errServer, err)
 				return
 			}
-			// Just a sanity check that we aren't removing successful build results.
-			if _, err := os.Stat(filepath.Join(dir, "recordnumber")); err == nil {
-				os.Rename(tmpdir, dir) // Attempt to restore order...
-				failf(w, "%w: directory with failed build contains recordnumber-file", errServer)
+			if err := os.RemoveAll(tmpdir); err != nil {
+				failf(w, "%w: removing path of failed build: %s", errServer, err)
 				return
-			}
-			paths := []string{
-				filepath.Join(tmpdir, "log.gz"),
-				tmpdir,
-			}
-			for _, p := range paths {
-				if err := os.Remove(p); err != nil {
-					failf(w, "%w: removing path of failed build: %s", errServer, err)
-					return
-				}
 			}
 			req.Page = pageIndex
 			http.Redirect(w, r, req.link(), http.StatusSeeOther)
