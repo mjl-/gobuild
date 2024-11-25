@@ -1,9 +1,10 @@
-{{ define "html" }}
+{{ define "html" -}}
 <!doctype html>
 <html>
 	<head>
 		<title>{{ template "title" . }}</title>
 		<meta charset="utf-8" />
+		{{ template "robots" . }}
 		<meta name="viewport" content="width=device-width" />
 		<link rel="icon" type="image/png" href="{{ .Favicon }}" />
 		<style>
@@ -47,5 +48,5 @@ var { color: #111; font-style: normal; }
 {{ template "script" . }}
 	</body>
 </html>
-{{ end }}
+{{- end }}
 {{ template "html" . }}

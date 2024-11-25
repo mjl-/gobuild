@@ -354,8 +354,10 @@ func serve(args []string) {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/robots.txt", func(w http.ResponseWriter, r *http.Request) {
+		// Use of "*" may not be understood by all bots. There is no explicit allowlist. So
+		// we end up just disallowing everything.
 		w.Header().Set("Content-Type", "text/plain")
-		fmt.Fprint(w, "User-agent: *\nDisallow: /*/*\nDisallow: /tlog/\n\nAllow: /\n")
+		fmt.Fprint(w, "User-agent: *\nDisallow: /\n")
 	})
 	mux.HandleFunc("/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "image/png")

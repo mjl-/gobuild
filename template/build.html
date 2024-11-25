@@ -1,5 +1,6 @@
-{{ define "title" }}{{ .Req.Mod }}@{{ .Req.Version }}{{ .Req.Dir }} - {{ .Req.Goos }}/{{ .Req.Goarch }} {{ .Req.Goversion }}{{ if .Success}} - {{ .Sum }}{{ end }}{{ end }}
-{{ define "content" }}
+{{- define "title" }}{{ .Req.Mod }}@{{ .Req.Version }}{{ .Req.Dir }} - {{ .Req.Goos }}/{{ .Req.Goarch }} {{ .Req.Goversion }}{{ if .Success}} - {{ .Sum }}{{ end }}{{ end -}}
+{{- define "robots"}}<meta name="robots" content="noindex, nofollow" />{{ end -}}
+{{- define "content" }}
 	<p><a href="/">&lt; Home</a></p>
 	<h1>
 		<div class="charwrap">{{ .Req.Mod }}@{{ .Req.Version }}{{ .Req.Dir }}</div>
@@ -9,25 +10,25 @@
 
 	python3 -c 'import sys, hashlib, base64; print(&quot;0&quot; + base64.urlsafe_b64encode(hashlib.sha256(sys.stdin.buffer.read()).digest()[:20]).decode(&quot;utf-8&quot;).rstrip(&quot;=&quot;))' &lt; {{ .DownloadFilename }}">{{ .Sum }}</span><span class="success">✓</span></div>
 	{{ else if .InProgress -}}
-		<div class="charwrap"><img style="max-height: 1.5rem;" id="dancer" src="/img/gopher-dance-long.gif" title="Dancing gopher, by Ego Elbre, CC0" /> <span id="progress">Connecting for updates... <a href="dl">trigger build</a></span></div>
+		<div class="charwrap"><img style="max-height: 1.5rem;" id="dancer" src="/img/gopher-dance-long.gif" title="Dancing gopher, by Ego Elbre, CC0" /> <span id="progress">Connecting for updates... <a rel="nofollow noindex" href="dl">trigger build</a></span></div>
 	{{ else -}}
 		<div class="charwrap">Error<span class="failure">❌</span></div>
 	{{ end }}
 	</h1>
 
 {{ if ne .NewerText "" }}
-	<div><span style="background-color: #ffdc9b; display: inline-block; padding: .25ex .5ex; border-radius: .25ex">{{ .NewerText }}:</span> <a href="{{ .NewerURL }}">{{ .NewerURL }}</a></div>
+	<div><span style="background-color: #ffdc9b; display: inline-block; padding: .25ex .5ex; border-radius: .25ex">{{ .NewerText }}:</span> <a rel="nofollow noindex" href="{{ .NewerURL }}">{{ .NewerURL }}</a></div>
 {{ end }}
 
 {{ if .Success }}
 	<h2>Download</h2>
 	<table>
 		<tr>
-			<td><a href="{{ .DownloadFilename }}">{{ .DownloadFilename }}</a></td>
+			<td><a rel="nofollow noindex" href="{{ .DownloadFilename }}">{{ .DownloadFilename }}</a></td>
 			<td style="padding-left: 1rem; text-align: right">{{ .Filesize }}</td>
 		</tr>
 		<tr>
-			<td><a href="{{ .DownloadFilename }}.gz">{{ .DownloadFilename }}.gz</a></td>
+			<td><a rel="nofollow noindex" href="{{ .DownloadFilename }}.gz">{{ .DownloadFilename }}.gz</a></td>
 			<td style="padding-left: 1rem; text-align: right">{{ .FilesizeGz }}</td>
 		</tr>
 	</table>
@@ -68,8 +69,8 @@
 
 	<h2>More</h2>
 	<ul>
-		<li><a href="log">Build log</a></li>
-		<li><a href="/{{ .Req.Mod }}@latest/{{ .DirAppend }}{{ .Req.Goos }}-{{ .Req.Goarch }}-latest{{ if .Req.Stripped }}-stripped{{ end }}/">{{ .Req.Mod }}@<b>latest</b>/{{ .DirAppend }}{{ .Req.Goos }}-{{ .Req.Goarch }}-<b>latest</b>{{ if .Req.Stripped }}-stripped{{ end }}/</a> (<a href="/{{ .Req.Mod }}@latest/{{ .DirAppend }}{{ .Req.Goos }}-{{ .Req.Goarch }}-latest{{ if .Req.Stripped }}-stripped{{ end }}/dl">direct download</a>)</li>
+		<li><a rel="nofollow noindex" href="log">Build log</a></li>
+		<li><a rel="nofollow noindex" href="/{{ .Req.Mod }}@latest/{{ .DirAppend }}{{ .Req.Goos }}-{{ .Req.Goarch }}-latest{{ if .Req.Stripped }}-stripped{{ end }}/">{{ .Req.Mod }}@<b>latest</b>/{{ .DirAppend }}{{ .Req.Goos }}-{{ .Req.Goarch }}-<b>latest</b>{{ if .Req.Stripped }}-stripped{{ end }}/</a> (<a rel="nofollow noindex" href="/{{ .Req.Mod }}@latest/{{ .DirAppend }}{{ .Req.Goos }}-{{ .Req.Goarch }}-latest{{ if .Req.Stripped }}-stripped{{ end }}/dl">direct download</a>)</li>
 		<li>Documentation at <a href="{{ .PkgGoDevURL }}">pkg.go.dev</a></li>
 	</ul>
 
@@ -84,23 +85,23 @@
 		{{ if .Mod.Err }}
 			<div>error: {{ .Mod.Err }}</div>
 		{{ else }}
-		{{ range .Mod.VersionLinks }}	<div><a href="{{ .URLPath }}" class="buildlink{{ if .Active }} active{{ end }} ">{{ .Version }}</a>{{ if .Success }}<span class="success">✓</span>{{ end }}</div>{{ end }}
+		{{ range .Mod.VersionLinks }}	<div><a rel="nofollow noindex" href="{{ .URLPath }}" class="buildlink{{ if .Active }} active{{ end }} ">{{ .Version }}</a>{{ if .Success }}<span class="success">✓</span>{{ end }}</div>{{ end }}
 		{{ end }}
 		</div>
 
 		<div>
 			<h2>Targets</h2>
-		{{ range .TargetLinks }}	<div><a href="{{ .URLPath }}" class="buildlink{{ if .Active }} active{{ end }} ">{{ .Goos }}/{{ .Goarch }}</a>{{ if .Success }}<span class="success">✓</span>{{ end }}</div>{{ end }}
+		{{ range .TargetLinks }}	<div><a rel="nofollow noindex" href="{{ .URLPath }}" class="buildlink{{ if .Active }} active{{ end }} ">{{ .Goos }}/{{ .Goarch }}</a>{{ if .Success }}<span class="success">✓</span>{{ end }}</div>{{ end }}
 		</div>
 
 		<div>
 			<h2>Go versions</h2>
-		{{ range .GoversionLinks }}	<div><a href="{{ .URLPath }}" class="buildlink{{ if .Active }} active{{ end }} {{ if not .Supported }} unsupported{{ end }}">{{ .Goversion }}</a>{{ if .Success }}<span class="success">✓</span>{{ end }}</div>{{ end }}
+		{{ range .GoversionLinks }}	<div><a rel="nofollow noindex" href="{{ .URLPath }}" class="buildlink{{ if .Active }} active{{ end }} {{ if not .Supported }} unsupported{{ end }}">{{ .Goversion }}</a>{{ if .Success }}<span class="success">✓</span>{{ end }}</div>{{ end }}
 		</div>
 
 		<div>
 			<h2>Variants</h2>
-		{{ range .VariantLinks }}	<div><a href="{{ .URLPath }}" class="buildlink{{ if .Active }} active{{ end }}" title="{{ .Title }}">{{ .Variant }}</a>{{ if .Success }}<span class="success">✓</span>{{ end }}</div>{{ end }}
+		{{ range .VariantLinks }}	<div><a rel="nofollow noindex" href="{{ .URLPath }}" class="buildlink{{ if .Active }} active{{ end }}" title="{{ .Title }}">{{ .Variant }}</a>{{ if .Success }}<span class="success">✓</span>{{ end }}</div>{{ end }}
 		</div>
 	</div>
 {{ end }}
@@ -257,4 +258,4 @@ function copyOneliner() {
 })()
 	</script>
 	{{ end }}
-{{ end }}
+{{ end -}}

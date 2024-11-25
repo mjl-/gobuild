@@ -1,10 +1,11 @@
-{{ define "title" }}{{ .Module }}@{{ .Version }}{{ end }}
-{{ define "content" }}
+{{- define "title" }}{{ .Module }}@{{ .Version }}{{ end -}}
+{{- define "robots" }}<meta name="robots" content="noindex, nofollow" />{{ end -}}
+{{- define "content" }}
 	<p><a href="/">&lt; Home</a></p>
 	<h1>{{ .Module }}@{{ .Version }}</h1>
 	<p>Main packages:</p>
 	<ul>
-{{ range .Mains }}		<li><a href="{{ .Link }}">{{ .Name }}</a></li>{{ end }}
+{{ range .Mains }}		<li><a rel="nofollow noindex" href="{{ .Link }}">{{ .Name }}</a></li>{{ end }}
 	</ul>
-{{ end }}
-{{ define "script" }}{{ end }}
+{{ end -}}
+{{- define "script" }}{{ end -}}
