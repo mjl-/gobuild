@@ -40,9 +40,9 @@ func resolveModuleVersion(ctx context.Context, mod, version string) (*modVersion
 
 	var info modVersion
 	if err := json.Unmarshal(output, &info); err != nil {
-		return nil, fmt.Errorf("%w: parsing json returned by goproxy: %v", errRemote, err)
+		return nil, fmt.Errorf("%w: parsing json returned by go list: %v", errRemote, err)
 	} else if info.Version == "" {
-		return nil, fmt.Errorf("%w: empty version from goproxy", errRemote)
+		return nil, fmt.Errorf("%w: empty version from go list", errRemote)
 	}
 	return &info, nil
 }

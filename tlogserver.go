@@ -84,7 +84,14 @@ func (s serverOps) ReadRecords(ctx context.Context, id, n int64) (results [][]by
 // Returns os.ErrNotExist to cause a http 404 response.
 func (s serverOps) Lookup(ctx context.Context, key string) (results int64, rerr error) {
 	// log.Printf("server: Lookup %q", key)
-	defer observeOp(&rerr, time.Now(), metricTlogOpsLookupErrors, metricTlogOpsLookupDuration)
+	defer func() {
+		// Don't cause error metric to go up for bad requests.
+		err := rerr
+		if err != nil && errors.Is(err, os.ErrNotExist) {
+			err = nil
+		}
+		observeOp(&err, time.Now(), metricTlogOpsLookupErrors, metricTlogOpsLookupDuration)
+	}()
 
 	bs, err := parseBuildSpec(key)
 	if err != nil {
@@ -150,7 +157,8 @@ func (s serverOps) lookupResult(ctx context.Context, bs buildSpec) (recordNumber
 	}
 }
 
-// Returns os.ErrNotExist (not wrapped) if the fault is in the request, to cause a http 404 response for the lookup.
+// Returns os.ErrNotExist (not wrapped) if the fault is in the request, to
+// cause a http 404 response for the lookup.
 func lookupBuild(ctx context.Context, bs buildSpec) (int64, error) {
 	// Before attempting to build, check we don't have a failed build already.
 	if _, err := os.Stat(filepath.Join(bs.storeDir(), "log.gz")); err == nil {
