@@ -114,8 +114,11 @@ type Config struct {
 
 // ClientPattern has fields for matching client requests.
 type ClientPattern struct {
-	HostnameSuffix string `sconf:"optional" sconf-doc:"Hostname or suffix based on reverse DNS."`
-	UserAgent      string `sconf:"optional" sconf-doc:"User-agent header substring match, case-insensitive."`
+	HostnameSuffix string   `sconf:"optional" sconf-doc:"Hostname or suffix based on reverse DNS."`
+	Networks       []string `sconf:"optional" sconf-doc:"IP networks, for matching request IP address."`
+	UserAgent      string   `sconf:"optional" sconf-doc:"User-agent header substring match, case-insensitive."`
+
+	ipnets []net.IPNet
 }
 
 // Matches returns if a request matches the pattern.
@@ -125,18 +128,34 @@ func (cp ClientPattern) Match(r *http.Request) (hostname string, match bool) {
 			return "", false
 		}
 	}
-	if cp.HostnameSuffix != "" {
-		ip, _, err := net.SplitHostPort(r.RemoteAddr)
-		if err != nil {
-			log.Printf("getting host from remote address %s: %v", r.RemoteAddr, err)
+	if len(cp.ipnets) == 0 && cp.HostnameSuffix == "" {
+		return "", false
+	}
+	ipstr, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		log.Printf("getting ip from remote address %s: %v", r.RemoteAddr, err)
+		return "", false
+	}
+	if len(cp.ipnets) > 0 {
+		found := false
+		ip := net.ParseIP(ipstr)
+		for _, ipnet := range cp.ipnets {
+			if ipnet.Contains(ip) {
+				found = true
+				break
+			}
+		}
+		if !found {
 			return "", false
 		}
+	}
+	if cp.HostnameSuffix != "" {
 		// We'll try to lookup, but won't wait too long and fail open.
 		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 		defer cancel()
-		hosts, err := net.DefaultResolver.LookupAddr(ctx, ip)
+		hosts, err := net.DefaultResolver.LookupAddr(ctx, ipstr)
 		if err != nil {
-			log.Printf("reverse lookup for ip %s: %v", ip, err)
+			log.Printf("reverse lookup for ip %s: %v", ipstr, err)
 			return "", false
 		}
 		found := false

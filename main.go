@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"os"
 	"strings"
 
@@ -90,6 +91,13 @@ func parseConfig(p string, c *Config) error {
 	for i, cp := range c.BadClients {
 		cp.UserAgent = strings.ToLower(cp.UserAgent)
 		cp.HostnameSuffix = strings.ToLower(cp.HostnameSuffix)
+		for _, ipnetstr := range cp.Networks {
+			if _, ipnet, err := net.ParseCIDR(ipnetstr); err != nil {
+				return fmt.Errorf("parsing network %q: %v", ipnetstr, err)
+			} else {
+				cp.ipnets = append(cp.ipnets, *ipnet)
+			}
+		}
 		c.BadClients[i] = cp
 	}
 	return nil
