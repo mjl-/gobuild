@@ -463,7 +463,7 @@ func serve(args []string) {
 	if config.HTTPS != nil {
 		httpsaddr = ":443"
 	}
-	slog.Info("starting gobuild", "httpaddr", *listenHTTP, "httpsaddr", httpsaddr, "adminaddr", *listenAdmin, "version", gobuildVersion, "goversion", runtime.Version, "goos", runtime.GOOS, "goarch", runtime.GOARCH)
+	slog.Info("starting gobuild", "httpaddr", *listenHTTP, "httpsaddr", httpsaddr, "adminaddr", *listenAdmin, "version", gobuildVersion, "goversion", runtime.Version(), "goos", runtime.GOOS, "goarch", runtime.GOARCH)
 
 	if *listenHTTP != "" {
 		go func() {
