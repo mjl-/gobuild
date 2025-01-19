@@ -146,6 +146,8 @@ func build(bs buildSpec, expSumOpt string) (int64, *buildResult, string, error) 
 
 	for _, verifierBaseURL := range config.VerifierURLs {
 		go func(verifierBaseURL string) {
+			defer logPanic()
+
 			result, err := verify(verifierBaseURL)
 			if err != nil {
 				err = fmt.Errorf("verifying with %s: %w", verifierBaseURL, err)

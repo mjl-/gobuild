@@ -118,6 +118,8 @@ func coordinateBuilds() {
 		active++
 		pathBusy[breq.bs.outputPath()] = struct{}{}
 		go func() {
+			defer logPanic()
+
 			recordNumber, result, errOutput, err := build(breq.bs, breq.expSum)
 			var errmsg string
 			if err != nil {

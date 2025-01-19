@@ -9,6 +9,12 @@ import (
 )
 
 var (
+	metricPanics = promauto.NewCounter(
+		prometheus.CounterOpts{
+			Name: "mox_panics_total",
+			Help: "Number of unhandled panics.",
+		},
+	)
 	metricGoproxyResolveVersionDuration = promauto.NewHistogram(
 		prometheus.HistogramOpts{
 			Name:    "gobuild_goproxy_resolve_version_duration_seconds",

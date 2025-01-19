@@ -102,7 +102,11 @@ func (lh *logHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func newLogHandler(h http.Handler, dir string) *logHandler {
 	logc := make(chan logLine, 1024)
 	lh := &logHandler{h, dir, logc}
-	go accessLogger(dir, logc)
+	go func() {
+		defer logPanic()
+
+		accessLogger(dir, logc)
+	}()
 	return lh
 }
 

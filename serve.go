@@ -335,7 +335,12 @@ func serve(args []string) {
 	initSDK()
 	readRecentBuilds()
 
-	go coordinateBuilds()
+	go func() {
+		// If coordinateBuilds panics, we will grind to a halt, but at least we'll get alerting about it.
+		defer logPanic()
+
+		coordinateBuilds()
+	}()
 
 	// When shutting down, make sure no modifications to transparency log are in progress.
 	sigc := make(chan os.Signal, 1)
@@ -348,6 +353,7 @@ func serve(args []string) {
 
 	if config.CleanupBinariesAccessTimeAge > 0 {
 		go func() {
+			defer logPanic()
 			time.Sleep(time.Minute)
 			for {
 				cleanupBinariesAtime(config.CleanupBinariesAccessTimeAge)
@@ -503,6 +509,17 @@ func serve(args []string) {
 		}()
 	}
 	select {}
+}
+
+func logPanic() {
+	x := recover()
+	if x == nil {
+		return
+	}
+
+	metricPanics.Inc()
+	slog.Error("unhandled panic", "panic", x)
+	debug.PrintStack()
 }
 
 func logCheck(err error, msg string, args ...any) {

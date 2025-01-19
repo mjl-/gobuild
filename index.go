@@ -42,6 +42,7 @@ func serveIndex(w http.ResponseWriter, r *http.Request, bs buildSpec, br *buildR
 	// Do a lookup to the goproxy in the background, to list the module versions.
 	c := make(chan response, 1)
 	go func() {
+		defer logPanic()
 		t0 := time.Now()
 		defer func() {
 			metricGoproxyListDuration.Observe(time.Since(t0).Seconds())

@@ -1,6 +1,13 @@
 groups:
 - name: gobuild
   rules:
+  - alert: unhandled-panics
+    expr: rate(gobuild_panics_total[5m]) > 0
+    for: 15s
+    annotations:
+      summary: unhandled panics
+    labels:
+      page: always
   - alert: tlog-add-errors
     expr: rate(gobuild_tlog_add_errors_total[5m]) > 0
     for: 15s
