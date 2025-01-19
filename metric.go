@@ -11,7 +11,7 @@ import (
 var (
 	metricPanics = promauto.NewCounter(
 		prometheus.CounterOpts{
-			Name: "mox_panics_total",
+			Name: "gobuild_panics_total",
 			Help: "Number of unhandled panics.",
 		},
 	)
