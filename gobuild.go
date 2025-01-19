@@ -377,11 +377,11 @@ func saveFailure(bs buildSpec, buildErr error, output string) error {
 		}
 	}()
 
-	output = err.Error() + "\n\n" + output
+	output = buildErr.Error() + "\n\n" + output
 	if err := writeGz(filepath.Join(tmpdir, "log.gz"), strings.NewReader(output)); err != nil {
 		return err
 	}
-	if err := os.WriteFile(filepath.Join(tmpdir, "builderror.txt"), []byte(fmt.Sprintf("%s\n%v\n", bs, err)), 0666); err != nil {
+	if err := os.WriteFile(filepath.Join(tmpdir, "builderror.txt"), []byte(fmt.Sprintf("%s\n%v\n", bs, buildErr)), 0666); err != nil {
 		return err
 	}
 
