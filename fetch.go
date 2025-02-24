@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -17,7 +18,7 @@ var (
 )
 
 // Fetches module@version for use in subsequent build.
-func ensureModule(goversion, gobin, mod, version string) (string, []byte, error) {
+func ensureModule(ctx context.Context, goversion, gobin, mod, version string) (string, []byte, error) {
 	modPath, err := module.EscapePath(mod)
 	if err != nil {
 		return "", nil, fmt.Errorf("%w: %v", errBadModule, err)
@@ -35,13 +36,13 @@ func ensureModule(goversion, gobin, mod, version string) (string, []byte, error)
 	}
 
 	// todo: for errors, want to know if module or version does not exist. probably requires parsing the error message for: 1. no module; 2. no version; 3. no package.
-	if output, err := fetchModule(goversion, modDir, gobin, mod, version); err != nil {
+	if output, err := fetchModule(ctx, goversion, modDir, gobin, mod, version); err != nil {
 		return "", output, err
 	}
 	return modDir, nil, nil
 }
 
-func fetchModule(goversion, modDir, gobin, mod, version string) ([]byte, error) {
+func fetchModule(ctx context.Context, goversion, modDir, gobin, mod, version string) ([]byte, error) {
 	t0 := time.Now()
 	defer func() {
 		metricGogetDuration.Observe(time.Since(t0).Seconds())
@@ -52,6 +53,12 @@ func fetchModule(goversion, modDir, gobin, mod, version string) ([]byte, error) 
 	if err != nil {
 		return nil, fmt.Errorf("%w: %s", errBadGoversion, err)
 	}
+	if release, err := commandAcquire(ctx); err != nil {
+		return nil, err
+	} else {
+		defer release()
+	}
+
 	if gv.major == 1 && gv.minor >= 18 {
 		// Go1.18 dropped "go get -d" for downloading modules. Using "go mod download
 		// <module>@<version>" downloads the module, we get the dependencies by running "go

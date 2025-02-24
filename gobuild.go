@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"compress/gzip"
+	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"errors"
@@ -31,7 +32,7 @@ func ensureGobin(goversion string) (string, error) {
 	return gobin, nil
 }
 
-func prepareBuild(bs buildSpec) error {
+func prepareBuild(ctx context.Context, bs buildSpec) error {
 	if _, err := ensureSDK(bs.Goversion); err != nil {
 		return fmt.Errorf("ensuring toolchain %q: %w", bs.Goversion, err)
 	}
@@ -41,12 +42,18 @@ func prepareBuild(bs buildSpec) error {
 		return err
 	}
 
-	modDir, getOutput, err := ensureModule(bs.Goversion, gobin, bs.Mod, bs.Version)
+	modDir, getOutput, err := ensureModule(ctx, bs.Goversion, gobin, bs.Mod, bs.Version)
 	if err != nil {
 		return fmt.Errorf("error fetching module from goproxy: %w\n\n# output from go get:\n%s", err, string(getOutput))
 	}
 
 	pkgDir := filepath.Join(modDir, filepath.FromSlash(bs.Dir[1:]))
+
+	if release, err := commandAcquire(ctx); err != nil {
+		return err
+	} else {
+		defer release()
+	}
 
 	// Check if package is a main package, resulting in an executable when built.
 	goproxy := true
@@ -95,7 +102,7 @@ func build(bs buildSpec, expSumOpt string) (int64, *buildResult, string, error) 
 		return -1, nil, "", fmt.Errorf("ensuring go version is available: %v (%w)", err, errTempFailure)
 	}
 
-	if _, output, err := ensureModule(bs.Goversion, gobin, bs.Mod, bs.Version); err != nil {
+	if _, output, err := ensureModule(context.Background(), bs.Goversion, gobin, bs.Mod, bs.Version); err != nil {
 		return -1, nil, "", fmt.Errorf("error fetching module from goproxy: %v (%w)\n\n# output from go get:\n%s", err, errTempFailure, output)
 	}
 

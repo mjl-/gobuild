@@ -34,6 +34,12 @@ func resolveModuleVersion(ctx context.Context, mod, version string) (mv *modVers
 		}
 	}()
 
+	if release, err := commandAcquire(ctx); err != nil {
+		return nil, err
+	} else {
+		defer release()
+	}
+
 	const goproxy = true
 	const cgo = false
 	cmd := makeCommand(goversion.String(), goproxy, emptyDir, cgo, nil, gobin, "list", "-x", "-m", "-json", "--", mod+"@"+version)

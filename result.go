@@ -21,8 +21,10 @@ func serveResult(w http.ResponseWriter, r *http.Request, req request) {
 			return
 		}
 
+		ctx := r.Context()
+
 		// Attempt to build.
-		if err := prepareBuild(req.buildSpec); err != nil {
+		if err := prepareBuild(ctx, req.buildSpec); err != nil {
 			failf(w, "preparing build: %w", err)
 			return
 		}
@@ -33,7 +35,6 @@ func serveResult(w http.ResponseWriter, r *http.Request, req request) {
 		}
 		eventc := make(chan buildUpdate, 100)
 		registerBuild(req.buildSpec, expSum, eventc)
-		ctx := r.Context()
 
 	loop:
 		for {

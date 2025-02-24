@@ -174,7 +174,7 @@ func lookupBuild(ctx context.Context, bs buildSpec) (int64, error) {
 	// may also host bad crawlers.
 
 	// Attempt to build.
-	if err := prepareBuild(bs); err != nil {
+	if err := prepareBuild(ctx, bs); err != nil {
 		if errors.Is(err, errBadGoversion) || errors.Is(err, os.ErrNotExist) || errors.Is(err, errNotExist) || errors.Is(err, errBadModule) || errors.Is(err, errBadVersion) {
 			return -1, os.ErrNotExist
 		}

@@ -95,10 +95,12 @@ func serveBuild(w http.ResponseWriter, r *http.Request, req request) {
 	// and builds go through the coordinator, which always first checks if a build has
 	// completed.
 
+	ctx := r.Context()
+
 	// We always immediately attempt to get the files for a build build. This checks
 	// with the goproxy that the module and package exist, and seems like it has a
 	// chance to compile.
-	if err := prepareBuild(req.buildSpec); err != nil {
+	if err := prepareBuild(ctx, req.buildSpec); err != nil {
 		failf(w, "preparing build: %w", err)
 		return
 	}
@@ -113,8 +115,6 @@ func serveBuild(w http.ResponseWriter, r *http.Request, req request) {
 
 	eventc := make(chan buildUpdate, 100)
 	registerBuild(req.buildSpec, "", eventc)
-
-	ctx := r.Context()
 
 	switch req.Page {
 	case pageEvents:

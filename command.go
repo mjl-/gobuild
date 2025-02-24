@@ -1,11 +1,38 @@
 package main
 
 import (
+	"context"
 	"log/slog"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 )
+
+// We allow at most 3 concurrent non-build commands, e.g. for fetching modules,
+// listing main commands in a module, checking for cgo. When executing a command
+// based on a web request, a command acquire token is required. Full builds are
+// already managed by the coordinator and its command executions must not get a
+// token.
+var cmdacquirec = make(chan struct{}, 3)
+
+func init() {
+	// Fill with tokens.
+	for i := 0; i < 3; i++ {
+		cmdacquirec <- struct{}{}
+	}
+}
+
+func commandAcquire(ctx context.Context) (release func(), err error) {
+	select {
+	case <-ctx.Done():
+		return func() {}, ctx.Err()
+
+	case <-cmdacquirec:
+		return func() {
+			cmdacquirec <- struct{}{}
+		}, nil
+	}
+}
 
 // Prepare command, typically for running go get. We sometimes need CGO_ENABLED to
 // properly list the cgo files that would be used during a build. Only set

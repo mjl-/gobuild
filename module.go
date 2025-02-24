@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"path/filepath"
@@ -35,7 +36,9 @@ func serveModules(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	modDir, getOutput, err := ensureModule(goversion.String(), gobin, mod, info.Version)
+	ctx := r.Context()
+
+	modDir, getOutput, err := ensureModule(ctx, goversion.String(), gobin, mod, info.Version)
 	if err != nil {
 		failf(w, "error fetching module from goproxy: %w\n\n# output from go get:\n%s", err, string(getOutput))
 		return
@@ -45,7 +48,7 @@ func serveModules(w http.ResponseWriter, r *http.Request) {
 
 	bs := buildSpec{mod, info.Version, "", goos, goarch, goversion.String(), false}
 
-	mainDirs, err := listMainPackages(goversion, gobin, modDir)
+	mainDirs, err := listMainPackages(ctx, goversion, gobin, modDir)
 	if err != nil {
 		failf(w, "listing main packages in module: %w", err)
 		return
@@ -92,9 +95,15 @@ func serveModules(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func listMainPackages(goversion goVersion, gobin string, modDir string) ([]string, error) {
+func listMainPackages(ctx context.Context, goversion goVersion, gobin string, modDir string) ([]string, error) {
 	goproxy := true
 	cgo := true
+
+	if release, err := commandAcquire(ctx); err != nil {
+		return nil, err
+	} else {
+		defer release()
+	}
 
 	argv := []string{gobin, "list"}
 	if goversion.major == 1 && (goversion.minor == 21 && goversion.patch >= 1 || goversion.minor > 21) {
