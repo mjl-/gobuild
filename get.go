@@ -17,7 +17,7 @@ import (
 // Once gobuild is out of beta, this will be the verifier key for gobuilds.org.
 const gobuildsOrgVerifierKey = "notyet"
 
-var getLog func(string, ...interface{}) = func(format string, args ...interface{}) {}
+var getLog func(string, ...any) = func(format string, args ...any) {}
 
 func get(args []string) {
 	flags := flag.NewFlagSet("get", flag.ExitOnError)
@@ -52,7 +52,7 @@ func get(args []string) {
 	}
 
 	if *verbose {
-		getLog = func(format string, args ...interface{}) {
+		getLog = func(format string, args ...any) {
 			log.Printf(format, args...)
 		}
 	}

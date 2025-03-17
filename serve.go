@@ -537,7 +537,7 @@ func logCheck(err error, msg string, args ...any) {
 	}
 }
 
-func failf(w http.ResponseWriter, format string, args ...interface{}) {
+func failf(w http.ResponseWriter, format string, args ...any) {
 	err := fmt.Errorf(format, args...)
 	errmsg := err.Error()
 	if isClosed(err) || strings.HasSuffix(errmsg, "http2: stream closed") {

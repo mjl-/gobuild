@@ -210,7 +210,7 @@ func serveIndex(w http.ResponseWriter, r *http.Request, bs buildSpec, br *buildR
 	} else if br.Sum == "" {
 		favicon = "/favicon-building.png"
 	}
-	args := map[string]interface{}{
+	args := map[string]any{
 		"Favicon":                favicon,
 		"Success":                br.Sum != "",
 		"Sum":                    br.Sum,
