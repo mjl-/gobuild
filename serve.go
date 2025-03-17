@@ -533,7 +533,9 @@ func failf(w http.ResponseWriter, format string, args ...interface{}) {
 	err := fmt.Errorf(format, args...)
 	errmsg := err.Error()
 	var status int
-	if errors.Is(err, errServer) {
+	if errors.Is(err, errRemote) {
+		status = http.StatusServiceUnavailable
+	} else if errors.Is(err, errServer) {
 		status = http.StatusInternalServerError
 	} else {
 		status = http.StatusBadRequest
@@ -544,9 +546,11 @@ func failf(w http.ResponseWriter, format string, args ...interface{}) {
 func statusfailf(status int, w http.ResponseWriter, errmsg string) {
 	msg := fmt.Sprintf("%d - %s - %s", status, http.StatusText(status), errmsg)
 	if status/100 == 5 {
+		metricHTTPRequestsServerErrors.Inc()
 		slog.Error("http server error", "status", status, "err", errmsg)
 		debug.PrintStack()
 	} else {
+		metricHTTPRequestsUserErrors.Inc()
 		slog.Debug("http user error", "status", status, "err", errmsg)
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

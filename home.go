@@ -94,14 +94,14 @@ func serveHome(w http.ResponseWriter, r *http.Request) {
 	if mod, version, _ := strings.Cut(r.URL.Path[1:], "@"); mod != "" && version != "" && !strings.Contains(version, "@") && !strings.Contains(version, "/") {
 		goversion, err := ensureMostRecentSDK()
 		if err != nil {
-			http.Error(w, "500 - Internal Server Error - "+err.Error(), http.StatusInternalServerError)
+			failf(w, "ensuring most recent sdk: %w", err)
 			return
 		}
 
 		// Resolve module version. Could be a git hash.
 		info, err := resolveModuleVersion(r.Context(), mod, version)
 		if err != nil {
-			http.Error(w, "400 - bad request - resolving module version: "+err.Error(), http.StatusBadRequest)
+			failf(w, "resolving module version: %w", err)
 			return
 		}
 		version = info.Version
@@ -134,7 +134,7 @@ func serveHome(w http.ResponseWriter, r *http.Request) {
 	// Resolve module version. Could be a git hash.
 	info, err := resolveModuleVersion(r.Context(), req.Mod, req.Version)
 	if err != nil {
-		http.Error(w, "400 - bad request - resolving module version: "+err.Error(), http.StatusBadRequest)
+		failf(w, "resolving module version: %w", err)
 		return
 	}
 	if req.Version != info.Version {
@@ -165,6 +165,6 @@ func checkAllowedRespond(w http.ResponseWriter, module string) bool {
 			return true
 		}
 	}
-	http.Error(w, "403 - Module path not allowed", http.StatusForbidden)
+	statusfailf(http.StatusForbidden, w, "403 - Module path not allowed")
 	return false
 }

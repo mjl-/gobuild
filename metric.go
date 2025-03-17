@@ -38,6 +38,32 @@ var (
 		[]string{"code"},
 	)
 
+	metricHTTPRequestsServerErrors = promauto.NewCounter(
+		prometheus.CounterOpts{
+			Name: "gobuild_http_requests_server_errors_total",
+			Help: "Total number of http requests resulting in a 5xx response.",
+		},
+	)
+	metricHTTPRequestsUserErrors = promauto.NewCounter(
+		prometheus.CounterOpts{
+			Name: "gobuild_http_requests_user_errors_total",
+			Help: "Total number of http requests resulting in a 4xx response.",
+		},
+	)
+
+	metricClientBuildRequests = promauto.NewCounter(
+		prometheus.CounterOpts{
+			Name: "gobuild_client_build_requests_total",
+			Help: "Total number of build requests from clients.",
+		},
+	)
+	metricClientBuildRequestsBad = promauto.NewCounter(
+		prometheus.CounterOpts{
+			Name: "gobuild_client_build_requests_bad_total",
+			Help: "Total number of build requests from bad clients that were blocked.",
+		},
+	)
+
 	metricPageDuration = promauto.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Name:    "gobuild_page_duration_seconds",

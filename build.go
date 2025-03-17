@@ -8,8 +8,10 @@ import (
 )
 
 func handleBadClient(w http.ResponseWriter, r *http.Request) bool {
+	metricClientBuildRequests.Inc()
 	for _, cp := range config.BadClients {
 		if hostname, ok := cp.Match(r); ok {
+			metricClientBuildRequestsBad.Inc()
 			slog.Info("bad client", "user-agent", r.UserAgent(), "remoteaddr", r.RemoteAddr, "hostname", hostname)
 			statusfailf(http.StatusForbidden, w, "Your request matched a list of clients/networks with known bad behaviour. Please respect the robots.txt (no crawling that triggers builds!) and be kind. Contact the admins to get access again.")
 			return true

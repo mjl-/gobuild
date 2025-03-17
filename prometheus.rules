@@ -1,6 +1,7 @@
 groups:
 - name: gobuild
   rules:
+
   - alert: unhandled-panics
     expr: rate(gobuild_panics_total[5m]) > 0
     for: 15s
@@ -8,6 +9,7 @@ groups:
       summary: unhandled panics
     labels:
       page: always
+
   - alert: tlog-add-errors
     expr: rate(gobuild_tlog_add_errors_total[5m]) > 0
     for: 15s
@@ -57,5 +59,13 @@ groups:
   - alert: recompile-sum-mismatch
     expr: rate(gobuild_recompile_mismatch_total[5m]) > 0
     for: 15s
+    labels:
+      page: always
+
+  - alert: http-5xx-errors
+    expr: rate(gobuild_http_requests_server_errors_total[5m]) > 0
+    for: 15s
+    annotations:
+      summary: http requesting in 5xx responses
     labels:
       page: always
