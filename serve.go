@@ -91,7 +91,7 @@ var (
 type Config struct {
 	LogLevel     string   `sconf:"optional" sconf-doc:"Log level: debug, info, warn, error. Default info."`
 	GoProxy      string   `sconf-doc:"URL to Go module proxy. Used to resolve \"latest\" module versions."`
-	DataDir      string   `sconf-doc:"Directory where the sumdb and builds files (binary, log) are stored."`
+	DataDir      string   `sconf-doc:"Directory where the sumdb and builds files (binary, log) are stored. If it contains a robots.txt file, it is served for /robots.txt instead of the default."`
 	SDKDir       string   `sconf-doc:"Directory where SDKs (go toolchains) are installed."`
 	HomeDir      string   `sconf-doc:"Directory set as home directory during builds. Go will store its caches, downloaded and extracted modules here."`
 	MaxBuilds    int      `sconf-doc:"Maximum concurrent builds. Default (0) uses NumCPU+1."`
@@ -126,6 +126,8 @@ type ClientPattern struct {
 
 	ipnets []net.IPNet
 }
+
+var startTime = time.Now()
 
 // Matches returns if a request matches the pattern.
 func (cp ClientPattern) Match(r *http.Request) (hostname string, match bool) {
@@ -366,10 +368,16 @@ func serve(args []string) {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/robots.txt", func(w http.ResponseWriter, r *http.Request) {
-		// Use of "*" may not be understood by all bots. There is no explicit allowlist. So
-		// we end up just disallowing everything.
 		w.Header().Set("Content-Type", "text/plain")
-		fmt.Fprint(w, "User-agent: *\nDisallow: /\n")
+		f, err := os.Open(filepath.Join(config.DataDir, "robots.txt"))
+		if err == nil {
+			defer f.Close()
+			http.ServeContent(w, r, "robots.txt", startTime, f)
+		} else {
+			// Use of "*" may not be understood by all bots. There is no explicit allowlist. So
+			// we end up just disallowing everything.
+			fmt.Fprint(w, "User-agent: *\nDisallow: /\n")
+		}
 	})
 	mux.HandleFunc("/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "image/png")
