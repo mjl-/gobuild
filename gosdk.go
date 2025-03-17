@@ -328,7 +328,7 @@ func ensureSDK(goversion string) (goVersion, error) {
 	sdk.fetch.Lock()
 	defer sdk.fetch.Unlock()
 	if err, ok := sdk.fetch.status[goversion]; ok {
-		return goVersion{}, err
+		return gv, err
 	}
 
 	rels, err := goreleases.ListAll()
