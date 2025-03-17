@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"runtime"
+	"slices"
 )
 
 type kind string
@@ -31,7 +32,7 @@ func (bum buildUpdateMsg) json() []byte {
 		// should never fail...
 		panic(fmt.Sprintf("json marshal of buildUpdateMsg: %v", err))
 	}
-	return []byte(fmt.Sprintf("event: update\ndata: %s\n\n", event))
+	return fmt.Appendf(nil, "event: update\ndata: %s\n\n", event)
 }
 
 type buildUpdate struct {
@@ -154,7 +155,7 @@ func coordinateBuilds() {
 				i++
 				continue
 			}
-			queue = append(queue[:i], queue[i+1:]...)
+			queue = slices.Delete(queue, i, i+1)
 			nb := builds[breq.bs]
 			if len(nb.events) == 0 {
 				// All parties interested have gone, don't build.

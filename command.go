@@ -17,7 +17,7 @@ var cmdacquirec = make(chan struct{}, 3)
 
 func init() {
 	// Fill with tokens.
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		cmdacquirec <- struct{}{}
 	}
 }

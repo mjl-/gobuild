@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"slices"
 	"strings"
 	"time"
 )
@@ -38,12 +39,12 @@ func serveHome(w http.ResponseWriter, r *http.Request) {
 		}
 
 		recentBuilds.Lock()
-		recentLinks := append([]string{}, recentBuilds.links...)
+		recentLinks := slices.Clone(recentBuilds.links)
 		recentBuilds.Unlock()
 
 		// Reverse order for recentLinks most recent first.
 		n := len(recentLinks)
-		for i := 0; i < n/2; i++ {
+		for i := range n / 2 {
 			j := n - 1 - i
 			recentLinks[i], recentLinks[j] = recentLinks[j], recentLinks[i]
 		}

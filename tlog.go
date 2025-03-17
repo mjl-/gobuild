@@ -80,7 +80,7 @@ func addSum(tmpdir string, br buildResult) (rnum int64, rerr error) {
 	// index in the records file to read the record at. We move this dir into place as
 	// last step, from then on lookups will succeed.
 	pl := filepath.Join(tmpdir, "recordnumber")
-	if err := os.WriteFile(pl, []byte(fmt.Sprintf("%d", recordNumber)), 0666); err != nil {
+	if err := os.WriteFile(pl, fmt.Appendf(nil, "%d", recordNumber), 0666); err != nil {
 		return -1, fmt.Errorf("writing index file %s: %v", pl, err)
 	}
 

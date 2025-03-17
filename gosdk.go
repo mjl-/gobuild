@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/mjl-/goreleases"
+	"slices"
 )
 
 type goVersion struct {
@@ -186,12 +187,7 @@ func initSDK() {
 
 // Lock must be held by calling.
 func sdkIsSupported(goversion string) bool {
-	for _, e := range sdk.supportedList {
-		if e == goversion {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(sdk.supportedList, goversion)
 }
 
 // Lock must be held by calling.

@@ -30,10 +30,7 @@ func readRecentBuilds() {
 	}
 
 	links := []string{}
-	keepFrom := len(records) - 10
-	if keepFrom < 0 {
-		keepFrom = 0
-	}
+	keepFrom := max(len(records)-10, 0)
 	for i, record := range records {
 		br, err := parseRecord(record)
 		if err != nil {
