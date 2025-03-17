@@ -52,7 +52,7 @@ func cleanupGoBuildCache() {
 	}
 
 	cmd := makeCommand(goversion.String(), false, emptyDir, false, nil, gobin, "clean", "-cache")
-	output, err := cmd.Output()
+	output, err := cmd.CombinedOutput()
 	if err != nil {
 		slog.Error("running go clean -cache", "err", err, "output", strings.TrimSpace(string(output)))
 	}
