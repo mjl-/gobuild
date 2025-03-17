@@ -38,6 +38,9 @@ elif test "$2" = 'install'; then
 	# Go1.23 started checking module deprecations with "go install", needing GOPROXY.
 	net=""
 	morebind="--bind $HOME/go/pkg/sumdb/sum.golang.org/latest $HOME/go/pkg/sumdb/sum.golang.org/latest"
+elif test "$2" = 'clean'; then
+	# bwrap seems to always need network. May be related to our systemd unit file.
+	net=""
 fi
 
 cachebind="--bind"
