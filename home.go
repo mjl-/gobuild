@@ -65,7 +65,7 @@ func serveHome(w http.ResponseWriter, r *http.Request) {
 			readInstanceNotes(),
 		}
 		if err := homeTemplate.Execute(w, args); err != nil {
-			failf(w, "%w: executing template: %v", errServer, err)
+			failf(w, "%w: executing home template: %w", errServer, err)
 		}
 		return
 	}

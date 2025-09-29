@@ -91,7 +91,7 @@ func serveModules(w http.ResponseWriter, r *http.Request) {
 		gobuildPlatform,
 	}
 	if err := moduleTemplate.Execute(w, args); err != nil {
-		failf(w, "%w: executing template: %v", errServer, err)
+		failf(w, "%w: executing module template: %w", errServer, err)
 	}
 }
 

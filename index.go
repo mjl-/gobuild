@@ -247,7 +247,7 @@ func serveIndex(w http.ResponseWriter, r *http.Request, bs buildSpec, br *buildR
 	}
 
 	if err := buildTemplate.Execute(w, args); err != nil {
-		failf(w, "%w: executing template: %v", errServer, err)
+		failf(w, "%w: executing build template: %w", errServer, err)
 	}
 }
 
