@@ -98,18 +98,6 @@ var (
 			Help: "Number of errors due to requested package not being main.",
 		},
 	)
-	metricCheckCgoErrors = promauto.NewCounter(
-		prometheus.CounterOpts{
-			Name: "gobuild_check_cgo_errors_total",
-			Help: "Number of errors while checking if module needs cgo.",
-		},
-	)
-	metricNeedsCgoErrors = promauto.NewCounter(
-		prometheus.CounterOpts{
-			Name: "gobuild_needs_cgo_errors_total",
-			Help: "Number of errors due to package needing cgo.",
-		},
-	)
 	metricResolveVersionErrors = promauto.NewCounter(
 		prometheus.CounterOpts{
 			Name: "gobuild_resolve_version_errors_total",

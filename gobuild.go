@@ -73,17 +73,6 @@ func prepareBuild(ctx context.Context, bs buildSpec) error {
 		return fmt.Errorf("package main %w, building would not result in executable binary (package %s)", errNotExist, strings.TrimRight(string(nameOutput), "\n"))
 	}
 
-	// Check that package does not depend on any cgo.
-	cmd = makeCommand(bs.Goversion, goproxy, pkgDir, cgo, moreEnv, gobin, "list", "-mod=mod", "-deps", "-f", `{{ if and (not .Standard) .CgoFiles }}{{ .ImportPath }}{{ end }}`)
-	stderr = &strings.Builder{}
-	cmd.Stderr = stderr
-	if cgoOutput, err := cmd.Output(); err != nil {
-		metricCheckCgoErrors.Inc()
-		return fmt.Errorf("error determining whether cgo is required: %v\n\n# output from go list:\n%s\n\nstderr:\n%s", err, cgoOutput, stderr.String())
-	} else if len(cgoOutput) != 0 {
-		metricNeedsCgoErrors.Inc()
-		return fmt.Errorf("build %w due to cgo dependencies:\n\n%s", errNotExist, cgoOutput)
-	}
 	return nil
 }
 
