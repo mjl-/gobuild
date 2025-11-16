@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"html"
 	"log/slog"
 	"net/http"
 	"os"
@@ -20,7 +19,7 @@ func readInstanceNotes() string {
 	if err != nil {
 		slog.Error("reading instance notes failed, skipping", "err", err)
 	}
-	return html.EscapeString(string(buf))
+	return string(buf)
 }
 
 func serveHome(w http.ResponseWriter, r *http.Request) {
