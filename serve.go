@@ -540,7 +540,7 @@ func logCheck(err error, msg string, args ...any) {
 func failf(w http.ResponseWriter, format string, args ...any) {
 	err := fmt.Errorf(format, args...)
 	errmsg := err.Error()
-	if isClosed(err) || strings.HasSuffix(errmsg, "http2: stream closed") {
+	if isClosed(err) || strings.HasSuffix(errmsg, "http2: stream closed") || strings.HasSuffix(errmsg, "client disconnected") {
 		// The http2 error seems to happen when remote closes the connection. No point logging.
 		return
 	}
