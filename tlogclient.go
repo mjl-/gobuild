@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -146,7 +147,7 @@ func (c *clientOps) WriteCache(file string, data []byte) {
 
 // Log prints the given log message (such as with log.Print)
 func (c *clientOps) Log(msg string) {
-	log.Println(msg)
+	slog.Info(msg)
 }
 
 // SecurityError prints the given security error log message.

@@ -141,7 +141,7 @@ func (cp ClientPattern) Match(r *http.Request) (hostname string, match bool) {
 	}
 	ipstr, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
-		log.Printf("getting ip from remote address %s: %v", r.RemoteAddr, err)
+		slog.Debug("getting ip from remote address", "remoteaddr", r.RemoteAddr, "err", err)
 		return "", false
 	}
 	if len(cp.ipnets) > 0 {
@@ -163,7 +163,7 @@ func (cp ClientPattern) Match(r *http.Request) (hostname string, match bool) {
 		defer cancel()
 		hosts, err := net.DefaultResolver.LookupAddr(ctx, ipstr)
 		if err != nil {
-			log.Printf("reverse lookup for ip %s: %v", ipstr, err)
+			slog.Debug("reverse lookup for ip", "ip", ipstr, "err", err)
 			return "", false
 		}
 		found := false
