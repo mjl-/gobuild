@@ -333,7 +333,10 @@ func build(bs buildSpec, expSumOpt string) (int64, *buildResult, string, error) 
 		}
 	}
 	if len(mismatches) > 0 {
-		return -1, nil, "", fmt.Errorf("build mismatches, we and %d others got %s, but %s (%w)", len(matchesFrom), br.Sum, strings.Join(mismatches, ", "), errTempFailure)
+		if len(matchesFrom) > 0 {
+			return -1, nil, "", fmt.Errorf("build mismatches, we and %d others got %s, but %s (%w)", len(matchesFrom), br.Sum, strings.Join(mismatches, ", "), errTempFailure)
+		}
+		return -1, nil, "", fmt.Errorf("build mismatches, we got %s, but %s (%w)", br.Sum, strings.Join(mismatches, ", "), errTempFailure)
 	}
 
 	// Write binary and log.
