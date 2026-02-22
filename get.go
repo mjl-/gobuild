@@ -2,6 +2,7 @@ package main
 
 import (
 	"compress/gzip"
+	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"flag"
@@ -86,7 +87,7 @@ func get(args []string) {
 	}
 	key := bs.String()
 	getLog("looking up key %s", key)
-	_, data, err := client.Lookup(key)
+	_, data, err := client.Lookup(context.Background(), key)
 	if err != nil {
 		log.Fatalf("lookup: %v", err)
 	}
@@ -140,7 +141,7 @@ func get(args []string) {
 func fetch(f *os.File, gobuildBaseURL string, br *buildResult, dst string) error {
 	link := gobuildBaseURL + request{br.buildSpec, br.Sum, pageDownloadGz}.link()
 	getLog("downloading and verifying binary at %s", link)
-	resp, err := httpGet(link)
+	resp, err := httpGet(context.Background(), link)
 	if err != nil {
 		return fmt.Errorf("making request to download binary: %v", err)
 	}

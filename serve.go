@@ -65,6 +65,7 @@ var (
 		false,
 		nil,
 		nil,
+		nil,
 		"",
 		"",
 		"",
@@ -90,16 +91,17 @@ var (
 )
 
 type Config struct {
-	LogLevel     string   `sconf:"optional" sconf-doc:"Log level: debug, info, warn, error. Default info."`
-	GoProxy      string   `sconf-doc:"URL to Go module proxy. Used to resolve \"latest\" module versions."`
-	DataDir      string   `sconf-doc:"Directory where the sumdb and builds files (binary, log) are stored. If it contains a robots.txt file, it is served for /robots.txt instead of the default."`
-	SDKDir       string   `sconf-doc:"Directory where SDKs (go toolchains) are installed."`
-	HomeDir      string   `sconf-doc:"Directory set as home directory during builds. Go will store its caches, downloaded and extracted modules here."`
-	MaxBuilds    int      `sconf-doc:"Maximum concurrent builds. Default (0) uses NumCPU+1."`
-	Environment  []string `sconf:"optional" sconf-doc:"Additional environment variables in form KEY=VALUE to use for go command invocations. Useful to configure GOSUMDB and HTTPS_PROXY."`
-	Run          []string `sconf:"optional" sconf-doc:"Command and parameters to prefix invocations of go with. For example /usr/bin/nice."`
-	BuildGobin   bool     `sconf-doc:"If enabled, sets environment variable GOBUILD_GOBIN during a build to a directory where the build command should write the binary. Configure a wrapper to the build command through the Run config option."`
-	VerifierURLs []string `sconf:"optional" sconf-doc:"URLs of other gobuild instances that are asked to perform the same build. Gobuild requires all of them to create the same binary (same hash) for a build to be successful. Ideally, these instances differ in hardware, goos, goarch, user id/name, home and work directories."`
+	LogLevel     string     `sconf:"optional" sconf-doc:"Log level: debug, info, warn, error. Default info."`
+	GoProxy      string     `sconf-doc:"URL to Go module proxy. Used to resolve \"latest\" module versions."`
+	DataDir      string     `sconf-doc:"Directory where the sumdb and builds files (binary, log) are stored. If it contains a robots.txt file, it is served for /robots.txt instead of the default."`
+	SDKDir       string     `sconf-doc:"Directory where SDKs (go toolchains) are installed."`
+	HomeDir      string     `sconf-doc:"Directory set as home directory during builds. Go will store its caches, downloaded and extracted modules here."`
+	MaxBuilds    int        `sconf-doc:"Maximum concurrent builds. Default (0) uses NumCPU+1."`
+	Environment  []string   `sconf:"optional" sconf-doc:"Additional environment variables in form KEY=VALUE to use for go command invocations. Useful to configure GOSUMDB and HTTPS_PROXY."`
+	Run          []string   `sconf:"optional" sconf-doc:"Command and parameters to prefix invocations of go with. For example /usr/bin/nice."`
+	BuildGobin   bool       `sconf-doc:"If enabled, sets environment variable GOBUILD_GOBIN during a build to a directory where the build command should write the binary. Configure a wrapper to the build command through the Run config option."`
+	Verifiers    []Verifier `sconf:"optional" sconf-doc:"Other gobuild instances against which the result of a build is verified for being reproducible before adding them to the transparency log. Gobuild requires all of them to create the same binary (same hash) for a build to be successful. Ideally, these instances differ in hardware, goos, goarch, user id/name, home and work directories. Superseeds config field VerifierURLs."`
+	VerifierURLs []string   `sconf:"optional" sconf-doc:"URLs of other gobuild instances that are asked to perform the same build. Gobuild requires all of them to create the same binary (same hash) for a build to be successful. Ideally, these instances differ in hardware, goos, goarch, user id/name, home and work directories. Superseded by Verifiers."`
 	HTTPS        *struct {
 		ACME struct {
 			Domains []string `sconf-doc:"List of domains to serve HTTPS for and request certificates for with ACME."`
@@ -117,6 +119,16 @@ type Config struct {
 	CleanupBinariesAccessTimeAge time.Duration   `sconf:"optional" sconf-doc:"Remove build result binaries with an access time longer this duration ago, if > 0. Binaries will be rebuilt, and verified to match the expected sum, when requested again."`
 
 	loglevel *slog.LevelVar
+}
+
+// Verifier represents a different gobuild instance against builds are verified for
+// reproducibility.
+type Verifier struct {
+	Key     string `sconf-doc:"Verifier key of gobuild instance."`
+	BaseURL string `sconf:"optional" sconf-doc:"Base URL of gobuild instance. If empty, the name of the verifier key is used, with protocol https, and with /tlog appended."`
+
+	name   string        `sconf:"-"` // From verifier key.
+	client *sumdb.Client `sconf:"-"` // Initialized when configuration file is parsed.
 }
 
 // ClientPattern has fields for matching client requests.
@@ -247,10 +259,26 @@ func serve(args []string) {
 	if !strings.HasSuffix(config.GoProxy, "/") {
 		config.GoProxy += "/"
 	}
-	for i, url := range config.VerifierURLs {
-		if strings.HasSuffix(url, "/") {
-			config.VerifierURLs[i] = config.VerifierURLs[i][:len(config.VerifierURLs[i])-1]
+	for i, v := range config.Verifiers {
+		// Parse verifier key ourselves so we can get the name, which we use for logging.
+		if nv, err := note.NewVerifier(strings.TrimSpace(string(v.Key))); err != nil {
+			log.Fatalf("parsing verifier key %s: %v", v.Key, err)
+		} else {
+			v.name = nv.Name()
 		}
+
+		// Store a sumdb.Client in the verifier, for when we need to do the verification.
+		client, _, err := newClient(v.Key, v.BaseURL)
+		if err != nil {
+			log.Fatalf("parsing key %s of verifier: %v", v.Key, err)
+		}
+		config.Verifiers[i].client = client
+	}
+	if len(config.VerifierURLs) > 0 {
+		slog.Warn("VerifierURLs has been superseded by Verifiers, for which the remote's transparency log is used for verification. Consider updating your configuration.")
+	}
+	for i, url := range config.VerifierURLs {
+		config.VerifierURLs[i] = strings.TrimSuffix(url, "/")
 	}
 	resultDir = filepath.Join(config.DataDir, "result")
 	if config.SDKVersionStop != "" {

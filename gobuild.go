@@ -76,6 +76,25 @@ func prepareBuild(ctx context.Context, bs buildSpec) error {
 	return nil
 }
 
+// remoteBuild is the result of a build done by a remote server, for verification.
+type remoteBuild struct {
+	// Either verifier or verifyURL is set, depending on config.Verifiers (new) or
+	// config.VerifierURL (old).
+	verifier  *Verifier
+	verifyURL string
+
+	err    error
+	result *buildResult
+}
+
+// name a string to use in logging to identify a verifier or verifierURL.
+func (rb *remoteBuild) name() string {
+	if rb.verifier != nil {
+		return rb.verifier.name
+	}
+	return rb.verifyURL
+}
+
 // Build does the actual build. It is called from coordinate, ensuring the same
 // buildSpec isn't built multiple times concurrently, and preventing a few other
 // clashes.
@@ -100,23 +119,42 @@ func build(bs buildSpec, expSumOpt string) (int64, *buildResult, string, error) 
 	// build fails, we just ignore these results, and let the remote builds continue.
 	// They will not cancel the build anyway.
 
-	type remoteBuild struct {
-		verifyURL string
-		err       error
-		result    *buildResult
-	}
-
-	verifyResult := make(chan remoteBuild, len(config.VerifierURLs))
+	verifyResult := make(chan remoteBuild, len(config.Verifiers)+len(config.VerifierURLs))
 	verifyLink := request{bs, "", pageRecord}.link()
 
-	verify := func(verifierBaseURL string) (*buildResult, error) {
+	// Verify a build at remote based on Verifier, which looks up a build in the
+	// remote's transparency log.
+	verify := func(v Verifier) (*buildResult, error) {
+		t0 := time.Now()
+		defer func() {
+			metricVerifyDuration.WithLabelValues(v.name, bs.Goos, bs.Goarch, bs.Goversion).Observe(time.Since(t0).Seconds())
+		}()
+
+		key := bs.String()
+		_, data, err := v.client.Lookup(context.Background(), key)
+		if err != nil {
+			metricVerifyErrors.WithLabelValues(v.name, bs.Goos, bs.Goarch, bs.Goversion).Inc()
+			return nil, fmt.Errorf("%w: looking up build in remote transparency log: %v", errRemote, err)
+		}
+
+		br, err := parseRecord(data)
+		if err != nil {
+			metricVerifyErrors.WithLabelValues(v.name, bs.Goos, bs.Goarch, bs.Goversion).Inc()
+			return nil, fmt.Errorf("parsing build record from remote: %v", err)
+		}
+		return br, nil
+	}
+
+	// verifyURL is like verify above, but older and less desirable because it doesn't
+	// look up the result in the remote's transparency log.
+	verifyURL := func(verifierBaseURL string) (*buildResult, error) {
 		t0 := time.Now()
 		defer func() {
 			metricVerifyDuration.WithLabelValues(verifierBaseURL, bs.Goos, bs.Goarch, bs.Goversion).Observe(time.Since(t0).Seconds())
 		}()
 
 		verifyURL := verifierBaseURL + verifyLink
-		resp, err := httpGet(verifyURL)
+		resp, err := httpGet(context.Background(), verifyURL)
 		if err != nil {
 			return nil, fmt.Errorf("%w: http request: %v", errServer, err)
 		}
@@ -140,16 +178,28 @@ func build(bs buildSpec, expSumOpt string) (int64, *buildResult, string, error) 
 		}
 	}
 
-	for _, verifierBaseURL := range config.VerifierURLs {
-		go func(verifierBaseURL string) {
+	for _, v := range config.Verifiers {
+		go func() {
 			defer logPanic()
 
-			result, err := verify(verifierBaseURL)
+			result, err := verify(v)
 			if err != nil {
-				err = fmt.Errorf("verifying with %s: %w", verifierBaseURL, err)
+				err = fmt.Errorf("verifying with verifier %s: %w", v.Key, err)
 			}
-			verifyResult <- remoteBuild{verifierBaseURL, err, result}
-		}(verifierBaseURL)
+			verifyResult <- remoteBuild{&v, "", err, result}
+		}()
+	}
+
+	for _, verifierBaseURL := range config.VerifierURLs {
+		go func() {
+			defer logPanic()
+
+			result, err := verifyURL(verifierBaseURL)
+			if err != nil {
+				err = fmt.Errorf("verifying with verifierURL %s: %w", verifierBaseURL, err)
+			}
+			verifyResult <- remoteBuild{nil, verifierBaseURL, err, result}
+		}()
 	}
 
 	t0 := time.Now()
@@ -319,17 +369,17 @@ func build(bs buildSpec, expSumOpt string) (int64, *buildResult, string, error) 
 	// Verify the sums of the verifiers.
 	matchesFrom := []string{}
 	mismatches := []string{}
-	for n := len(config.VerifierURLs); n > 0; n-- {
+	for n := len(config.Verifiers) + len(config.VerifierURLs); n > 0; n-- {
 		vr := <-verifyResult
 		if vr.err != nil {
 			return -1, nil, "", fmt.Errorf("build at verifier failed: %v (%w)", vr.err, errTempFailure)
 		}
 		if vr.result.Sum == br.Sum {
-			matchesFrom = append(matchesFrom, vr.verifyURL)
+			matchesFrom = append(matchesFrom, vr.name())
 		} else {
-			metricVerifyMismatch.WithLabelValues(vr.verifyURL, bs.Goos, bs.Goarch, bs.Goversion).Inc()
-			slog.Error("checksum mismatch from verifier", "verifierurl", vr.verifyURL, "verifiersum", vr.result.Sum, "expectsum", br.Sum)
-			mismatches = append(mismatches, fmt.Sprintf("%s got %s", vr.verifyURL, vr.result.Sum))
+			metricVerifyMismatch.WithLabelValues(vr.name(), bs.Goos, bs.Goarch, bs.Goversion).Inc()
+			slog.Error("checksum mismatch from verifier", "verifier", vr.name(), "verifiersum", vr.result.Sum, "expectsum", br.Sum)
+			mismatches = append(mismatches, fmt.Sprintf("%s got %s", vr.name(), vr.result.Sum))
 		}
 	}
 	if len(mismatches) > 0 {

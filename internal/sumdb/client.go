@@ -6,6 +6,7 @@ package sumdb
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -26,7 +27,7 @@ type ClientOps interface {
 	// It is the implementation's responsibility to turn that path into a full URL
 	// and make the HTTP request. ReadRemote should return an error for
 	// any non-200 HTTP response status.
-	ReadRemote(path string) ([]byte, error)
+	ReadRemote(ctx context.Context, path string) ([]byte, error)
 
 	// ReadConfig reads and returns the content of the named configuration file.
 	// There are only a fixed set of configuration files.
@@ -85,11 +86,9 @@ type Client struct {
 	initErr    error          // init error, if any
 	name       string         // name of accepted verifier
 	verifiers  note.Verifiers // accepted verifiers (just one, but Verifiers for note.Open)
-	tileReader tileReader
 	tileHeight int
 	nosumdb    string
 
-	record    parCache // cache of record lookup, keyed by path@vers
 	tileCache parCache // cache of c.readTile, keyed by tile
 
 	latestMu  sync.Mutex
@@ -122,7 +121,6 @@ func (c *Client) initWork() {
 		}
 	}()
 
-	c.tileReader.c = c
 	if c.tileHeight == 0 {
 		c.tileHeight = 8
 	}
@@ -154,7 +152,7 @@ func (c *Client) initWork() {
 		c.initErr = err
 		return
 	}
-	if err := c.mergeLatest(data); err != nil {
+	if err := c.mergeLatest(context.TODO(), data); err != nil {
 		c.initErr = err
 		return
 	}
@@ -179,7 +177,7 @@ func (c *Client) SetTileHeight(height int) {
 }
 
 // Lookup returns the record for the given key.
-func (c *Client) Lookup(key string) (id int64, data []byte, err error) {
+func (c *Client) Lookup(ctx context.Context, key string) (id int64, data []byte, err error) {
 	atomic.StoreUint32(&c.didLookup, 1)
 
 	defer func() {
@@ -194,55 +192,24 @@ func (c *Client) Lookup(key string) (id int64, data []byte, err error) {
 
 	// Prepare encoded cache filename / URL.
 	remotePath := "/lookup/" + key
-	file := c.name + remotePath
-
-	// Fetch the data.
-	// The lookupCache avoids redundant ReadCache/GetURL operations
-	// (especially since go.sum lines tend to come in pairs for a given
-	// path and version) and also avoids having multiple of the same
-	// request in flight at once.
-	type cached struct {
-		id   int64
-		text []byte
-		err  error
-	}
-	result := c.record.Do(file, func() any {
-		// Try the on-disk cache, or else get from web.
-		writeCache := false
-		data, err := c.ops.ReadCache(file)
-		if err != nil {
-			data, err = c.ops.ReadRemote(remotePath)
-			if err != nil {
-				return cached{err: err}
-			}
-			writeCache = true
-		}
-
-		// Validate the record before using it for anything.
-		id, text, treeMsg, err := tlog.ParseRecord(data)
-		if err != nil {
-			return cached{err: err}
-		}
-		if err := c.mergeLatest(treeMsg); err != nil {
-			return cached{err: err}
-		}
-		if err := c.checkRecord(id, text); err != nil {
-			return cached{err: err}
-		}
-
-		// Now that we've validated the record,
-		// save it to the on-disk cache (unless that's where it came from).
-		if writeCache {
-			c.ops.WriteCache(file, data)
-		}
-
-		return cached{id, text, nil}
-	}).(cached)
-	if result.err != nil {
-		return 0, nil, result.err
+	data, err = c.ops.ReadRemote(ctx, remotePath)
+	if err != nil {
+		return 0, nil, fmt.Errorf("lookup at remote: %v", err)
 	}
 
-	return result.id, result.text, nil
+	// Validate the record before using it for anything.
+	id, text, treeMsg, err := tlog.ParseRecord(data)
+	if err != nil {
+		return 0, nil, fmt.Errorf("parsing record from remote: %v", err)
+	}
+	if err := c.mergeLatest(ctx, treeMsg); err != nil {
+		return 0, nil, err
+	}
+	if err := c.checkRecord(ctx, id, text); err != nil {
+		return 0, nil, err
+	}
+
+	return id, text, nil
 }
 
 // mergeLatest merges the tree head in msg
@@ -254,9 +221,9 @@ func (c *Client) Lookup(key string) (id int64, data []byte, err error) {
 // If the Client's current latest tree head moves forward,
 // mergeLatest updates the underlying configuration file as well,
 // taking care to merge any independent updates to that configuration.
-func (c *Client) mergeLatest(msg []byte) error {
+func (c *Client) mergeLatest(ctx context.Context, msg []byte) error {
 	// Merge msg into our in-memory copy of the latest tree head.
-	when, err := c.mergeLatestMem(msg)
+	when, err := c.mergeLatestMem(ctx, msg)
 	if err != nil {
 		return err
 	}
@@ -275,7 +242,7 @@ func (c *Client) mergeLatest(msg []byte) error {
 		if err != nil {
 			return err
 		}
-		when, err := c.mergeLatestMem(msg)
+		when, err := c.mergeLatestMem(ctx, msg)
 		if err != nil {
 			return err
 		}
@@ -310,7 +277,7 @@ const (
 // msgPast means msg was from before c.latest,
 // msgNow means msg was exactly c.latest, and
 // msgFuture means msg was from after c.latest, which has now been updated.
-func (c *Client) mergeLatestMem(msg []byte) (when int, err error) {
+func (c *Client) mergeLatestMem(ctx context.Context, msg []byte) (when int, err error) {
 	if len(msg) == 0 {
 		// Accept empty msg as the unsigned, empty timeline.
 		c.latestMu.Lock()
@@ -342,7 +309,7 @@ func (c *Client) mergeLatestMem(msg []byte) (when int, err error) {
 	for {
 		// If the tree head looks old, check that it is on our timeline.
 		if tree.N <= latest.N {
-			if err := c.checkTrees(tree, msg, latest, latestMsg); err != nil {
+			if err := c.checkTrees(ctx, tree, msg, latest, latestMsg); err != nil {
 				return 0, err
 			}
 			if tree.N < latest.N {
@@ -352,7 +319,7 @@ func (c *Client) mergeLatestMem(msg []byte) (when int, err error) {
 		}
 
 		// The tree head looks new. Check that we are on its timeline and try to move our timeline forward.
-		if err := c.checkTrees(latest, latestMsg, tree, msg); err != nil {
+		if err := c.checkTrees(ctx, latest, latestMsg, tree, msg); err != nil {
 			return 0, err
 		}
 
@@ -376,12 +343,16 @@ func (c *Client) mergeLatestMem(msg []byte) (when int, err error) {
 	}
 }
 
+func (c *Client) tileReader(ctx context.Context) *tileReader {
+	return &tileReader{ctx, c}
+}
+
 // checkTrees checks that older (from olderNote) is contained in newer (from newerNote).
 // If an error occurs, such as malformed data or a network problem, checkTrees returns that error.
 // If on the other hand checkTrees finds evidence of misbehavior, it prepares a detailed
 // message and calls log.Fatal.
-func (c *Client) checkTrees(older tlog.Tree, olderNote []byte, newer tlog.Tree, newerNote []byte) error {
-	thr := tlog.TileHashReader(newer, &c.tileReader)
+func (c *Client) checkTrees(ctx context.Context, older tlog.Tree, olderNote []byte, newer tlog.Tree, newerNote []byte) error {
+	thr := tlog.TileHashReader(newer, c.tileReader(ctx))
 	h, err := tlog.TreeHash(older.N, thr)
 	if err != nil {
 		if older.N == newer.N {
@@ -429,7 +400,7 @@ func (c *Client) checkTrees(older tlog.Tree, olderNote []byte, newer tlog.Tree, 
 }
 
 // checkRecord checks that record #id's hash matches data.
-func (c *Client) checkRecord(id int64, data []byte) error {
+func (c *Client) checkRecord(ctx context.Context, id int64, data []byte) error {
 	c.latestMu.Lock()
 	latest := c.latest
 	c.latestMu.Unlock()
@@ -437,7 +408,7 @@ func (c *Client) checkRecord(id int64, data []byte) error {
 	if id >= latest.N {
 		return fmt.Errorf("cannot validate record %d in tree of size %d", id, latest.N)
 	}
-	hashes, err := tlog.TileHashReader(latest, &c.tileReader).ReadHashes([]int64{tlog.StoredHashIndex(0, id)})
+	hashes, err := tlog.TileHashReader(latest, c.tileReader(ctx)).ReadHashes([]int64{tlog.StoredHashIndex(0, id)})
 	if err != nil {
 		return err
 	}
@@ -451,7 +422,8 @@ func (c *Client) checkRecord(id int64, data []byte) error {
 // The separate type avoids exposing the ReadTiles and SaveTiles
 // methods on Client itself.
 type tileReader struct {
-	c *Client
+	ctx context.Context
+	c   *Client
 }
 
 func (r *tileReader) Height() int {
@@ -469,7 +441,7 @@ func (r *tileReader) ReadTiles(tiles []tlog.Tile) ([][]byte, error) {
 		wg.Add(1)
 		go func(i int, tile tlog.Tile) {
 			defer wg.Done()
-			data[i], errs[i] = r.c.readTile(tile)
+			data[i], errs[i] = r.c.readTile(r.ctx, tile)
 		}(i, tile)
 	}
 	wg.Wait()
@@ -494,7 +466,7 @@ func (c *Client) tileRemotePath(tile tlog.Tile) string {
 }
 
 // readTile reads a single tile, either from the on-disk cache or the server.
-func (c *Client) readTile(tile tlog.Tile) ([]byte, error) {
+func (c *Client) readTile(ctx context.Context, tile tlog.Tile) ([]byte, error) {
 	type cached struct {
 		data []byte
 		err  error
@@ -522,7 +494,7 @@ func (c *Client) readTile(tile tlog.Tile) ([]byte, error) {
 		}
 
 		// Try requested tile from server.
-		data, err = c.ops.ReadRemote(c.tileRemotePath(tile))
+		data, err = c.ops.ReadRemote(ctx, c.tileRemotePath(tile))
 		if err == nil {
 			return cached{data, nil}
 		}
@@ -532,7 +504,7 @@ func (c *Client) readTile(tile tlog.Tile) ([]byte, error) {
 		// the tile has been completed and only the complete one
 		// is available.
 		if tile != full {
-			data, err := c.ops.ReadRemote(c.tileRemotePath(full))
+			data, err := c.ops.ReadRemote(ctx, c.tileRemotePath(full))
 			if err == nil {
 				// Note: We could save the full tile in the on-disk cache here,
 				// but we don't know if it is valid yet, and we will only find out

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"log"
@@ -63,10 +64,10 @@ func newClient(vkey string, baseURL string) (*sumdb.Client, *clientOps, error) {
 	return sumdb.NewClient(ops), ops, nil
 }
 
-func (c *clientOps) ReadRemote(path string) ([]byte, error) {
+func (c *clientOps) ReadRemote(ctx context.Context, path string) ([]byte, error) {
 	// log.Printf("client: ReadRemote %s", path)
 
-	resp, err := httpGet(c.baseURL + path)
+	resp, err := httpGet(ctx, c.baseURL+path)
 	if err != nil {
 		return nil, err
 	}

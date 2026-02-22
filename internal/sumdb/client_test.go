@@ -6,6 +6,7 @@ package sumdb
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"strings"
 	"sync"
@@ -29,12 +30,9 @@ func TestClientLookup(t *testing.T) {
 	tc.mustLookup("rsc.io/sampler", "v1.3.0", "rsc.io/sampler v1.3.0 h1:7uVkIFmeBqHfdjD+gZwtXXI+RODJ2Wc4O7MPEh/QiW4=\nrsc.io/sampler v1.3.0/go.mod h1:T1hPZKmBbMNahiBKFy5HrXp6adAjACjK9JXDnKaTXpA=")
 	tc.mustHaveLatest(3)
 
-	// Everything should now be cached, both for the original package and its /go.mod.
-	tc.getOK = false
+	tc.getTileOK = false // the cache has what we need
 	tc.mustLookup("rsc.io/sampler", "v1.3.0", "rsc.io/sampler v1.3.0 h1:7uVkIFmeBqHfdjD+gZwtXXI+RODJ2Wc4O7MPEh/QiW4=\nrsc.io/sampler v1.3.0/go.mod h1:T1hPZKmBbMNahiBKFy5HrXp6adAjACjK9JXDnKaTXpA=")
 	tc.mustHaveLatest(3)
-	tc.getOK = true
-	tc.getTileOK = false // the cache has what we need
 
 	// Lookup with multiple returned lines.
 	tc.mustLookup("rsc.io/quote", "v1.5.2", "rsc.io/quote v1.5.2 h1:w5fcysjrx7yqtD/aO+QwRjYZOKnaM9Uh2b40tElTs3Y=\nrsc.io/quote v1.5.2/go.mod h1:LzX7hefJvL54yjefDEDHNONDjII0t9xZLPXsUe+TKr0=\nrsc.io/quote v1.5.2 h2:xyzzy")
@@ -49,6 +47,7 @@ func TestClientLookup(t *testing.T) {
 }
 
 func TestClientBadTiles(t *testing.T) {
+	ctx := t.Context()
 	tc := newTestClient(t)
 
 	flipBits := func() {
@@ -64,7 +63,7 @@ func TestClientBadTiles(t *testing.T) {
 	// Bad tiles in initial download.
 	tc.mustHaveLatest(1)
 	flipBits()
-	_, _, err := tc.client.Lookup("rsc.io/sampler@v1.3.0")
+	_, _, err := tc.client.Lookup(ctx, "rsc.io/sampler@v1.3.0")
 	tc.mustError(err, "rsc.io/sampler@v1.3.0: initializing sumdb.Client: checking tree#1: downloaded inconsistent tile")
 	flipBits()
 	tc.newClient()
@@ -72,7 +71,7 @@ func TestClientBadTiles(t *testing.T) {
 
 	// Bad tiles after initial download.
 	flipBits()
-	_, _, err = tc.client.Lookup("rsc.io/!quote@v1.5.2")
+	_, _, err = tc.client.Lookup(ctx, "rsc.io/!quote@v1.5.2")
 	tc.mustError(err, "rsc.io/!quote@v1.5.2: checking tree#3 against tree#4: downloaded inconsistent tile")
 	flipBits()
 	tc.newClient()
@@ -86,7 +85,7 @@ func TestClientBadTiles(t *testing.T) {
 		tc.t.Fatal(err)
 	}
 	tc.config[testName+"/latest"] = data
-	_, _, err = tc.client.Lookup("rsc.io/sampler@v1.3.0")
+	_, _, err = tc.client.Lookup(ctx, "rsc.io/sampler@v1.3.0")
 	tc.mustError(err, "rsc.io/sampler@v1.3.0: initializing sumdb.Client: checking tree#1: downloaded inconsistent tile")
 }
 
@@ -108,7 +107,7 @@ func TestClientFork(t *testing.T) {
 
 	key := "/lookup/rsc.io/pkg1@v1.5.2"
 	tc2.remote[key] = tc.remote[key]
-	_, _, err := tc2.client.Lookup("rsc.io/pkg1@v1.5.2")
+	_, _, err := tc2.client.Lookup(t.Context(), "rsc.io/pkg1@v1.5.2")
 	tc2.mustError(err, ErrSecurity.Error())
 
 	/*
@@ -236,7 +235,7 @@ func (tc *testClient) newClient() {
 // mustLookup does a lookup for path@vers and checks that the lines that come back match want.
 func (tc *testClient) mustLookup(path, vers, want string) {
 	tc.t.Helper()
-	_, data, err := tc.client.Lookup(path + "@" + vers)
+	_, data, err := tc.client.Lookup(tc.t.Context(), path+"@"+vers)
 	if err != nil {
 		tc.t.Fatal(err)
 	}
@@ -349,7 +348,7 @@ func (tc *testClient) signTree(size int64) []byte {
 }
 
 // ReadRemote is for tc's implementation of Client.
-func (tc *testClient) ReadRemote(path string) ([]byte, error) {
+func (tc *testClient) ReadRemote(_ context.Context, path string) ([]byte, error) {
 	// No mutex here because only the Client should be running
 	// and the Client cannot change tc.get.
 	if !tc.getOK {
