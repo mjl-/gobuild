@@ -99,9 +99,9 @@ func serveBuild(w http.ResponseWriter, r *http.Request, req request) {
 
 	ctx := r.Context()
 
-	// We always immediately attempt to get the files for a build build. This checks
-	// with the goproxy that the module and package exist, and seems like it has a
-	// chance to compile.
+	// We always immediately attempt to get the files for a build. This checks with the
+	// goproxy that the module and package exist, and seems like it has a chance to
+	// compile.
 	if err := prepareBuild(ctx, req.buildSpec); err != nil {
 		failf(w, "preparing build: %w", err)
 		return
