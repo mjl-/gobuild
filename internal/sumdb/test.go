@@ -66,7 +66,7 @@ func (s *TestServer) ReadRecords(ctx context.Context, id, n int64) ([][]byte, er
 	defer s.mu.Unlock()
 
 	var list [][]byte
-	for i := int64(0); i < n; i++ {
+	for i := range n {
 		if id+i >= int64(len(s.records)) {
 			return nil, fmt.Errorf("missing records")
 		}
@@ -84,11 +84,11 @@ func (s *TestServer) Lookup(ctx context.Context, key string) (int64, error) {
 	}
 
 	// Look up module and compute go.sum lines.
-	i := strings.Index(key, "@")
-	if i < 0 {
+	before, after, ok0 := strings.Cut(key, "@")
+	if !ok0 {
 		return 0, fmt.Errorf("invalid lookup key %q", key)
 	}
-	path, vers := key[:i], key[i+1:]
+	path, vers := before, after
 	data, err := s.gosum(path, vers)
 	if err != nil {
 		return 0, err

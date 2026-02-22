@@ -73,7 +73,7 @@ func (s serverOps) ReadRecords(ctx context.Context, id, n int64) (results [][]by
 		return nil, fmt.Errorf("reading records: %v", err)
 	}
 	result := make([][]byte, n)
-	for i := int64(0); i < n; i++ {
+	for i := range n {
 		buf := all[:diskRecordSize]
 		all = all[diskRecordSize:]
 		size := int(buf[0])<<8 | int(buf[1])
