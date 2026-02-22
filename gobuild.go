@@ -342,6 +342,31 @@ func build(bs buildSpec, expSumOpt string) (int64, *buildResult, string, error) 
 	}
 	br.Sum = "0" + base64.RawURLEncoding.EncodeToString(h.Sum(nil)[:20])
 
+	// Called after a binary.gz is added to the result/ data directory. Either when
+	// recreating the binary, or when first creating it.
+	handleBinaryCacheAdd := func(size int64) {
+		// Cache size administration isn't entirely race-free. Multiple processes may
+		// finish a build and a positive number of bytes to reclaim. Perhaps a little too
+		// many or too few files will get cleaned up. The administration of
+		// result/binary-cache-size.txt should be correct though and files would get
+		// cleaned up during a future build.
+		reclaim := binaryCacheSizeAdd(size)
+		if err := binaryCacheSizeWrite(); err != nil {
+			slog.Error("writing result/binary-cache-size.txt", "err", err)
+			// continuing...
+		}
+		if reclaim > 0 {
+			// Do cleanup in the background, it may take a while with a big cache.
+			go func() {
+				defer logPanic()
+
+				if err := binaryCacheCleanup(reclaim); err != nil {
+					slog.Error("cleaning up binary cache for max size", "err", err)
+				}
+			}()
+		}
+	}
+
 	// If we already have a sum, we've done this build before and are now restoring the
 	// binary. The sum of the newly compiled file must match.
 	if expSumOpt != "" {
@@ -359,9 +384,13 @@ func build(bs buildSpec, expSumOpt string) (int64, *buildResult, string, error) 
 			return -1, nil, "", fmt.Errorf("reading previous recordnumber file: %w", err)
 		} else if v, err := strconv.ParseInt(strings.TrimSpace(string(recBuf)), 10, 64); err != nil {
 			return -1, nil, "", fmt.Errorf("parsing previous recordnumber %q: %v", recBuf, err)
+		} else if st, err := os.Stat(ptmp); err != nil {
+			return -1, nil, "", fmt.Errorf("stat temporary binary.gz for size: %w", err)
 		} else if err := os.Rename(ptmp, pdst); err != nil {
 			return -1, nil, "", fmt.Errorf("moving binary.gz to destination: %w", err)
 		} else {
+			handleBinaryCacheAdd(st.Size())
+
 			return v, &br, "", nil
 		}
 	}
@@ -397,6 +426,11 @@ func build(bs buildSpec, expSumOpt string) (int64, *buildResult, string, error) 
 		return -1, nil, "", err
 	}
 
+	st, err := os.Stat(filepath.Join(tmpdir, "binary.gz"))
+	if err != nil {
+		return -1, nil, "", fmt.Errorf("stat binary.gz after writing: %v", err)
+	}
+
 	// Finally, add to the transparency log, creating the "recordnumber" file and
 	// renaming tmpdir to the final directory in resultDir.
 	recordNumber, err := addSum(tmpdir, br)
@@ -404,6 +438,8 @@ func build(bs buildSpec, expSumOpt string) (int64, *buildResult, string, error) 
 		return -1, nil, "", fmt.Errorf("adding sum to tranparency log: %w", err)
 	}
 	tmpdir = ""
+
+	handleBinaryCacheAdd(st.Size())
 
 	recentBuilds.Lock()
 	recentBuilds.links = append(recentBuilds.links, request{bs, br.Sum, pageIndex}.link())

@@ -74,8 +74,10 @@ var (
 		"",
 		"",
 		nil,
-		12 * 7 * 24 * time.Hour, // 12 weeks
+		"",
+		0,
 		Ratelimit{false},
+		0,
 		&slog.LevelVar{},
 	}
 	emptyConfig = config
@@ -146,10 +148,12 @@ type Config struct {
 	SDKVersionStop               string          `sconf:"optional" sconf-doc:"If set, the (hypothetical) version (and beyond) of the Go toolchain that is not allowed for builds. Gobuild automatically downloads new SDKs. However, new Go toolchain versions may change behaviour which may cause binaries to no longer become reproducible with the flags gobuild uses to build. By refusing new versions, you have time to separately verify binaries with newer Go toolchains are still reproducible. Example: a version of go1.20 allows go1.18, go1.19, go1.19.1, but not go1.20, go1.21 or go2.0. Versions like go1.20rc1 are interpreted as go1.20, without rc1."`
 	InstanceNotesFile            string          `sconf:"optional" sconf-doc:"If set, a path to a plain text file with notes about this gobuild instance that is included on the main page."`
 	BadClients                   []ClientPattern `sconf:"optional" sconf-doc:"Clients for which we won't start a new build. To prevent bad bots that ignore robots.txt from causing lots of builds."`
-	CleanupBinariesAccessTimeAge time.Duration   `sconf:"optional" sconf-doc:"Remove build result binaries with an access time longer this duration ago, if > 0. Binaries will be rebuilt, and verified to match the expected sum, when requested again."`
+	BinaryCacheSizeMax           string          `sconf:"optional" sconf-doc:"Maximum size of the cache with built binaries. When adding a new binary would go over the size, binaries with the oldest access time are removed to stay under 90% of the maximum size. Value must end in MB or GB. The actual total size occupied by the binaries can temporarily exceed the configured maximum size. Can not be used with CleanupBinariesAccessTimeAge."`
+	CleanupBinariesAccessTimeAge time.Duration   `sconf:"optional" sconf-doc:"Remove build result binaries with an access time longer this duration ago, if > 0. Binaries will be rebuilt, and verified to match the expected sum, when requested again. Can not be used with BinaryCacheSizeMax."`
 	Ratelimit                    Ratelimit       `sconf:"optional" sconf-doc:"Requests for builds (compilation) through the web pages can be rate limited to prevent overloading the server. The lookups through the /tlog endpoints are not affected."`
 
-	loglevel *slog.LevelVar
+	binaryCacheSizeMax int64 // Active if > 0.
+	loglevel           *slog.LevelVar
 }
 
 // Verifier represents a different gobuild instance against builds are verified for
@@ -417,6 +421,62 @@ func serve(args []string) {
 		log.Fatal("shutdown after sigint or sigterm")
 	}()
 
+	if config.BinaryCacheSizeMax != "" && config.CleanupBinariesAccessTimeAge > 0 {
+		log.Fatalf("cannot configure both BinaryCacheSizeMax and CleanupBinariesAccessTimeAge")
+	}
+
+	if config.BinaryCacheSizeMax != "" {
+		// Parse the size.
+		s := strings.ToLower(config.BinaryCacheSizeMax)
+		s = strings.TrimSuffix(s, "b")
+		var mult int64
+		if strings.HasSuffix(s, "m") {
+			mult = 1024 * 1024
+		} else if strings.HasSuffix(s, "g") {
+			mult = 1024 * 1024 * 1024
+		} else {
+			log.Fatalf("invalid value %q for BinaryCacheSizeMax: must end with mb or gb", config.BinaryCacheSizeMax)
+		}
+		v, err := strconv.ParseInt(s[:len(s)-1], 10, 64)
+		if err != nil {
+			log.Fatalf("parsing %q for BinaryCacheSizeMax: %v", config.BinaryCacheSizeMax, err)
+		}
+		config.binaryCacheSizeMax = mult * v
+
+		// Check we know the current cache size. If not, we walk the data result/ directory
+		// and calculate it.
+		buf, err := os.ReadFile(filepath.Join(config.DataDir, "result", "binary-cache-size.txt"))
+		if err == nil {
+			binaryCache.Lock()
+			binaryCache.size, err = strconv.ParseInt(strings.TrimSpace(string(buf)), 10, 64)
+			if err == nil {
+				slog.Info("binary cache size read from file", "size", binaryCache.size)
+			}
+			binaryCache.Unlock()
+		}
+		if err != nil {
+			slog.Info("cannot read or parse result/binary-cache-size.txt, will walk result and initialize file", "err", err)
+
+			// Walk data's result/ dir to gather the current size. We won't remove anything. It
+			// will write a new binary-cache-size.txt file and set binaryCache.size.
+			err := binaryCacheCleanup(0)
+			if err != nil {
+				slog.Error("determining current size of binaries cache", "err", err)
+			}
+		}
+
+		// We may need to cleanup now.
+		if reclaim := binaryCacheSizeAdd(0); reclaim > 0 {
+			go func() {
+				defer logPanic()
+
+				err := binaryCacheCleanup(reclaim)
+				if err != nil {
+					slog.Error("cleaning up binary cache at startup", "err", err, "reclaim", reclaim)
+				}
+			}()
+		}
+	}
 	if config.CleanupBinariesAccessTimeAge > 0 {
 		go func() {
 			defer logPanic()
