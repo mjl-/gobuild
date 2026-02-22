@@ -63,6 +63,18 @@ var (
 			Help: "Total number of build requests from bad clients that were blocked.",
 		},
 	)
+	metricClientBuildRequestsLimitedRecent = promauto.NewCounter(
+		prometheus.CounterOpts{
+			Name: "gobuild_client_build_requests_limited_recent_total",
+			Help: "Total number of rejected build requests due to the rate limit for builds with recent go versions.",
+		},
+	)
+	metricClientBuildRequestsLimitedOld = promauto.NewCounter(
+		prometheus.CounterOpts{
+			Name: "gobuild_client_build_requests_limited_old_total",
+			Help: "Total number of rejected build requests due to the rate limit for builds with old go versions.",
+		},
+	)
 
 	metricPageDuration = promauto.NewHistogramVec(
 		prometheus.HistogramOpts{

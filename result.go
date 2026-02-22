@@ -17,7 +17,7 @@ func serveResult(w http.ResponseWriter, r *http.Request, req request) {
 		http.NotFound(w, r)
 		return
 	} else if br == nil || !binaryPresent {
-		if handleBadClient(w, r) {
+		if handleBadClient(w, r, req.buildSpec) {
 			return
 		}
 

@@ -1,22 +1,62 @@
 package main
 
 import (
+	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
+	"time"
 )
 
-func handleBadClient(w http.ResponseWriter, r *http.Request) bool {
+// handleBadClient is called for builds triggered through the web interface (not
+// the /tlog lookup endpoint), to check if the client is bad (e.g. a crawler
+// triggering builds by following all the links at the bottom of a build/result
+// page).
+func handleBadClient(w http.ResponseWriter, r *http.Request, bs buildSpec) bool {
 	metricClientBuildRequests.Inc()
 	for _, cp := range config.BadClients {
 		if hostname, ok := cp.Match(r); ok {
 			metricClientBuildRequestsBad.Inc()
 			slog.Info("bad client", "user-agent", r.UserAgent(), "remoteaddr", r.RemoteAddr, "hostname", hostname)
-			statusfailf(http.StatusForbidden, w, "Your request matched a list of clients/networks with known bad behaviour. Please respect the robots.txt (no crawling that triggers builds!) and be kind. Contact the admins to get access again.")
+			statusfail(http.StatusForbidden, w, "Your request matched a list of clients/networks with known bad behaviour. Please respect the robots.txt (no crawling that triggers builds!) and be kind. Contact the admins to get access again.")
 			return true
 		}
 	}
+
+	if !config.Ratelimit.Enabled {
+		return false
+	}
+
+	ipstr, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		slog.Info("parsing remote address for rate limit", "err", err, "addr", r.RemoteAddr)
+		return false
+	}
+	ip := net.ParseIP(ipstr)
+	if ip == nil {
+		slog.Info("parsing remote ip address for rate limit", "err", err, "addr", r.RemoteAddr, "ipstr", ipstr)
+		return false
+	}
+
+	_, supported, _ := listSDK()
+	limiter := &limiterOld
+	goage := "old"
+	metric := metricClientBuildRequestsLimitedOld
+	if slices.Contains(supported, bs.Goversion) {
+		limiter = &limiterRecent
+		goage = "recent"
+		metric = metricClientBuildRequestsLimitedRecent
+	}
+	if !limiter.Add(ip, time.Now(), 1) {
+		metric.Inc()
+		slog.Info("build requested rejected through rate limit", "remoteaddr", r.RemoteAddr, "user-agent", r.UserAgent(), "goage", goage, "goversion", bs.Goversion)
+		statusfail(http.StatusTooManyRequests, w, fmt.Sprintf("Your IP or its neighbourhood has requested too many builds (for %s Go versions) in a short period. Please slow down, and try again later. Contact the admins to get the rate limit loosened.", goage))
+		return true
+	}
+
 	return false
 }
 
@@ -88,7 +128,7 @@ func serveBuild(w http.ResponseWriter, r *http.Request, req request) {
 		return
 	}
 
-	if handleBadClient(w, r) {
+	if handleBadClient(w, r, req.buildSpec) {
 		return
 	}
 

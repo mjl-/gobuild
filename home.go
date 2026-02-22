@@ -165,6 +165,6 @@ func checkAllowedRespond(w http.ResponseWriter, module string) bool {
 			return true
 		}
 	}
-	statusfailf(http.StatusForbidden, w, "403 - Module path not allowed")
+	statusfail(http.StatusForbidden, w, "403 - Module path not allowed")
 	return false
 }

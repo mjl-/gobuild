@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"github.com/mjl-/gobuild/internal/sumdb"
+	"github.com/mjl-/gobuild/ratelimit"
 
 	"github.com/mjl-/sconf"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -74,6 +75,7 @@ var (
 		"",
 		nil,
 		12 * 7 * 24 * time.Hour, // 12 weeks
+		Ratelimit{false},
 		&slog.LevelVar{},
 	}
 	emptyConfig = config
@@ -88,6 +90,34 @@ var (
 
 	// Either separate log file or stderr, append-only logging of added sums.
 	sumLogFile io.Writer
+
+	// Ratelimit for requests for builds with latest supported Go toolchains.
+	limiterRecent = ratelimit.Limiter{
+		IPClasses: [...][]int{
+			{32, 24, 20, 16}, // IPv4
+			{64, 48, 32, 24}, // IPv6
+		},
+		WindowLimits: []ratelimit.WindowLimit{
+			{Window: time.Minute, Limits: []int64{10, 20, 80, 160}},
+			{Window: 10 * time.Minute, Limits: []int64{20, 40, 160, 320}},
+			{Window: 60 * time.Minute, Limits: []int64{30, 60, 240, 480}},
+			{Window: 6 * 60 * time.Minute, Limits: []int64{40, 80, 400, 800}},
+		},
+	}
+	// Ratelimit for builds with older Go toolchains. These are more likely done by
+	// misbehaving crawler bots following all the links on a build page.
+	limiterOld = ratelimit.Limiter{
+		IPClasses: [...][]int{
+			{32, 24, 20, 16}, // IPv4
+			{64, 48, 32, 24}, // IPv6
+		},
+		WindowLimits: []ratelimit.WindowLimit{
+			{Window: time.Minute, Limits: []int64{2, 3, 4, 5}},
+			{Window: 10 * time.Minute, Limits: []int64{4, 6, 8, 10}},
+			{Window: 60 * time.Minute, Limits: []int64{6, 9, 12, 15}},
+			{Window: 6 * 60 * time.Minute, Limits: []int64{10, 15, 20, 25}},
+		},
+	}
 )
 
 type Config struct {
@@ -117,6 +147,7 @@ type Config struct {
 	InstanceNotesFile            string          `sconf:"optional" sconf-doc:"If set, a path to a plain text file with notes about this gobuild instance that is included on the main page."`
 	BadClients                   []ClientPattern `sconf:"optional" sconf-doc:"Clients for which we won't start a new build. To prevent bad bots that ignore robots.txt from causing lots of builds."`
 	CleanupBinariesAccessTimeAge time.Duration   `sconf:"optional" sconf-doc:"Remove build result binaries with an access time longer this duration ago, if > 0. Binaries will be rebuilt, and verified to match the expected sum, when requested again."`
+	Ratelimit                    Ratelimit       `sconf:"optional" sconf-doc:"Requests for builds (compilation) through the web pages can be rate limited to prevent overloading the server. The lookups through the /tlog endpoints are not affected."`
 
 	loglevel *slog.LevelVar
 }
@@ -129,6 +160,10 @@ type Verifier struct {
 
 	name   string        `sconf:"-"` // From verifier key.
 	client *sumdb.Client `sconf:"-"` // Initialized when configuration file is parsed.
+}
+
+type Ratelimit struct {
+	Enabled bool `sconf-doc:"Whether rate limiting is enabled."`
 }
 
 // ClientPattern has fields for matching client requests.
@@ -592,10 +627,10 @@ func failf(w http.ResponseWriter, format string, args ...any) {
 	} else {
 		status = http.StatusBadRequest
 	}
-	statusfailf(status, w, errmsg)
+	statusfail(status, w, errmsg)
 }
 
-func statusfailf(status int, w http.ResponseWriter, errmsg string) {
+func statusfail(status int, w http.ResponseWriter, errmsg string) {
 	msg := fmt.Sprintf("%d - %s - %s", status, http.StatusText(status), errmsg)
 	if status/100 == 5 {
 		metricHTTPRequestsServerErrors.Inc()
