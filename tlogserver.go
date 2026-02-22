@@ -119,7 +119,7 @@ func (s serverOps) Lookup(ctx context.Context, key string) (results int64, rerr 
 	p := filepath.Join(bs.storeDir(), "recordnumber")
 	if buf, err := os.ReadFile(p); err != nil {
 		if os.IsNotExist(err) {
-			return lookupBuild(ctx, bs)
+			return lookupBuild(ctx, bs, ctx.Value(keyRemoteAddr{}).(string))
 		}
 		return -1, err
 	} else {
@@ -162,7 +162,7 @@ func (s serverOps) lookupResult(ctx context.Context, bs buildSpec) (recordNumber
 
 // Returns os.ErrNotExist (not wrapped) if the fault is in the request, to
 // cause a http 404 response for the lookup.
-func lookupBuild(ctx context.Context, bs buildSpec) (int64, error) {
+func lookupBuild(ctx context.Context, bs buildSpec, remoteAddr string) (int64, error) {
 	// Before attempting to build, check we don't have a failed build already.
 	if _, err := os.Stat(filepath.Join(bs.storeDir(), "log.gz")); err == nil {
 		return -1, os.ErrNotExist
@@ -182,7 +182,7 @@ func lookupBuild(ctx context.Context, bs buildSpec) (int64, error) {
 	}
 
 	eventc := make(chan buildUpdate, 100)
-	registerBuild(bs, "", eventc)
+	registerBuild(bs, "", eventc, parseRemoteAddr(remoteAddr))
 
 	for {
 		select {

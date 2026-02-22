@@ -1,10 +1,12 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/netip"
 	"runtime"
 	"slices"
 )
@@ -49,22 +51,34 @@ type buildRequest struct {
 	bs     buildSpec
 	expSum string // If non-empty, build must result in this sum. Used for rebuilding a binary that was cleaned up.
 	eventc chan buildUpdate
+	remote netip.Addr
+}
+
+type coordinatorState struct {
+	queue []queueElem
+}
+
+type queueElem struct {
+	buildSpec
+	initiator netip.Addr
 }
 
 var coordinate = struct {
 	register   chan buildRequest
 	unregister chan buildRequest
+	state      chan chan coordinatorState
 }{
 	make(chan buildRequest, 1),
 	make(chan buildRequest, 1),
+	make(chan chan coordinatorState),
 }
 
-func registerBuild(bs buildSpec, expSum string, eventc chan buildUpdate) {
-	coordinate.register <- buildRequest{bs, expSum, eventc}
+func registerBuild(bs buildSpec, expSum string, eventc chan buildUpdate, remote netip.Addr) {
+	coordinate.register <- buildRequest{bs, expSum, eventc, remote}
 }
 
 func unregisterBuild(bs buildSpec, eventc chan buildUpdate) {
-	coordinate.unregister <- buildRequest{bs, "", eventc}
+	coordinate.unregister <- buildRequest{bs, "", eventc, netip.Addr{}}
 }
 
 func coordinateBuilds() {
@@ -78,6 +92,8 @@ func coordinateBuilds() {
 		// Last update, with done set to true. We store it to know the command has
 		// finished, and give all listeners the concluding update.
 		final *buildUpdate
+
+		initiator netip.Addr
 	}
 	builds := map[buildSpec]*wipBuild{}
 
@@ -175,7 +191,7 @@ func coordinateBuilds() {
 		case reg := <-coordinate.register:
 			b, ok := builds[reg.bs]
 			if !ok {
-				b = &wipBuild{nil, nil}
+				b = &wipBuild{nil, nil, reg.remote}
 				builds[reg.bs] = b
 
 				// We may have just finished a build. Before starting any new work, try reading a result.
@@ -242,6 +258,16 @@ func coordinateBuilds() {
 				delete(builds, update.bs)
 			}
 			kick()
+
+		case rc := <-coordinate.state:
+			q := make([]queueElem, 0, len(builds))
+			for bs, wb := range builds {
+				q = append(q, queueElem{bs, wb.initiator})
+			}
+			slices.SortFunc(q, func(a, b queueElem) int {
+				return cmp.Compare(a.buildSpec.String(), b.buildSpec.String())
+			})
+			rc <- coordinatorState{q}
 		}
 	}
 }

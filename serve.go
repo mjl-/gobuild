@@ -17,6 +17,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -365,6 +366,17 @@ func serve(args []string) {
 	}
 
 	http.Handle("/metrics", promhttp.Handler())
+	http.HandleFunc("/pending", func(w http.ResponseWriter, r *http.Request) {
+		// Return list of pending builds, including IP addresses.
+		rc := make(chan coordinatorState)
+		coordinate.state <- rc
+		state := <-rc
+
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		for _, elem := range state.queue {
+			fmt.Fprintf(w, "%s %s\n", elem.buildSpec.String(), elem.initiator.String())
+		}
+	})
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/robots.txt", func(w http.ResponseWriter, r *http.Request) {
@@ -412,7 +424,7 @@ func serve(args []string) {
 			log.Fatalf("new signer: %v", err)
 		}
 
-		h := http.StripPrefix("/tlog", sumdb.NewServer(serverOps{signer}))
+		h := httpRemoteAddrHandler{http.StripPrefix("/tlog", sumdb.NewServer(serverOps{signer}))}
 		for _, path := range sumdb.ServerPaths {
 			mux.Handle("/tlog"+path, h)
 		}
@@ -682,4 +694,31 @@ func verifySumState() (int64, error) {
 		return -1, fmt.Errorf("close binary.gz: %v", err)
 	}
 	return numRecords, nil
+}
+
+func parseRemoteAddr(addr string) netip.Addr {
+	ipstr, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		slog.Info("parsing remote address", "err", err, "addr", addr)
+		return netip.Addr{}
+	}
+	ip, err := netip.ParseAddr(ipstr)
+	if err != nil {
+		slog.Info("parsing ip from remote address", "err", err, "addr", addr, "ipstr", ipstr)
+		return netip.Addr{}
+	}
+	return ip
+}
+
+type httpRemoteAddrHandler struct {
+	h http.Handler
+}
+
+// keyRemoteAddr is the key for a context value with the remote address of an http
+// request.
+type keyRemoteAddr struct{}
+
+func (h httpRemoteAddrHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	ctx := context.WithValue(r.Context(), keyRemoteAddr{}, r.RemoteAddr)
+	h.h.ServeHTTP(w, r.WithContext(ctx))
 }

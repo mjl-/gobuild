@@ -116,7 +116,7 @@ func serveBuild(w http.ResponseWriter, r *http.Request, req request) {
 	}
 
 	eventc := make(chan buildUpdate, 100)
-	registerBuild(req.buildSpec, "", eventc)
+	registerBuild(req.buildSpec, "", eventc, parseRemoteAddr(r.RemoteAddr))
 
 	switch req.Page {
 	case pageEvents:
