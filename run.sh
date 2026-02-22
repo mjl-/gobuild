@@ -71,6 +71,7 @@ exec setpriv --ambient-caps -all \
 	--ro-bind /etc/protocols /etc/protocols \
 	--ro-bind /etc/mime.types /etc/mime.types \
 	--ro-bind /etc/ssl/certs /etc/ssl/certs \
+	--ro-bind /etc/pki /etc/pki \
 	--ro-bind /etc/localtime /etc/localtime \
 	--ro-bind /usr/share/zoneinfo /usr/share/zoneinfo \
 	--ro-bind /usr/bin/nice /usr/bin/nice \
