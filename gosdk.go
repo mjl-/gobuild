@@ -39,6 +39,9 @@ func (v goVersion) num() int {
 	return v.major<<16 | v.minor<<8 | v.patch<<0
 }
 
+// If not nil, we don't allow using any Go toolchain older than this.
+var sdkVersionOldest *goVersion
+
 // If not nil, we don't allow using this or newer Go toolchains.
 var sdkVersionStop *goVersion
 
@@ -311,6 +314,9 @@ func ensureSDK(goversion string) (goVersion, error) {
 	gv, err := parseGoVersion(goversion)
 	if err != nil {
 		return goVersion{}, fmt.Errorf("%w: %s", errBadGoversion, err)
+	}
+	if sdkVersionOldest != nil && gv.num() < sdkVersionOldest.num() {
+		return goVersion{}, fmt.Errorf("%w: version older than %s not allowed by config", errBadGoversion, sdkVersionOldest.String())
 	}
 	if sdkVersionStop != nil && gv.num() >= sdkVersionStop.num() {
 		return goVersion{}, fmt.Errorf("%w: version equal or newer than %s not allowed by config", errBadGoversion, sdkVersionStop.String())
