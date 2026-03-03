@@ -201,6 +201,7 @@ func lookupBuild(ctx context.Context, bs buildSpec, remoteAddr string) (int64, e
 					slog.Info("build failed, but output indicates it does not exist", "err", update.err, "reason", reason, "buildspec", bs)
 					return -1, os.ErrNotExist
 				}
+				return -1, update.err
 			}
 			return update.recordNumber, nil
 		}
