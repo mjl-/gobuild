@@ -41,6 +41,7 @@ type buildUpdate struct {
 	bs            buildSpec
 	done          bool         // If true, build finished, failure or success.
 	err           error        // If not nil, build failed.
+	errOutput     string       // Output of build, if it failed during a build command.
 	result        *buildResult // Only in case of success.
 	recordNumber  int64        // Only in case of success.
 	queuePosition int          // If 0, no longer queued, but building.
@@ -150,7 +151,7 @@ func coordinateBuilds() {
 			} else {
 				msg = buildUpdateMsg{Kind: kindPermFail, Error: errmsg}.json()
 			}
-			update := buildUpdate{bs: breq.bs, done: true, err: err, result: result, recordNumber: recordNumber, msg: msg}
+			update := buildUpdate{bs: breq.bs, done: true, err: err, errOutput: errOutput, result: result, recordNumber: recordNumber, msg: msg}
 			updatec <- update
 
 			// Once every 20 builds, clear the build cache, to prevent the disk from filling up too easily.
@@ -200,10 +201,10 @@ func coordinateBuilds() {
 						err = fmt.Errorf("build failed")
 					}
 					msg := buildUpdateMsg{Kind: kindTempFail, Error: err.Error()}.json()
-					b.final = &buildUpdate{reg.bs, true, err, nil, 0, 0, msg}
+					b.final = &buildUpdate{reg.bs, true, err, "", nil, 0, 0, msg}
 				} else if br != nil && binaryPresent {
 					msg := buildUpdateMsg{Kind: kindSuccess, Result: br}.json()
-					b.final = &buildUpdate{reg.bs, true, nil, br, recordNumber, 0, msg}
+					b.final = &buildUpdate{reg.bs, true, nil, "", br, recordNumber, 0, msg}
 				}
 				// Else no result or no binary, we'll continue as normal, starting a build.
 			}

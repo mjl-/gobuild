@@ -510,3 +510,50 @@ func writeGz(path string, src io.Reader) error {
 	lf = nil
 	return err
 }
+
+// cannotBuild takes output from a failed build and indicates if it has signs that
+// this build will never succeed, i.e. that this build does not exist.
+func cannotBuild(output string) (string, bool) {
+	// "android/amd64 requires external (cgo) linking, but cgo is not enabled"
+	if strings.Contains(output, "requires external (cgo) linking, but cgo is not enabled") {
+		return "cgo", true
+	}
+
+	// go: github.com/mjl-/sherpa/cmd/sherpaclient@v0.4.0: github.com/mjl-/sherpa@v0.4.0: parsing go.mod:
+	//         module declares its path as: bitbucket.org/mjl/sherpa
+	//                 but was required as: github.com/mjl-/sherpa
+	if strings.Contains(output, "module declares its path as") && strings.Contains(output, "but was required as") {
+		return "module path mismatch", true
+	}
+
+	// go: github.com/mjl-/sherpa/cmd/sherpaclient@v0.4.1: version constraints conflict:
+	if strings.Contains(output, ": version constraints conflict:") {
+		return "version constraints conflict", true
+	}
+
+	// go: unsupported GOOS/GOARCH pair openbsd/riscv64
+	if strings.Contains(output, "go: unsupported GOOS/GOARCH pair ") {
+		return "unsupported platform", true
+	}
+
+	// loadinternal: cannot find runtime/cgo
+	// .../gobuild/sdk/go1.21.5/pkg/tool/linux_amd64/link: running clang failed: exec: "clang": executable file not found in $PATH
+	if strings.Contains(output, "loadinternal: cannot find runtime/cgo") {
+		return "external linker", true
+	}
+
+	// go/pkg/mod/github.com/mjl-/mox@v0.0.11/mlog/log.go:21:2: package log/slog is not in GOROOT (/home/service/gobuild/sdk/go1.20.2/src/log/slog)
+	if strings.Contains(output, "is not in GOROOT  (") {
+		return "likely import of future standard library package", true
+	}
+
+	// The go.mod file for the module providing named packages contains one or
+	// more replace directives. It must not contain directives that would cause
+	// it to be interpreted differently than if it were the main module.
+	if strings.Contains(output, "The go.mod file for the module providing named packages contains one or") &&
+		strings.Contains(output, "more replace directives. It must not contain directives that would cause") {
+		return "go.mod has replace directives", true
+	}
+
+	return "", false
+}

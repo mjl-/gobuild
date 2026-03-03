@@ -88,7 +88,8 @@ func (s serverOps) ReadRecords(ctx context.Context, id, n int64) (results [][]by
 func (s serverOps) Lookup(ctx context.Context, key string) (results int64, rerr error) {
 	// log.Printf("server: Lookup %q", key)
 	defer func() {
-		// Don't cause error metric to go up for bad requests.
+		// Don't cause error metric to go up for bad requests or requested builds that
+		// don't exist.
 		err := rerr
 		if err != nil && errors.Is(err, os.ErrNotExist) {
 			err = nil
@@ -195,8 +196,11 @@ func lookupBuild(ctx context.Context, bs buildSpec, remoteAddr string) (int64, e
 			}
 			unregisterBuild(bs, eventc)
 			if update.err != nil {
-				// todo: turn some errors into "file not found".
-				return -1, fmt.Errorf("build failed: %s", update.err)
+				// If the build simply can't succeed, ensure we don't log it as lookup error.
+				if reason, cannot := cannotBuild(update.errOutput); cannot {
+					slog.Info("build failed, but output indicates it does not exist", "err", update.err, "reason", reason, "buildspec", bs)
+					return -1, os.ErrNotExist
+				}
 			}
 			return update.recordNumber, nil
 		}
