@@ -3,7 +3,7 @@ module github.com/mjl-/gobuild
 go 1.24.0
 
 require (
-	github.com/mjl-/goreleases v0.0.4
+	github.com/mjl-/goreleases v0.0.5
 	github.com/mjl-/sconf v0.0.8
 	github.com/prometheus/client_golang v1.14.0
 	golang.org/x/crypto v0.48.0
