@@ -555,5 +555,24 @@ func cannotBuild(output string) (string, bool) {
 		return "go.mod has replace directives", true
 	}
 
+	// note: module requires Go 1.19
+	if strings.Contains(output, "note: module requires Go ") {
+		return "requires newer go version", true
+	}
+
+	// go/pkg/mod/github.com/mjl-/mox@v0.0.10/dns/mock.go:7:2: package slices is not in GOROOT .../sdk/go1.20.8/src/slices)
+	// note: imported by a module that requires go 1.21"
+	if strings.Contains(output, "note: imported by a module that requires go") {
+		return "imported module requires newer go", true
+	}
+
+	// package github.com/mjl-/mox
+	// 	imports github.com/mjl-/bstore
+	//	imports go.etcd.io/bbolt
+	//	imports golang.org/x/sys/unix: build constraints exclude all Go files in .../go/pkg/mod/golang.org/x/sys@v0.7.0/unix
+	if strings.Contains(output, ": build constraints exclude all Go files in") {
+		return "build constraint ecxludes all go files", true
+	}
+
 	return "", false
 }
