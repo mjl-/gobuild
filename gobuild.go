@@ -127,19 +127,19 @@ func build(bs buildSpec, expSumOpt string) (int64, *buildResult, string, error) 
 	verify := func(v Verifier) (*buildResult, error) {
 		t0 := time.Now()
 		defer func() {
-			metricVerifyDuration.WithLabelValues(v.name, bs.Goos, bs.Goarch, bs.Goversion).Observe(time.Since(t0).Seconds())
+			metricVerifyDuration.WithLabelValues(v.name).Observe(time.Since(t0).Seconds())
 		}()
 
 		key := bs.String()
 		_, data, err := v.client.Lookup(context.Background(), key)
 		if err != nil {
-			metricVerifyErrors.WithLabelValues(v.name, bs.Goos, bs.Goarch, bs.Goversion).Inc()
+			metricVerifyErrors.WithLabelValues(v.name).Inc()
 			return nil, fmt.Errorf("%w: looking up build in remote transparency log: %v", errRemote, err)
 		}
 
 		br, err := parseRecord(data)
 		if err != nil {
-			metricVerifyErrors.WithLabelValues(v.name, bs.Goos, bs.Goarch, bs.Goversion).Inc()
+			metricVerifyErrors.WithLabelValues(v.name).Inc()
 			return nil, fmt.Errorf("parsing build record from remote: %v", err)
 		}
 		return br, nil
@@ -150,7 +150,7 @@ func build(bs buildSpec, expSumOpt string) (int64, *buildResult, string, error) 
 	verifyURL := func(verifierBaseURL string) (*buildResult, error) {
 		t0 := time.Now()
 		defer func() {
-			metricVerifyDuration.WithLabelValues(verifierBaseURL, bs.Goos, bs.Goarch, bs.Goversion).Observe(time.Since(t0).Seconds())
+			metricVerifyDuration.WithLabelValues(verifierBaseURL).Observe(time.Since(t0).Seconds())
 		}()
 
 		verifyURL := verifierBaseURL + verifyLink
@@ -160,7 +160,7 @@ func build(bs buildSpec, expSumOpt string) (int64, *buildResult, string, error) 
 		}
 		defer resp.Body.Close()
 		if resp.StatusCode != 200 {
-			metricVerifyErrors.WithLabelValues(verifierBaseURL, bs.Goos, bs.Goarch, bs.Goversion).Inc()
+			metricVerifyErrors.WithLabelValues(verifierBaseURL).Inc()
 			buf, err := io.ReadAll(resp.Body)
 			msg := string(buf)
 			if err != nil {
@@ -296,9 +296,11 @@ func build(bs buildSpec, expSumOpt string) (int64, *buildResult, string, error) 
 		cmd = makeCommand(bs.Goversion, goproxy, emptyDir, cgo, moreEnv, gobin, "get", "-x", "-v", "-trimpath", "-ldflags="+ldflags, "--", name)
 	}
 	output, err := cmd.CombinedOutput()
-	metricCompileDuration.WithLabelValues(bs.Goos, bs.Goarch, bs.Goversion).Observe(time.Since(t0).Seconds())
+	metricCompileDuration.Observe(time.Since(t0).Seconds())
 	if err != nil {
-		metricCompileErrors.WithLabelValues(bs.Goos, bs.Goarch, bs.Goversion).Inc()
+		metricCompileOSErrors.WithLabelValues(bs.Goos).Inc()
+		metricCompileArchErrors.WithLabelValues(bs.Goarch).Inc()
+		metricCompileVersionErrors.WithLabelValues(bs.Goversion).Inc()
 		out := string(output)
 		if xerr := saveFailure(bs, err, out); xerr != nil {
 			return -1, nil, "", fmt.Errorf("storing results of failure: %v (%w)", xerr, errTempFailure)

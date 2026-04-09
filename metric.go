@@ -117,20 +117,33 @@ var (
 		},
 	)
 
-	metricCompileDuration = promauto.NewHistogramVec(
+	metricCompileDuration = promauto.NewHistogram(
 		prometheus.HistogramOpts{
 			Name:    "gobuild_compile_duration_seconds",
 			Help:    "Duration of go build to compile program in seconds.",
 			Buckets: []float64{0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2, 4, 8, 16, 32, 64, 128, 256},
 		},
-		[]string{"goos", "goarch", "goversion"},
 	)
-	metricCompileErrors = promauto.NewCounterVec(
+	metricCompileOSErrors = promauto.NewCounterVec(
 		prometheus.CounterOpts{
-			Name: "gobuild_compile_errors_total",
-			Help: "Number of error reponses during go build.",
+			Name: "gobuild_compile_goos_errors_total",
+			Help: "Number of error reponses during go build per goos.",
 		},
-		[]string{"goos", "goarch", "goversion"},
+		[]string{"goos"},
+	)
+	metricCompileArchErrors = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "gobuild_compile_goarch_errors_total",
+			Help: "Number of error reponses during go build per goarch.",
+		},
+		[]string{"goarch"},
+	)
+	metricCompileVersionErrors = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "gobuild_compile_goversion_errors_total",
+			Help: "Number of error reponses during go build per goversion.",
+		},
+		[]string{"goversion"},
 	)
 
 	metricRecompileMismatch = promauto.NewCounterVec(
@@ -147,14 +160,14 @@ var (
 			Help:    "Duration of verifying build with other backend, in seconds.",
 			Buckets: []float64{0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2, 4, 8, 16, 32, 64, 128, 256},
 		},
-		[]string{"baseurl", "goos", "goarch", "goversion"},
+		[]string{"baseurl"},
 	)
 	metricVerifyErrors = promauto.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "gobuild_verify_errors_total",
 			Help: "Number of error reponses verifying with other backends.",
 		},
-		[]string{"baseurl", "goos", "goarch", "goversion"},
+		[]string{"baseurl"},
 	)
 	metricVerifyMismatch = promauto.NewCounterVec(
 		prometheus.CounterOpts{
