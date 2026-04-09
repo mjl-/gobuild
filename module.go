@@ -119,7 +119,7 @@ func listMainPackages(ctx context.Context, goversion goVersion, gobin string, mo
 		return nil, fmt.Errorf("%w\n\n# output from go list:\n%s\n\nstderr:\n%s", err, output, stderr.String())
 	}
 	r := []string{}
-	for _, s := range strings.Split(string(output), "\n") {
+	for s := range strings.SplitSeq(string(output), "\n") {
 		if !strings.HasPrefix(s, "main ") {
 			continue
 		}

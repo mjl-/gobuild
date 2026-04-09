@@ -77,7 +77,7 @@ func serveIndex(w http.ResponseWriter, r *http.Request, bs buildSpec, br *buildR
 			return
 		}
 		l := []versionLink{}
-		for _, s := range strings.Split(string(buf), "\n") {
+		for s := range strings.SplitSeq(string(buf), "\n") {
 			if s != "" {
 				vbs := bs
 				vbs.Version = s
