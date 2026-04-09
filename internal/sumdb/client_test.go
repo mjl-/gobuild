@@ -276,9 +276,9 @@ func (tc *testClient) fork() *testClient {
 		treeSize:   tc.treeSize,
 		hashes:     append([]tlog.Hash{}, tc.hashes...),
 		signer:     tc.signer,
-		config:     mas.Clone(tc.config),
-		cache:      mas.Clone(tc.cache),
-		remote:     mas.Clone(tc.remote),
+		config:     maps.Clone(tc.config),
+		cache:      maps.Clone(tc.cache),
+		remote:     maps.Clone(tc.remote),
 	}
 	tc2.newClient()
 	return tc2
