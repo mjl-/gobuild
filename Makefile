@@ -7,7 +7,7 @@ check:
 	staticcheck
 
 fmt:
-	gofmt -w -s *.go
+	gofmt -w -s *.go */*.go
 
 buildall:
 	CGO_ENABLED=0 GOOS=linux GOARCH=arm go build

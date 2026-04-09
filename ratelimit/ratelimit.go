@@ -13,10 +13,10 @@ import (
 // last minute/hour/day/week, working on multiple classes/subnets of an IP.
 type Limiter struct {
 	sync.Mutex
-	IPClasses [2][]int // For IPv4 and IPv6.
+	IPClasses    [2][]int // For IPv4 and IPv6.
 	WindowLimits []WindowLimit
 
-	ipmasked     [][16]byte
+	ipmasked [][16]byte
 }
 
 // WindowLimit holds counters for one window, with limits for each IP class/subnet.
@@ -24,7 +24,7 @@ type WindowLimit struct {
 	Window time.Duration
 	Limits []int64 // Per class.
 
-	time   uint32   // Time/Window.
+	time   uint32 // Time/Window.
 	counts map[struct {
 		Index    uint8
 		IPMasked [16]byte
