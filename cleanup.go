@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -159,26 +158,5 @@ func cleanupBinariesAtime(atimeAge time.Duration) {
 	})
 	if err != nil {
 		slog.Error("walking result directory for old binary.gz files", "err", err)
-	}
-}
-
-func cleanupGoBuildCache() {
-	slog.Debug("clearing go build cache")
-
-	goversion, err := ensureMostRecentSDK()
-	if err != nil {
-		slog.Error("cleaning up go build cache: ensuring most recent toolchain while resolving module version", "err", err)
-		return
-	}
-	gobin, err := ensureGobin(goversion.String())
-	if err != nil {
-		slog.Error("cleaning up go build cache: ensuring go version is available while resolving module version", "err", err)
-		return
-	}
-
-	cmd := makeCommand(goversion.String(), false, emptyDir, false, nil, gobin, "clean", "-cache")
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		slog.Error("running go clean -cache", "err", err, "output", strings.TrimSpace(string(output)))
 	}
 }
