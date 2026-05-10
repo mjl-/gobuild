@@ -41,9 +41,11 @@ import (
 
 var (
 	// Set to absolute paths: the config file can have relative paths.
-	workdir  string
-	homedir  string
-	emptyDir string
+	workdir    string
+	homedir    string
+	stateDir   string
+	commandDir string
+	emptyDir   string
 
 	gobuildVersion  = "(no module)"
 	gobuildPlatform = runtime.GOOS + "/" + runtime.GOARCH
@@ -94,6 +96,8 @@ var (
 	// Either separate log file or stderr, append-only logging of added sums.
 	sumLogFile io.Writer
 
+	trustedProxyIPs []netip.Prefix
+
 	// Ratelimit for requests for builds with latest supported Go toolchains.
 	limiterRecent = ratelimit.Limiter{
 		IPClasses: [...][]int{
@@ -128,11 +132,11 @@ type Config struct {
 	GoProxy      string     `sconf-doc:"URL to Go module proxy. Used to resolve \"latest\" module versions."`
 	DataDir      string     `sconf-doc:"Directory where the sumdb and builds files (binary, log) are stored. If it contains a robots.txt file, it is served for /robots.txt instead of the default."`
 	SDKDir       string     `sconf-doc:"Directory where SDKs (go toolchains) are installed."`
-	HomeDir      string     `sconf-doc:"Directory set as home directory during builds. Go will store its caches, downloaded and extracted modules here."`
+	HomeDir      string     `sconf-doc:"Directory used for builds. The cmds subdirectory will get temporary directories for builds. Previously, gobuild stored the Go caches, and downloaded and extracted modules in the home directory directly."`
 	MaxBuilds    int        `sconf-doc:"Maximum concurrent builds. Default (0) uses NumCPU+1."`
 	Environment  []string   `sconf:"optional" sconf-doc:"Additional environment variables in form KEY=VALUE to use for go command invocations. Useful to configure GOSUMDB and HTTPS_PROXY."`
 	Run          []string   `sconf:"optional" sconf-doc:"Command and parameters to prefix invocations of go with. For example /usr/bin/nice."`
-	BuildGobin   bool       `sconf-doc:"If enabled, sets environment variable GOBUILD_GOBIN during a build to a directory where the build command should write the binary. Configure a wrapper to the build command through the Run config option."`
+	BuildGobin   bool       `sconf-doc:"If enabled, sets environment variable GOBUILD_GOBIN during a build to a directory where the build command should write the binary. Configure a wrapper to the build command through the Run config option that writes to this directory. Deprecated: No longer needed since each build is executed in its own temporary directory."`
 	Verifiers    []Verifier `sconf:"optional" sconf-doc:"Other gobuild instances against which the result of a build is verified for being reproducible before adding them to the transparency log. Gobuild requires all of them to create the same binary (same hash) for a build to be successful. Ideally, these instances differ in hardware, goos, goarch, user id/name, home and work directories. Superseeds config field VerifierURLs."`
 	VerifierURLs []string   `sconf:"optional" sconf-doc:"URLs of other gobuild instances that are asked to perform the same build. Gobuild requires all of them to create the same binary (same hash) for a build to be successful. Ideally, these instances differ in hardware, goos, goarch, user id/name, home and work directories. Superseded by Verifiers."`
 	HTTPS        *struct {
@@ -178,7 +182,7 @@ type ClientPattern struct {
 	Networks       []string `sconf:"optional" sconf-doc:"IP networks, for matching request IP address."`
 	UserAgent      string   `sconf:"optional" sconf-doc:"User-agent header substring match, case-insensitive."`
 
-	ipnets []net.IPNet
+	prefixes []netip.Prefix
 }
 
 var startTime = time.Now()
@@ -190,19 +194,14 @@ func (cp ClientPattern) Match(r *http.Request) (hostname string, match bool) {
 			return "", false
 		}
 	}
-	if len(cp.ipnets) == 0 && cp.HostnameSuffix == "" {
+	if len(cp.prefixes) == 0 && cp.HostnameSuffix == "" {
 		return "", false
 	}
-	ipstr, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		slog.Debug("getting ip from remote address", "remoteaddr", r.RemoteAddr, "err", err)
-		return "", false
-	}
-	if len(cp.ipnets) > 0 {
+	ip := remoteIP(r)
+	if len(cp.prefixes) > 0 {
 		found := false
-		ip := net.ParseIP(ipstr)
-		for _, ipnet := range cp.ipnets {
-			if ipnet.Contains(ip) {
+		for _, prefix := range cp.prefixes {
+			if prefix.Contains(ip) {
 				found = true
 				break
 			}
@@ -215,6 +214,7 @@ func (cp ClientPattern) Match(r *http.Request) (hostname string, match bool) {
 		// We'll try to lookup, but won't wait too long and fail open.
 		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 		defer cancel()
+		ipstr := net.IP(ip.AsSlice()).String()
 		hosts, err := net.DefaultResolver.LookupAddr(ctx, ipstr)
 		if err != nil {
 			slog.Debug("reverse lookup for ip", "ip", ipstr, "err", err)
@@ -281,6 +281,7 @@ func serve(args []string) {
 
 	listenAdmin := serveFlags.String("listen-admin", "localhost:8001", "address to serve admin-related http on")
 	listenHTTP := serveFlags.String("listen-http", "localhost:8000", "address to serve plain http on")
+	trustedProxyIPsStr := serveFlags.String("trusted-proxy-ips", "", "comma-separated list of ip networks from which x-forwarded-for http headers are trusted and used for ip rate limiting and logging, eg '127.0.0.0/8,::/96'")
 
 	serveFlags.Usage = func() {
 		log.Println("usage: gobuild serve [flags] [gobuild.conf]")
@@ -292,11 +293,36 @@ func serve(args []string) {
 		serveFlags.Usage()
 		os.Exit(2)
 	}
+	for s := range strings.SplitSeq(*trustedProxyIPsStr, ",") {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			continue
+		}
+		prefix, err := netip.ParsePrefix(s)
+		if err != nil {
+			log.Fatalf("parsing ip network %q for trusted proxy ips: %v", s, err)
+		}
+		trustedProxyIPs = append(trustedProxyIPs, prefix)
+	}
 	if len(args) > 0 {
 		if err := parseConfig(args[0], &config); err != nil {
 			log.Fatalf("parsing config file: %v", err)
 		}
 	}
+
+	slogOpts := slog.HandlerOptions{
+		Level: config.loglevel,
+		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
+			if a.Key == "time" {
+				return slog.Attr{}
+			}
+			return a
+		},
+	}
+	logHandler := slog.NewTextHandler(os.Stderr, &slogOpts)
+	logger := slog.New(logHandler)
+	slog.SetDefault(logger)
+
 	if !strings.HasSuffix(config.GoProxy, "/") {
 		config.GoProxy += "/"
 	}
@@ -359,7 +385,12 @@ func serve(args []string) {
 	if err != nil {
 		log.Fatalf("evaluating symlinks in homedir: %v", err)
 	}
+	stateDir = filepath.Join(homedir, "gosumdbstate")
+	commandDir = filepath.Join(homedir, "cmds")
 	emptyDir = filepath.Join(homedir, "tmp")
+	// failures will be caught later
+	os.Mkdir(stateDir, 0777)
+	os.Mkdir(commandDir, 0777)
 	os.MkdirAll(emptyDir, 0555)
 	os.MkdirAll(config.SDKDir, 0777)                        // may already exist, we'll get errors later
 	os.MkdirAll(filepath.Join(config.DataDir, "sum"), 0777) // may already exist, we'll get errors later
@@ -556,7 +587,7 @@ func serve(args []string) {
 			log.Fatalf("new signer: %v", err)
 		}
 
-		h := httpRemoteAddrHandler{http.StripPrefix("/tlog", sumdb.NewServer(serverOps{signer}))}
+		h := httpRequestHandler{http.StripPrefix("/tlog", sumdb.NewServer(serverOps{signer}))}
 		for _, path := range sumdb.ServerPaths {
 			mux.Handle("/tlog"+path, h)
 		}
@@ -580,20 +611,6 @@ func serve(args []string) {
 	})
 
 	mux.HandleFunc("/", serveHome)
-
-	slogOpts := slog.HandlerOptions{
-		Level: config.loglevel,
-		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
-			if a.Key == "time" {
-				return slog.Attr{}
-			}
-			return a
-		},
-	}
-
-	logHandler := slog.NewTextHandler(os.Stderr, &slogOpts)
-	logger := slog.New(logHandler)
-	slog.SetDefault(logger)
 
 	var handler http.Handler = mux
 	var httpErrorLog *log.Logger
@@ -828,29 +845,61 @@ func verifySumState() (int64, error) {
 	return numRecords, nil
 }
 
-func parseRemoteAddr(addr string) netip.Addr {
-	ipstr, _, err := net.SplitHostPort(addr)
+// remoteIP returns the remote ip for the request, based on X-Forwarded-For
+// headers combined with trusted proxy ips, or otherwise the request's RemoteAddr.
+func remoteIP(r *http.Request) netip.Addr {
+	ipstr, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
-		slog.Info("parsing remote address", "err", err, "addr", addr)
+		slog.Info("parsing remote address", "err", err, "addr", r.RemoteAddr)
 		return netip.Addr{}
 	}
+
+	if l := r.Header.Values("X-Forwarded-For"); len(trustedProxyIPs) > 0 && len(l) > 0 {
+		l = strings.Split(strings.Join(l, ","), ",")
+		l = append(l, ipstr)
+
+		var last netip.Addr
+	Address:
+		for i := len(l) - 1; i >= 0; i-- {
+			l[i] = strings.TrimSpace(l[i])
+			host, _, err := net.SplitHostPort(l[i])
+			if err != nil {
+				host = l[i]
+			}
+			ip, err := netip.ParseAddr(host)
+			if err != nil {
+				slog.Info("parsing ip from x-forwarded-for, stopping processing", "err", err, "addr", l[i], "xff", strings.Join(r.Header.Values("X-Forwarded-For"), ","))
+				break
+			}
+			last = ip
+			for _, prefix := range trustedProxyIPs {
+				if prefix.Contains(ip) {
+					continue Address
+				}
+			}
+			break
+		}
+		if last.IsValid() {
+			return last
+		}
+	}
+
 	ip, err := netip.ParseAddr(ipstr)
 	if err != nil {
-		slog.Info("parsing ip from remote address", "err", err, "addr", addr, "ipstr", ipstr)
+		slog.Info("parsing ip from remote address", "err", err, "addr", r.RemoteAddr, "ipstr", ipstr)
 		return netip.Addr{}
 	}
 	return ip
 }
 
-type httpRemoteAddrHandler struct {
+type httpRequestHandler struct {
 	h http.Handler
 }
 
-// keyRemoteAddr is the key for a context value with the remote address of an http
-// request.
-type keyRemoteAddr struct{}
+// keyRequest is the key for a context value with the http request.
+type keyRequest struct{}
 
-func (h httpRemoteAddrHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	ctx := context.WithValue(r.Context(), keyRemoteAddr{}, r.RemoteAddr)
+func (h httpRequestHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	ctx := context.WithValue(r.Context(), keyRequest{}, r)
 	h.h.ServeHTTP(w, r.WithContext(ctx))
 }

@@ -38,9 +38,16 @@ func serveModules(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 
-	modDir, getOutput, err := ensureModule(ctx, goversion.String(), gobin, mod, info.Version)
+	cmdDir, err := newCommandDir("listpkgs")
 	if err != nil {
-		failf(w, "error fetching module from goproxy: %w\n\n# output from go get:\n%s", err, string(getOutput))
+		failf(w, "making temporary directory: %w", err)
+		return
+	}
+	defer removeCommandDir(cmdDir)
+
+	modDir, getOutput, err := ensureModule(ctx, cmdDir, goversion.String(), gobin, mod, info.Version)
+	if err != nil {
+		failf(w, "error fetching module from goproxy for ensuring module is present: %w\n\n# output from go get:\n%s", err, string(getOutput))
 		return
 	}
 
@@ -48,7 +55,7 @@ func serveModules(w http.ResponseWriter, r *http.Request) {
 
 	bs := buildSpec{mod, info.Version, "", goos, goarch, goversion.String(), false}
 
-	mainDirs, err := listMainPackages(ctx, goversion, gobin, modDir)
+	mainDirs, err := listMainPackages(ctx, cmdDir, modDir, goversion, gobin)
 	if err != nil {
 		failf(w, "listing main packages in module: %w", err)
 		return
@@ -95,7 +102,7 @@ func serveModules(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func listMainPackages(ctx context.Context, goversion goVersion, gobin string, modDir string) ([]string, error) {
+func listMainPackages(ctx context.Context, cmdDir, modDir string, goversion goVersion, gobin string) ([]string, error) {
 	goproxy := true
 	cgo := true
 
@@ -110,7 +117,7 @@ func listMainPackages(ctx context.Context, goversion goVersion, gobin string, mo
 		argv = append(argv, "-mod=readonly")
 	}
 	argv = append(argv, "-f", "{{.Name}} {{ .Dir }}", "./...")
-	cmd := makeCommand(goversion.String(), goproxy, modDir, cgo, nil, argv...)
+	cmd := makeCommand(cmdDir, modDir, goversion.String(), goproxy, cgo, nil, argv...)
 	stderr := &strings.Builder{}
 	cmd.Stderr = stderr
 	output, err := cmd.Output()

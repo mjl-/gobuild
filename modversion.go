@@ -28,6 +28,12 @@ func resolveModuleVersion(ctx context.Context, mod, version string) (mv *modVers
 		return nil, fmt.Errorf("ensuring go version is available while resolving module version: %v (%w)", err, errTempFailure)
 	}
 
+	cmdDir, err := newCommandDir("resolvemodversion")
+	if err != nil {
+		return nil, fmt.Errorf("making temp dir %v (%w)", err, errTempFailure)
+	}
+	defer removeCommandDir(cmdDir)
+
 	defer func() {
 		if rerr != nil {
 			metricResolveVersionErrors.Inc()
@@ -42,7 +48,7 @@ func resolveModuleVersion(ctx context.Context, mod, version string) (mv *modVers
 
 	const goproxy = true
 	const cgo = false
-	cmd := makeCommand(goversion.String(), goproxy, emptyDir, cgo, nil, gobin, "list", "-x", "-m", "-json", "--", mod+"@"+version)
+	cmd := makeCommand(cmdDir, cmdDir, goversion.String(), goproxy, cgo, nil, gobin, "list", "-x", "-m", "-json", "--", mod+"@"+version)
 	stderr := &strings.Builder{}
 	cmd.Stderr = stderr
 	output, err := cmd.Output()

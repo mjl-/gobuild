@@ -1,6 +1,4 @@
 - Should the buildspec Mod and Version be escaped with module.EscapePath and module.EscapeVersion?
-- The commands executed for a build were initially more isolated. Over time, as the Go command needs more access to the module cache and module proxy, the isolation has been reduced. May need a reevaluation of approach. It's probably time to move away from a shared module cache for builds, instead giving each build a clean module cache (but with copied sumdb state).
-- Can we allow go.mod's with replace directives of other modules available in the go module proxy?
 - Improve handling of multiple packages, eg github.com/google/gvisor gives an error.
 - Test using gobuild with other goproxy, sumdb. And with private git modules? Make some known invalid modules and check we get the right error.
 - Add subcommand to validate all records, hashes and links.
@@ -8,17 +6,11 @@
 - Use concurrentcompilation again after the release that fixed the issue (remove GO19CONCURRENTCOMPILATION=0).
 - For next go release, consider stripping only part of the buildid.
 - Write tests.
-- Attempt to build with run.sh without sharing homedir/go/pkg/mod, except the "cache" dir. Only write during go get -d. Then do a go get with read-only mod directory, for extracting and verification.
 - Implement better backend with transactions for tlog server. To ensure we either have all information about a build, or none. Now we could get a mismatch between the records, hashes, and index files.
 - Improve error messages shown to users, and the http status codes.
-- Better detect if module, version or package does not exist, and propagate it to lookup sum calls as 404 does not exist (instead of 500 server error). Either match strings in output from go get, or talk to goproxy directly.
 - With GOPROXY=https://proxy.golang.org (no ",direct"), on a module with a replace directive for a zero-revision requirement, "go get" tries to fetch the zero-revision (which is replaced) from the proxy, which fails. "go build" doesn't fetch those deps and will build.
 - Possibly use different description in notes, now it says "go.sum database tree". It should say something like "gobuild database tree". Not sure if worth the trouble, means forking tlog package.
-- Talk to other verifiers with sum-checking.
 - Implement a mode where a gobuild only verifies with other backends, but doesn't build itself. Can work for adding sums. But downloading would have to go through another backend as well. Or it could retrieve downloads as well.
-- Cleanup dir in go/pkg/mod/ after fetching/building, saves disk space. And we won't redownload too often. We could also periodically remove dirs with atime older than 1 hour. Will help if people build one module for different goversion/goos/goarch.
-- Should not assume that all dependencies were fetched when a local package directory exists. Or just cleanup better when a "go get -d" fails.
-- When resolving URLs with both goversion and modversion as "latest", do a single redirect?
 - On pages that link to other builds that were successful, link to result directly instead of to build which does a redirect.
 - Implement privilege separation? Start as root, run all go commands under uid, http server under different uid (perhaps), store the results in a place the go commands cannot touch it.
 - Make list of goos/goarch dependend on version. Different goversions have different supported targets.
@@ -27,3 +19,4 @@
 - Consider a mode where we create docker images for a binary. Perhaps only for a specific dockerfile in the module zip, taking command/entrypoint/ports.
 - Mode where go toolchain version go1.2.latest is allowed, with latest resolved.
 - "gobuild get" should look in $HOME/.config/gobuild/ or similar for a signerkey and/or baseurl.
+- Keep temporary build (command) directories for building a moduleversion around between executions and reuse them.

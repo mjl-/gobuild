@@ -42,9 +42,15 @@ func prepareBuild(ctx context.Context, bs buildSpec) error {
 		return err
 	}
 
-	modDir, getOutput, err := ensureModule(ctx, bs.Goversion, gobin, bs.Mod, bs.Version)
+	cmdDir, err := newCommandDir("preparebuild")
 	if err != nil {
-		return fmt.Errorf("error fetching module from goproxy: %w\n\n# output from go get:\n%s", err, string(getOutput))
+		return err
+	}
+	defer removeCommandDir(cmdDir)
+
+	modDir, getOutput, err := ensureModule(ctx, cmdDir, bs.Goversion, gobin, bs.Mod, bs.Version)
+	if err != nil {
+		return fmt.Errorf("error fetching module from goproxy for preparation: %w\n\n# output from go get:\n%s", err, string(getOutput))
 	}
 
 	pkgDir := filepath.Join(modDir, filepath.FromSlash(bs.Dir[1:]))
@@ -62,7 +68,7 @@ func prepareBuild(ctx context.Context, bs buildSpec) error {
 		"GOOS=" + bs.Goos,
 		"GOARCH=" + bs.Goarch,
 	}
-	cmd := makeCommand(bs.Goversion, goproxy, pkgDir, cgo, moreEnv, gobin, "list", "-f", "{{.Name}}")
+	cmd := makeCommand(cmdDir, pkgDir, bs.Goversion, goproxy, cgo, moreEnv, gobin, "list", "-f", "{{.Name}}")
 	stderr := &strings.Builder{}
 	cmd.Stderr = stderr
 	if nameOutput, err := cmd.Output(); err != nil {
@@ -110,8 +116,14 @@ func build(bs buildSpec, expSumOpt string) (int64, *buildResult, string, error) 
 		return -1, nil, "", fmt.Errorf("ensuring go version is available: %v (%w)", err, errTempFailure)
 	}
 
-	if _, output, err := ensureModule(context.Background(), bs.Goversion, gobin, bs.Mod, bs.Version); err != nil {
-		return -1, nil, "", fmt.Errorf("error fetching module from goproxy: %v (%w)\n\n# output from go get:\n%s", err, errTempFailure, output)
+	cmdDir, err := newCommandDir("build")
+	if err != nil {
+		return -1, nil, "", fmt.Errorf("creating temporary command directory: %v (%w)", err, errTempFailure)
+	}
+	defer removeCommandDir(cmdDir)
+
+	if _, output, err := ensureModule(context.Background(), cmdDir, bs.Goversion, gobin, bs.Mod, bs.Version); err != nil {
+		return -1, nil, "", fmt.Errorf("error fetching module from goproxy for build: %v (%w)\n\n# output from go get:\n%s", err, errTempFailure, output)
 	}
 
 	// Launch goroutines to let the verifiers build the same code and return their
@@ -204,10 +216,6 @@ func build(bs buildSpec, expSumOpt string) (int64, *buildResult, string, error) 
 
 	t0 := time.Now()
 
-	if err := ensurePrimedBuildCache(gobin, bs.Goos, bs.Goarch, bs.Goversion); err != nil {
-		return -1, nil, "", fmt.Errorf("%w: ensuring primed go build cache: %v", errServer, err)
-	}
-
 	// What to "go get".
 	name := bs.Mod
 	if bs.Dir != "/" {
@@ -252,7 +260,7 @@ func build(bs buildSpec, expSumOpt string) (int64, *buildResult, string, error) 
 		resultPath = filepath.Join(gobuildbindir, resultPath)
 		defer os.RemoveAll(gobuildbindir)
 	} else {
-		resultPath = filepath.Join(homedir, "go", "bin", resultPath)
+		resultPath = filepath.Join(cmdDir, "go", "bin", resultPath)
 	}
 
 	// Ensure the file does not exist before trying to create it.
@@ -291,9 +299,9 @@ func build(bs buildSpec, expSumOpt string) (int64, *buildResult, string, error) 
 		if gv.major == 1 && gv.minor >= 23 {
 			goproxy = true
 		}
-		cmd = makeCommand(bs.Goversion, goproxy, emptyDir, cgo, moreEnv, gobin, "install", "-x", "-v", "-trimpath", "-ldflags="+ldflags, "--", name)
+		cmd = makeCommand(cmdDir, cmdDir, bs.Goversion, goproxy, cgo, moreEnv, gobin, "install", "-x", "-v", "-trimpath", "-ldflags="+ldflags, "--", name)
 	} else {
-		cmd = makeCommand(bs.Goversion, goproxy, emptyDir, cgo, moreEnv, gobin, "get", "-x", "-v", "-trimpath", "-ldflags="+ldflags, "--", name)
+		cmd = makeCommand(cmdDir, cmdDir, bs.Goversion, goproxy, cgo, moreEnv, gobin, "get", "-x", "-v", "-trimpath", "-ldflags="+ldflags, "--", name)
 	}
 	output, err := cmd.CombinedOutput()
 	metricCompileDuration.Observe(time.Since(t0).Seconds())

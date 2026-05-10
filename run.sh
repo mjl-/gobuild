@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -e
 
 # This script uses bwrap (bubblewrap) to make the minimum selection of
@@ -6,51 +6,6 @@ set -e
 # Modify the config file:
 # - Specify GOSDK= for Environment. Must be the directory containing the SDKs.
 # - Add script to Run.
-# - Set BuildGobin: true.
-
-# We bind to these paths. Normally go invocations create them. But this will
-# run also as the first go invocation in this gobuild setup.
-if ! test -d "$HOME/go/pkg"; then
-	mkdir -p "$HOME/go/pkg"
-fi
-if ! test -d "$HOME/.cache"; then
-	mkdir -p "$HOME/.cache"
-fi
-
-
-# Only "go get -d", "go mod download" and "go list" get access to the network.
-net="--unshare-net"
-gopkgbind="--ro-bind"
-morebind=""
-if test "$2" = 'get' -a "$3" = '-d'; then
-	gopkgbind="--bind"
-	net=""
-elif test "$2" = 'mod' -a "$3" = 'download'; then
-	gopkgbind="--bind"
-	net=""
-elif test "$2" = 'list'; then
-	gopkgbind="--bind"
-	net=""
-elif test "$2" = 'install'; then
-	# go install will check checksums again over the network, even though all are
-	# already present. It also wants to open $HOME/go/pkg/sumdb/sum.golang.org/latest
-	# for writing, even though it won't change (if all is good).
-	# Go1.23 started checking module deprecations with "go install", needing GOPROXY.
-	net=""
-	morebind="--bind $HOME/go/pkg/sumdb/sum.golang.org/latest $HOME/go/pkg/sumdb/sum.golang.org/latest"
-elif test "$2" = 'clean'; then
-	# bwrap seems to always need network. May be related to our systemd unit file.
-	net=""
-fi
-
-cachebind="--bind"
-# Since go1.19 commands like "go list" also modify the cache. So it can no
-# longer be a ro-bind.
-
-gobinbind=""
-if test "$GOBUILD_GOBIN" != ""; then
-	gobinbind="--bind $GOBUILD_GOBIN $HOME/go/bin"
-fi
 
 ulimit -c 0 # max core file size in kb
 ulimit -l 0 # max mlock size in kb
@@ -60,7 +15,7 @@ ulimit -t 1800 # max cpu time in seconds
 ulimit -d 4096000 # max data memory segment in kb
 
 exec setpriv --ambient-caps -all \
-	/usr/bin/bwrap \
+	bwrap \
 	--dev /dev \
 	--tmpfs /tmp \
 	--proc /proc \
@@ -83,11 +38,7 @@ exec setpriv --ambient-caps -all \
 	--unshare-uts \
 	--hostname gobuilds.org \
 	--ro-bind $GOSDK $GOSDK \
-	--bind $HOME/.cache $HOME/.cache \
-	$gopkgbind $HOME/go/pkg $HOME/go/pkg \
-	$morebind \
-	$gobinbind \
-	$net \
+	--bind $HOME $HOME \
 	/usr/bin/nice \
 	-- \
 	"$@"

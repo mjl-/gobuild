@@ -9,12 +9,14 @@ import (
 	"io"
 	"log"
 	"log/slog"
-	"net"
+	"net/netip"
 	"os"
 	"strings"
 
 	"github.com/mjl-/sconf"
 	"golang.org/x/mod/sumdb/note"
+
+	"github.com/mjl-/gobuild/internal/httpsproxy"
 )
 
 func usage() {
@@ -24,6 +26,7 @@ func usage() {
 	log.Println("       gobuild genkey name")
 	log.Println("       gobuild get [flags] module[@version/package]")
 	log.Println("       gobuild sum < file")
+	log.Println("       gobuild httpsproxy [flags]")
 	flag.PrintDefaults()
 	os.Exit(2)
 }
@@ -82,12 +85,18 @@ func main() {
 		} else if _, err := fmt.Println("0" + base64.RawURLEncoding.EncodeToString(sha.Sum(nil)[:20])); err != nil {
 			log.Fatalf("write: %v", err)
 		}
+	case "httpsproxy":
+		httpsproxy.HTTPSProxy(args)
 	}
 }
 
 func parseConfig(p string, c *Config) error {
 	if err := sconf.ParseFile(p, c); err != nil {
 		return err
+	}
+
+	if c.BuildGobin {
+		slog.Warn(`"BuildGobin: true" is deprecated since builds are now executed in their own temporary directory`)
 	}
 
 	c.loglevel = &slog.LevelVar{}
@@ -98,11 +107,11 @@ func parseConfig(p string, c *Config) error {
 	for i, cp := range c.BadClients {
 		cp.UserAgent = strings.ToLower(cp.UserAgent)
 		cp.HostnameSuffix = strings.ToLower(cp.HostnameSuffix)
-		for _, ipnetstr := range cp.Networks {
-			if _, ipnet, err := net.ParseCIDR(ipnetstr); err != nil {
-				return fmt.Errorf("parsing network %q: %v", ipnetstr, err)
+		for _, str := range cp.Networks {
+			if prefix, err := netip.ParsePrefix(str); err != nil {
+				return fmt.Errorf("parsing network prefix %q: %v", str, err)
 			} else {
-				cp.ipnets = append(cp.ipnets, *ipnet)
+				cp.prefixes = append(cp.prefixes, prefix)
 			}
 		}
 		c.BadClients[i] = cp

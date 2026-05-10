@@ -20,7 +20,7 @@ func handleBadClient(w http.ResponseWriter, r *http.Request, bs buildSpec) bool 
 	for _, cp := range config.BadClients {
 		if hostname, ok := cp.Match(r); ok {
 			metricClientBuildRequestsBad.Inc()
-			slog.Info("bad client", "user-agent", r.UserAgent(), "remoteaddr", r.RemoteAddr, "hostname", hostname)
+			slog.Info("bad client", "user-agent", r.UserAgent(), "remoteip", remoteIP(r), "hostname", hostname)
 			statusfail(http.StatusForbidden, w, "Your request matched a list of clients/networks with known bad behaviour. Please respect the robots.txt (no crawling that triggers builds!) and be kind. Contact the admins to get access again.")
 			return true
 		}
@@ -30,16 +30,7 @@ func handleBadClient(w http.ResponseWriter, r *http.Request, bs buildSpec) bool 
 		return false
 	}
 
-	ipstr, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		slog.Info("parsing remote address for rate limit", "err", err, "addr", r.RemoteAddr)
-		return false
-	}
-	ip := net.ParseIP(ipstr)
-	if ip == nil {
-		slog.Info("parsing remote ip address for rate limit", "err", err, "addr", r.RemoteAddr, "ipstr", ipstr)
-		return false
-	}
+	ip := remoteIP(r)
 
 	_, supported, _ := listSDK()
 	limiter := &limiterOld
@@ -50,9 +41,9 @@ func handleBadClient(w http.ResponseWriter, r *http.Request, bs buildSpec) bool 
 		goage = "recent"
 		metric = metricClientBuildRequestsLimitedRecent
 	}
-	if !limiter.Add(ip, time.Now(), 1) {
+	if !limiter.Add(net.IP(ip.AsSlice()), time.Now(), 1) {
 		metric.Inc()
-		slog.Info("build requested rejected through rate limit", "remoteaddr", r.RemoteAddr, "user-agent", r.UserAgent(), "goage", goage, "goversion", bs.Goversion)
+		slog.Info("build requested rejected through rate limit", "remoteip", ip, "user-agent", r.UserAgent(), "goage", goage, "goversion", bs.Goversion)
 		statusfail(http.StatusTooManyRequests, w, fmt.Sprintf("Your IP or its neighbourhood has requested too many builds (for %s Go versions) in a short period. Please slow down, and try again later. Contact the admins to get the rate limit loosened.", goage))
 		return true
 	}
@@ -61,27 +52,34 @@ func handleBadClient(w http.ResponseWriter, r *http.Request, bs buildSpec) bool 
 }
 
 func serveBuild(w http.ResponseWriter, r *http.Request, req request) {
+
+	var resolvedLatest bool
+	nreq := req
+
 	// Resolve "latest" goversion with a redirect.
 	if req.Goversion == "latest" {
 		if newestAllowed, _, _ := listSDK(); newestAllowed == "" {
 			failf(w, "no supported go toolchains available: %w", errServer)
+			return
 		} else {
-			vreq := req
-			vreq.Goversion = newestAllowed
-			http.Redirect(w, r, vreq.link(), http.StatusTemporaryRedirect)
+			nreq.Goversion = newestAllowed
+			resolvedLatest = true
 		}
-		return
 	}
 
 	// Resolve "latest" module version with a redirect.
 	if req.Version == "latest" {
 		if info, err := resolveModuleVersion(r.Context(), req.Mod, req.Version); err != nil {
 			failf(w, "resolving latest for module: %w", err)
+			return
 		} else {
-			mreq := req
-			mreq.Version = info.Version
-			http.Redirect(w, r, mreq.link(), http.StatusTemporaryRedirect)
+			nreq.Version = info.Version
+			resolvedLatest = true
 		}
+	}
+
+	if resolvedLatest {
+		http.Redirect(w, r, nreq.link(), http.StatusTemporaryRedirect)
 		return
 	}
 
@@ -156,7 +154,7 @@ func serveBuild(w http.ResponseWriter, r *http.Request, req request) {
 	}
 
 	eventc := make(chan buildUpdate, 100)
-	registerBuild(req.buildSpec, "", eventc, parseRemoteAddr(r.RemoteAddr))
+	registerBuild(req.buildSpec, "", eventc, remoteIP(r))
 
 	switch req.Page {
 	case pageEvents:

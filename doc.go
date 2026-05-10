@@ -1,6 +1,6 @@
 /*
 Gobuild deterministically compiles programs written in Go that are
-availablethrough the Go module proxy, and returns the binary.
+available through the Go module proxy, and returns the binary.
 
 The Go module proxy at https://proxy.golang.org ensures source code stays
 available, and you are highly likely to get the same code each time you fetch

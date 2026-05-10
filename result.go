@@ -34,7 +34,7 @@ func serveResult(w http.ResponseWriter, r *http.Request, req request) {
 			expSum = br.Sum
 		}
 		eventc := make(chan buildUpdate, 100)
-		registerBuild(req.buildSpec, expSum, eventc, parseRemoteAddr(r.RemoteAddr))
+		registerBuild(req.buildSpec, expSum, eventc, remoteIP(r))
 
 	loop:
 		for {

@@ -376,11 +376,8 @@ func ensureSDK(goversion string) (goVersion, error) {
 		if !filepath.IsAbs(gobin) {
 			gobin = filepath.Join(workdir, gobin)
 		}
-		// Priming here is not strictly necessary, but it's a good check the toolchain
-		// works, and prevents multiple immediately builds from doing this same work
-		// concurrently.
-		if err := ensurePrimedBuildCache(gobin, runtime.GOOS, runtime.GOARCH, goversion); err != nil {
-			err = fmt.Errorf("%w: priming build cache: %v", errServer, err)
+		if err := checkSDK(gobin, goversion); err != nil {
+			err = fmt.Errorf("%w: checking of toolchain works: %v", errServer, err)
 			sdk.fetch.status[goversion] = err
 			return goVersion{}, err
 		} else if err := os.Rename(filepath.Join(tmpdir, "go"), filepath.Join(config.SDKDir, goversion)); err != nil {
@@ -411,38 +408,18 @@ func goexe() string {
 	return ""
 }
 
-// We compile the standard library for an architecture explicitly. This lets us do
-// other builds with a read-only cache. This lets builds reuse a good part of their
-// builds, without getting a big cache.
-func ensurePrimedBuildCache(gobin, goos, goarch, goversion string) error {
-	// Disable for now. We are not using the toolchain. This just makes
-	// fetching a new toolchain slow, and only takes up space. Should
-	// enable it again when we want to use it.
-	if true {
-		return nil
-	}
-
-	primedPath := filepath.Join(homedir, ".cache", "gobuild", fmt.Sprintf("%s-%s-%s.primed", goos, goarch, goversion))
-	if _, err := os.Stat(primedPath); err == nil {
-		return nil
-	} else if !os.IsNotExist(err) {
+func checkSDK(gobin, goversion string) error {
+	cmdDir, err := newCommandDir("checksdk")
+	if err != nil {
 		return err
 	}
-	os.MkdirAll(filepath.Dir(primedPath), 0777) // errors ignored
+	defer removeCommandDir(cmdDir)
 
-	goproxy := false
-	cgo := false
-	moreEnv := []string{
-		"GOOS=" + goos,
-		"GOARCH=" + goarch,
-	}
-	cmd := makeCommand(goversion, goproxy, emptyDir, cgo, moreEnv, gobin, "build", "-trimpath", "std")
+	const goproxy = false
+	const cgo = false
+	cmd := makeCommand(cmdDir, cmdDir, goversion, goproxy, cgo, nil, gobin, "version")
 	if output, err := cmd.CombinedOutput(); err != nil {
-		slog.Error("go build std", "err", err, "output", output)
-		return err
-	}
-	if err := os.WriteFile(primedPath, []byte{}, 0666); err != nil {
-		slog.Error("writefile for primed path", "path", primedPath, "err", err)
+		slog.Error("running go version to test toolchain", "err", err, "output", output)
 		return err
 	}
 	return nil
