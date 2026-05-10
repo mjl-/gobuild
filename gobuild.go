@@ -553,7 +553,7 @@ func cannotBuild(output string) (string, bool) {
 	}
 
 	// go/pkg/mod/github.com/mjl-/mox@v0.0.11/mlog/log.go:21:2: package log/slog is not in GOROOT (/home/service/gobuild/sdk/go1.20.2/src/log/slog)
-	if strings.Contains(output, "is not in GOROOT  (") {
+	if strings.Contains(output, "is not in GOROOT (") {
 		return "likely import of future standard library package", true
 	}
 
