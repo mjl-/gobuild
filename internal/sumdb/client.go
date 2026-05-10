@@ -87,7 +87,6 @@ type Client struct {
 	name       string         // name of accepted verifier
 	verifiers  note.Verifiers // accepted verifiers (just one, but Verifiers for note.Open)
 	tileHeight int
-	nosumdb    string
 
 	tileCache parCache // cache of c.readTile, keyed by tile
 
