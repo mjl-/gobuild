@@ -581,7 +581,17 @@ func cannotBuild(output string) (string, bool) {
 	//	imports go.etcd.io/bbolt
 	//	imports golang.org/x/sys/unix: build constraints exclude all Go files in .../go/pkg/mod/golang.org/x/sys@v0.7.0/unix
 	if strings.Contains(output, ": build constraints exclude all Go files in") {
-		return "build constraint ecxludes all go files", true
+		return "build constraint excludes all go files", true
+	}
+
+	// go/pkg/mod/github.com/mjl-/ding@v0.4.0/serve.go:52:14: undefined: syscall.Umask
+	if strings.Contains(output, ": undefined: ") {
+		return "undefined symbol likely only available in newer stdlib", true
+	}
+
+	// go/pkg/mod/github.com/mjl-/ding@v0.4.0/serve.go:90:4: unknown field Credential in struct literal of type syscall.SysProcAttr
+	if strings.Contains(output, ": unknown field ") {
+		return "unknown field in struct likely only available in newer stdlib", true
 	}
 
 	return "", false
