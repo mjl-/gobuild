@@ -1,3 +1,4 @@
+- Implement a goproxy that just proxies the go module proxy & sumdb, with caching. So we do fewer requests to the public Go services.
 - Should the buildspec Mod and Version be escaped with module.EscapePath and module.EscapeVersion?
 - Improve handling of multiple packages, eg github.com/google/gvisor gives an error.
 - Test using gobuild with other goproxy, sumdb. And with private git modules? Make some known invalid modules and check we get the right error.

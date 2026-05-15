@@ -26,6 +26,12 @@ groups:
     labels:
       page: always
 
+  - alert: tlog-build-errors-unknown-reason
+    expr: rate(gobuild_build_errors_unknown_reason_total[5m]) > 0
+    for: 15s
+    labels:
+      page: always
+
   - alert: tlog-serverop-lookup-errors
     expr: rate(gobuild_tlog_ops_lookup_errors_total[5m]) > 0
     for: 15s

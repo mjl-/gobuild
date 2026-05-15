@@ -6,6 +6,9 @@ check:
 	GOOS=linux GOARCH=386 CGO_ENABLED=0 go vet ./...
 	staticcheck ./...
 
+test:
+	CGO_ENABLED=0 go test -v -shuffle=on ./...
+
 fmt:
 	gofmt -w -s *.go */*.go */*/*.go
 

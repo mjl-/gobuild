@@ -146,6 +146,25 @@ var (
 		[]string{"goversion"},
 	)
 
+	metricBuildTotal = promauto.NewCounter(
+		prometheus.CounterOpts{
+			Name: "gobuild_build_total",
+			Help: "Total number of builds.",
+		},
+	)
+	metricBuildErrors = promauto.NewCounter(
+		prometheus.CounterOpts{
+			Name: "gobuild_build_errors_total",
+			Help: "Total number of failed builds, including those where the code can never be compiled, e.g. due to invalid source or use of wrong toolchain version.",
+		},
+	)
+	metricBuildErrorsUnknownReason = promauto.NewCounter(
+		prometheus.CounterOpts{
+			Name: "gobuild_build_errors_unknown_reason_total",
+			Help: "Total number of failed builds with unknown reason, not due to bad code or use of wrong toolchain version.",
+		},
+	)
+
 	metricRecompileMismatch = promauto.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "gobuild_recompile_mismatch_total",

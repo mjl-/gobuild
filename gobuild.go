@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -108,22 +109,27 @@ func (rb *remoteBuild) name() string {
 // If expSumOpt is non-empty, a build was done in the past but the binary removed.
 // This build will restore the binary. If expSumOpt is empty and the build is
 // successful, a record is added to the transparency log.
-func build(bs buildSpec, expSumOpt string) (int64, *buildResult, string, error) {
+//
+// On success, returns a record number and build result.
+// On failure, returns an error (last value), and optionally the output as
+// string followed by a reason in case this build won't succeed in the future
+// (e.g. due to invalid code and/or compiler combination).
+func build(bs buildSpec, expSumOpt string) (int64, *buildResult, string, string, error) {
 	targets.increase(bs.Goos + "/" + bs.Goarch)
 
 	gobin, err := ensureGobin(bs.Goversion)
 	if err != nil {
-		return -1, nil, "", fmt.Errorf("ensuring go version is available: %v (%w)", err, errTempFailure)
+		return -1, nil, "", "", fmt.Errorf("ensuring go version is available: %v (%w)", err, errTempFailure)
 	}
 
 	cmdDir, err := newCommandDir("build")
 	if err != nil {
-		return -1, nil, "", fmt.Errorf("creating temporary command directory: %v (%w)", err, errTempFailure)
+		return -1, nil, "", "", fmt.Errorf("creating temporary command directory: %v (%w)", err, errTempFailure)
 	}
 	defer removeCommandDir(cmdDir)
 
 	if _, output, err := ensureModule(context.Background(), cmdDir, bs.Goversion, gobin, bs.Mod, bs.Version); err != nil {
-		return -1, nil, "", fmt.Errorf("error fetching module from goproxy for build: %v (%w)\n\n# output from go get:\n%s", err, errTempFailure, output)
+		return -1, nil, "", "", fmt.Errorf("error fetching module from goproxy for build: %v (%w)\n\n# output from go get:\n%s", err, errTempFailure, output)
 	}
 
 	// Launch goroutines to let the verifiers build the same code and return their
@@ -254,7 +260,7 @@ func build(bs buildSpec, expSumOpt string) (int64, *buildResult, string, error) 
 		// builds.
 		gobuildbindir, err = os.MkdirTemp("", "gobuildbindir")
 		if err != nil {
-			return -1, nil, "", fmt.Errorf("making temp dir: %v", err)
+			return -1, nil, "", "", fmt.Errorf("making temp dir: %v", err)
 		}
 		moreEnv = append(moreEnv, "GOBUILD_GOBIN="+gobuildbindir)
 		resultPath = filepath.Join(gobuildbindir, resultPath)
@@ -267,7 +273,7 @@ func build(bs buildSpec, expSumOpt string) (int64, *buildResult, string, error) 
 	// This might be a leftover from some earlier build attempt.
 	err = os.Remove(resultPath)
 	if err != nil && !os.IsNotExist(err) {
-		return -1, nil, "", fmt.Errorf("attempting to remove preexisting binary: %v (%w)", err, errTempFailure)
+		return -1, nil, "", "", fmt.Errorf("attempting to remove preexisting binary: %v (%w)", err, errTempFailure)
 	}
 
 	// Always remove binary from $GOBIN when we're done here. We copied it on success.
@@ -286,7 +292,7 @@ func build(bs buildSpec, expSumOpt string) (int64, *buildResult, string, error) 
 	var cmd *exec.Cmd
 	gv, err := parseGoVersion(bs.Goversion)
 	if err != nil {
-		return -1, nil, "", fmt.Errorf("%w: %s", errBadGoversion, err)
+		return -1, nil, "", "", fmt.Errorf("%w: %s", errBadGoversion, err)
 	}
 	ldflags := "-buildid="
 	if bs.Stripped {
@@ -310,16 +316,17 @@ func build(bs buildSpec, expSumOpt string) (int64, *buildResult, string, error) 
 		metricCompileArchErrors.WithLabelValues(bs.Goarch).Inc()
 		metricCompileVersionErrors.WithLabelValues(bs.Goversion).Inc()
 		out := string(output)
-		if xerr := saveFailure(bs, err, out); xerr != nil {
-			return -1, nil, "", fmt.Errorf("storing results of failure: %v (%w)", xerr, errTempFailure)
+		reason := cannotBuild(out)
+		if xerr := saveFailure(bs, err, out, reason); xerr != nil {
+			return -1, nil, "", reason, fmt.Errorf("storing results of failure: %v (%w)", xerr, errTempFailure)
 		}
-		return -1, nil, out, err
+		return -1, nil, out, reason, err
 	}
 
 	// Where we store the "recordnumber" file, binary.gz and log.gz.
 	tmpdir, err := os.MkdirTemp(resultDir, "tmpresult")
 	if err != nil {
-		return -1, nil, "", err
+		return -1, nil, "", "", err
 	}
 	// On success, the directory will have been moved to its final destination,
 	// indicated by an empty tmpdir.
@@ -334,21 +341,21 @@ func build(bs buildSpec, expSumOpt string) (int64, *buildResult, string, error) 
 	// Calculate our hash.
 	rf, err := os.Open(resultPath)
 	if err != nil {
-		return -1, nil, "", fmt.Errorf("open result: %v", err)
+		return -1, nil, "", "", fmt.Errorf("open result: %v", err)
 	}
 	defer rf.Close()
 
 	if info, err := rf.Stat(); err != nil {
-		return -1, nil, "", fmt.Errorf("stat result: %v", err)
+		return -1, nil, "", "", fmt.Errorf("stat result: %v", err)
 	} else {
 		br.Filesize = info.Size()
 	}
 
 	h := sha256.New()
 	if _, err := io.Copy(h, rf); err != nil {
-		return -1, nil, "", fmt.Errorf("read result: %v", err)
+		return -1, nil, "", "", fmt.Errorf("read result: %v", err)
 	} else if _, err := rf.Seek(0, 0); err != nil {
-		return -1, nil, "", fmt.Errorf("seek result: %v", err)
+		return -1, nil, "", "", fmt.Errorf("seek result: %v", err)
 	}
 	br.Sum = "0" + base64.RawURLEncoding.EncodeToString(h.Sum(nil)[:20])
 
@@ -382,26 +389,26 @@ func build(bs buildSpec, expSumOpt string) (int64, *buildResult, string, error) 
 	if expSumOpt != "" {
 		if br.Sum != expSumOpt {
 			metricRecompileMismatch.WithLabelValues(bs.Goos, bs.Goarch, bs.Goversion).Inc()
-			return -1, nil, "", fmt.Errorf("sum of rebuilt binary %s does not match previous sum %s", br.Sum, expSumOpt)
+			return -1, nil, "", "", fmt.Errorf("sum of rebuilt binary %s does not match previous sum %s", br.Sum, expSumOpt)
 		}
 		storeDir := br.storeDir()
 		ptmp := filepath.Join(tmpdir, "binary.gz")
 		pdst := filepath.Join(storeDir, "binary.gz")
 		if err := writeGz(ptmp, rf); err != nil {
-			return -1, nil, "", err
+			return -1, nil, "", "", err
 		}
 		if recBuf, err := os.ReadFile(filepath.Join(storeDir, "recordnumber")); err != nil {
-			return -1, nil, "", fmt.Errorf("reading previous recordnumber file: %w", err)
+			return -1, nil, "", "", fmt.Errorf("reading previous recordnumber file: %w", err)
 		} else if v, err := strconv.ParseInt(strings.TrimSpace(string(recBuf)), 10, 64); err != nil {
-			return -1, nil, "", fmt.Errorf("parsing previous recordnumber %q: %v", recBuf, err)
+			return -1, nil, "", "", fmt.Errorf("parsing previous recordnumber %q: %v", recBuf, err)
 		} else if st, err := os.Stat(ptmp); err != nil {
-			return -1, nil, "", fmt.Errorf("stat temporary binary.gz for size: %w", err)
+			return -1, nil, "", "", fmt.Errorf("stat temporary binary.gz for size: %w", err)
 		} else if err := os.Rename(ptmp, pdst); err != nil {
-			return -1, nil, "", fmt.Errorf("moving binary.gz to destination: %w", err)
+			return -1, nil, "", "", fmt.Errorf("moving binary.gz to destination: %w", err)
 		} else {
 			handleBinaryCacheAdd(st.Size())
 
-			return v, &br, "", nil
+			return v, &br, "", "", nil
 		}
 	}
 
@@ -411,7 +418,7 @@ func build(bs buildSpec, expSumOpt string) (int64, *buildResult, string, error) 
 	for n := len(config.Verifiers) + len(config.VerifierURLs); n > 0; n-- {
 		vr := <-verifyResult
 		if vr.err != nil {
-			return -1, nil, "", fmt.Errorf("build at verifier failed: %v (%w)", vr.err, errTempFailure)
+			return -1, nil, "", "", fmt.Errorf("build at verifier failed: %v (%w)", vr.err, errTempFailure)
 		}
 		if vr.result.Sum == br.Sum {
 			matchesFrom = append(matchesFrom, vr.name())
@@ -423,29 +430,29 @@ func build(bs buildSpec, expSumOpt string) (int64, *buildResult, string, error) 
 	}
 	if len(mismatches) > 0 {
 		if len(matchesFrom) > 0 {
-			return -1, nil, "", fmt.Errorf("build mismatches, we and %d others got %s, but %s (%w)", len(matchesFrom), br.Sum, strings.Join(mismatches, ", "), errTempFailure)
+			return -1, nil, "", "", fmt.Errorf("build mismatches, we and %d others got %s, but %s (%w)", len(matchesFrom), br.Sum, strings.Join(mismatches, ", "), errTempFailure)
 		}
-		return -1, nil, "", fmt.Errorf("build mismatches, we got %s, but %s (%w)", br.Sum, strings.Join(mismatches, ", "), errTempFailure)
+		return -1, nil, "", "", fmt.Errorf("build mismatches, we got %s, but %s (%w)", br.Sum, strings.Join(mismatches, ", "), errTempFailure)
 	}
 
 	// Write binary and log.
 	if err := writeGz(filepath.Join(tmpdir, "binary.gz"), rf); err != nil {
-		return -1, nil, "", err
+		return -1, nil, "", "", err
 	}
 	if err := writeGz(filepath.Join(tmpdir, "log.gz"), bytes.NewReader(output)); err != nil {
-		return -1, nil, "", err
+		return -1, nil, "", "", err
 	}
 
 	st, err := os.Stat(filepath.Join(tmpdir, "binary.gz"))
 	if err != nil {
-		return -1, nil, "", fmt.Errorf("stat binary.gz after writing: %v", err)
+		return -1, nil, "", "", fmt.Errorf("stat binary.gz after writing: %v", err)
 	}
 
 	// Finally, add to the transparency log, creating the "recordnumber" file and
 	// renaming tmpdir to the final directory in resultDir.
 	recordNumber, err := addSum(tmpdir, br)
 	if err != nil {
-		return -1, nil, "", fmt.Errorf("adding sum to tranparency log: %w", err)
+		return -1, nil, "", "", fmt.Errorf("adding sum to tranparency log: %w", err)
 	}
 	tmpdir = ""
 
@@ -458,11 +465,15 @@ func build(bs buildSpec, expSumOpt string) (int64, *buildResult, string, error) 
 	}
 	recentBuilds.Unlock()
 
-	return recordNumber, &br, "", nil
+	return recordNumber, &br, "", "", nil
 }
 
-func saveFailure(bs buildSpec, buildErr error, output string) error {
-	slog.Error("build failure", "err", buildErr, "buildspec", bs, "output", output)
+func saveFailure(bs buildSpec, buildErr error, output, reason string) error {
+	if reason != "" {
+		slog.Info("build failure", "err", buildErr, "reason", reason, "buildspec", bs, "output", output)
+	} else {
+		slog.Error("build failure", "err", buildErr, "buildspec", bs, "output", output)
+	}
 
 	tmpdir, err := os.MkdirTemp(resultDir, "tmpfail")
 	if err != nil {
@@ -521,40 +532,45 @@ func writeGz(path string, src io.Reader) error {
 	return err
 }
 
-// cannotBuild takes output from a failed build and indicates if it has signs that
-// this build will never succeed, i.e. that this build does not exist.
-func cannotBuild(output string) (string, bool) {
+// For matching errors about compiling source files. Example:
+//
+//	go/pkg/mod/golang.org/x/sys@v0.0.0-20190507160741-ecd444e8653b/unix/syscall_unix_gc.go:12:6: missing function body
+var reSourceError = regexp.MustCompile(`go/pkg/mod/.*\.go:[1-9][0-9]*:[1-9][0-9]*: `)
+
+// cannotBuild takes output from a failed build and indicates the reason this
+// build will never succeed, or an empty string otherwise.
+func cannotBuild(output string) string {
 	// "android/amd64 requires external (cgo) linking, but cgo is not enabled"
 	if strings.Contains(output, "requires external (cgo) linking, but cgo is not enabled") {
-		return "cgo", true
+		return "cgo"
 	}
 
 	// go: github.com/mjl-/sherpa/cmd/sherpaclient@v0.4.0: github.com/mjl-/sherpa@v0.4.0: parsing go.mod:
 	//         module declares its path as: bitbucket.org/mjl/sherpa
 	//                 but was required as: github.com/mjl-/sherpa
 	if strings.Contains(output, "module declares its path as") && strings.Contains(output, "but was required as") {
-		return "module path mismatch", true
+		return "module path mismatch"
 	}
 
 	// go: github.com/mjl-/sherpa/cmd/sherpaclient@v0.4.1: version constraints conflict:
 	if strings.Contains(output, ": version constraints conflict:") {
-		return "version constraints conflict", true
+		return "version constraints conflict"
 	}
 
 	// go: unsupported GOOS/GOARCH pair openbsd/riscv64
 	if strings.Contains(output, "go: unsupported GOOS/GOARCH pair ") {
-		return "unsupported platform", true
+		return "unsupported platform"
 	}
 
 	// loadinternal: cannot find runtime/cgo
 	// .../gobuild/sdk/go1.21.5/pkg/tool/linux_amd64/link: running clang failed: exec: "clang": executable file not found in $PATH
 	if strings.Contains(output, "loadinternal: cannot find runtime/cgo") {
-		return "external linker", true
+		return "external linker"
 	}
 
 	// go/pkg/mod/github.com/mjl-/mox@v0.0.11/mlog/log.go:21:2: package log/slog is not in GOROOT (/home/service/gobuild/sdk/go1.20.2/src/log/slog)
 	if strings.Contains(output, "is not in GOROOT (") {
-		return "likely import of future standard library package", true
+		return "likely import of future standard library package"
 	}
 
 	// The go.mod file for the module providing named packages contains one or
@@ -562,18 +578,18 @@ func cannotBuild(output string) (string, bool) {
 	// it to be interpreted differently than if it were the main module.
 	if strings.Contains(output, "The go.mod file for the module providing named packages contains one or") &&
 		strings.Contains(output, "more replace directives. It must not contain directives that would cause") {
-		return "go.mod has replace directives", true
+		return "go.mod has replace directives"
 	}
 
 	// note: module requires Go 1.19
 	if strings.Contains(output, "note: module requires Go ") {
-		return "requires newer go version", true
+		return "requires newer go version"
 	}
 
 	// go/pkg/mod/github.com/mjl-/mox@v0.0.10/dns/mock.go:7:2: package slices is not in GOROOT .../sdk/go1.20.8/src/slices)
 	// note: imported by a module that requires go 1.21"
 	if strings.Contains(output, "note: imported by a module that requires go") {
-		return "imported module requires newer go", true
+		return "imported module requires newer go"
 	}
 
 	// package github.com/mjl-/mox
@@ -581,18 +597,22 @@ func cannotBuild(output string) (string, bool) {
 	//	imports go.etcd.io/bbolt
 	//	imports golang.org/x/sys/unix: build constraints exclude all Go files in .../go/pkg/mod/golang.org/x/sys@v0.7.0/unix
 	if strings.Contains(output, ": build constraints exclude all Go files in") {
-		return "build constraint excludes all go files", true
+		return "build constraint excludes all go files"
 	}
 
 	// go/pkg/mod/github.com/mjl-/ding@v0.4.0/serve.go:52:14: undefined: syscall.Umask
 	if strings.Contains(output, ": undefined: ") {
-		return "undefined symbol likely only available in newer stdlib", true
+		return "undefined symbol likely only available in newer stdlib"
 	}
 
 	// go/pkg/mod/github.com/mjl-/ding@v0.4.0/serve.go:90:4: unknown field Credential in struct literal of type syscall.SysProcAttr
 	if strings.Contains(output, ": unknown field ") {
-		return "unknown field in struct likely only available in newer stdlib", true
+		return "unknown field in struct likely only available in newer stdlib"
 	}
 
-	return "", false
+	if reSourceError.MatchString(output) {
+		return "error on go source line"
+	}
+
+	return ""
 }

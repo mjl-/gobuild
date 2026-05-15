@@ -198,7 +198,7 @@ func lookupBuild(ctx context.Context, bs buildSpec, r *http.Request) (int64, err
 			unregisterBuild(bs, eventc)
 			if update.err != nil {
 				// If the build simply can't succeed, ensure we don't log it as lookup error.
-				if reason, cannot := cannotBuild(update.errOutput); cannot {
+				if reason := cannotBuild(update.errOutput); reason != "" {
 					slog.Info("build failed, but output indicates it does not exist", "err", update.err, "reason", reason, "buildspec", bs)
 					return -1, os.ErrNotExist
 				}
