@@ -145,7 +145,7 @@ func coordinateBuilds() {
 			if err != nil {
 				errmsg = err.Error() + "\n\n" + errOutput
 				metricBuildErrors.Inc()
-				if noBuildReason == "" {
+				if errOutput != "" && noBuildReason == "" {
 					metricBuildErrorsUnknownReason.Inc()
 				}
 			}

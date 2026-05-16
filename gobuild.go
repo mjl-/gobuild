@@ -469,11 +469,11 @@ func build(bs buildSpec, expSumOpt string) (int64, *buildResult, string, string,
 }
 
 func saveFailure(bs buildSpec, buildErr error, output, reason string) error {
-	if reason != "" {
-		slog.Info("build failure", "err", buildErr, "reason", reason, "buildspec", bs, "output", output)
-	} else {
-		slog.Error("build failure", "err", buildErr, "buildspec", bs, "output", output)
+	level := slog.LevelInfo
+	if reason == "" {
+		level = slog.LevelError
 	}
+	slog.Log(context.Background(), level, "build failure", "err", buildErr, "reason", reason, "buildspec", bs, "output", output)
 
 	tmpdir, err := os.MkdirTemp(resultDir, "tmpfail")
 	if err != nil {

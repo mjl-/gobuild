@@ -10,6 +10,12 @@ groups:
     labels:
       page: always
 
+  - alert: build-errors-unknown-reason
+    expr: rate(gobuild_build_errors_unknown_reason_total[5m]) > 0
+    for: 15s
+    labels:
+      page: always
+
   - alert: tlog-add-errors
     expr: rate(gobuild_tlog_add_errors_total[5m]) > 0
     for: 15s
@@ -23,12 +29,6 @@ groups:
     for: 15s
     annotations:
       summary: consistency error in records, hashes and recordnumber files
-    labels:
-      page: always
-
-  - alert: tlog-build-errors-unknown-reason
-    expr: rate(gobuild_build_errors_unknown_reason_total[5m]) > 0
-    for: 15s
     labels:
       page: always
 
