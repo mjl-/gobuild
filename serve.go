@@ -43,7 +43,7 @@ var (
 	// Set to absolute paths: the config file can have relative paths.
 	workdir    string
 	homedir    string
-	stateDir   string
+	statePath  string
 	commandDir string
 	emptyDir   string
 
@@ -385,11 +385,10 @@ func serve(args []string) {
 	if err != nil {
 		log.Fatalf("evaluating symlinks in homedir: %v", err)
 	}
-	stateDir = filepath.Join(homedir, "gosumdbstate")
+	statePath = filepath.Join(homedir, "gosumdbstate.tar") // archive file for atomic replacement
 	commandDir = filepath.Join(homedir, "cmds")
 	emptyDir = filepath.Join(homedir, "tmp")
 	// failures will be caught later
-	os.Mkdir(stateDir, 0777)
 	os.Mkdir(commandDir, 0777)
 	os.MkdirAll(emptyDir, 0555)
 	os.MkdirAll(config.SDKDir, 0777)                        // may already exist, we'll get errors later

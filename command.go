@@ -1,9 +1,8 @@
 package main
 
 import (
+	"archive/tar"
 	"context"
-	cryptorand "crypto/rand"
-	"encoding/base64"
 	"fmt"
 	"io"
 	"io/fs"
@@ -12,7 +11,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"strings"
 )
 
 // We allow one concurrent non-build commands, e.g. for fetching modules,
@@ -90,49 +88,39 @@ func makeCommand(cmdHomeDir, workDir, goversion string, withGoproxy bool, cgoEna
 	return cmd
 }
 
-func newCommandDir(name string) (string, error) {
+func newCommandDir(name string) (rdir string, rerr error) {
 	dir, err := os.MkdirTemp(commandDir, name+"-")
 	if err != nil {
 		slog.Error("creating temp dir for executing command", "err", err, "name", name)
 		return "", err
 	}
 
-	// Copy gosumdb state if it exists.
-	stateDir := filepath.Join(homedir, "gosumdbstate")
-	if _, err := os.Stat(stateDir); err == nil {
-		if err := copyFiletree(dir, stateDir); err != nil {
-			return "", fmt.Errorf("copying gosumdb state: %w", err)
+	defer func() {
+		if rerr != nil {
+			if err := os.RemoveAll(dir); err != nil {
+				slog.Error("cleaning up temp dir after failure", "err", err, "dir", dir)
+			}
 		}
-	}
+	}()
 
-	return dir, err
+	// Copy gosumdb state if it exists.
+	f, err := os.Open(statePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return dir, nil
+		}
+		return "", fmt.Errorf("open gosumdb state file %q: %v", statePath, err)
+	}
+	defer f.Close()
+	if err := restoreState(f, dir); err != nil {
+		return "", fmt.Errorf("restoring gosumdb state: %w", err)
+	}
+	return dir, nil
 }
 
 func removeCommandDir(cmdHomeDir string) {
-	// Copy back gosumdb state.
-	var ok = true
-	paths := []string{
-		"go/pkg/sumdb/sum.golang.org",
-		"go/pkg/mod/cache/download/sumdb/sum.golang.org/tile",
-	}
-	for _, p := range paths {
-		if err := copyFiletree(filepath.Join(cmdHomeDir, "gosumdbstate", p), filepath.Join(cmdHomeDir, p)); err != nil {
-			slog.Error("copying gosumdb state to tmp dir, continuing without new gosumdb state", "err", err, "path", p)
-			ok = false
-		}
-	}
-	if ok {
-		stateDir := filepath.Join(homedir, "gosumdbstate")
-		random := make([]byte, 12)
-		cryptorand.Read(random)
-		oldStateDir := filepath.Join(homedir, "gosumdbstate-"+base64.RawURLEncoding.EncodeToString(random))
-		if err := os.Rename(stateDir, oldStateDir); err != nil {
-			slog.Error("moving old gosumdb state dir out of the way", "err", err, "srcdir", stateDir, "dstdir", oldStateDir)
-		} else if err := os.Rename(filepath.Join(cmdHomeDir, "gosumdbstate"), stateDir); err != nil {
-			slog.Error("moving new gosumdb state dir in place", "err", err)
-		} else if err := os.RemoveAll(oldStateDir); err != nil {
-			slog.Error("removing old gosumdb state dir", "err", err, "oldstatedir", oldStateDir)
-		}
+	if err := saveState(cmdHomeDir); err != nil {
+		slog.Error("saving gosumdb state, ignoring", "err", err)
 	}
 
 	// Walk cmdHomeDir to change permissions of go/pkg/mod directory so we can remove it all.
@@ -154,51 +142,124 @@ func removeCommandDir(cmdHomeDir string) {
 	}
 }
 
-func copyFiletree(dstDir, srcDir string) error {
-	return filepath.WalkDir(srcDir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
+// restoreState extracts the gosumdb state tar file to a destination directory.
+func restoreState(f io.Reader, dstDir string) error {
+	r := tar.NewReader(f)
+	for {
+		h, err := r.Next()
+		if err == io.EOF {
+			break
+		} else if err != nil {
+			return fmt.Errorf("next file in tar: %v", err)
 		}
-
-		// Determine destination path.
-		if !strings.HasPrefix(path, srcDir) {
-			return fmt.Errorf("walked path %q is not prefixed by requested dir %q", path, srcDir)
-		}
-		dst := strings.TrimPrefix(path[len(srcDir):], "/")
-		if dst == "" {
-			// We do nothing for the state root directory.
-			return nil
-		}
-		dst = filepath.Join(dstDir, dst)
-
-		// We don't explicitly create directories.
-		if d.IsDir() {
-			return nil
-		}
-
-		// Ensure dir exists. We ignore errors, the create below will fail if the dir doesn't exist.
-		os.MkdirAll(filepath.Dir(dst), 0o750)
-
-		// We copy files.
-		sf, err := os.Open(path)
-		if err != nil {
-			return fmt.Errorf("open %q: %v", path, err)
-		}
-		defer sf.Close()
-		df, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0o640)
-		if err != nil {
-			return fmt.Errorf("create %q: %v", dst, err)
-		}
-		defer func() {
-			if df != nil {
-				df.Close()
+		fi := h.FileInfo()
+		p := filepath.Join(dstDir, h.Name)
+		if fi.IsDir() {
+			if err := os.MkdirAll(p, 0o750); err != nil {
+				return fmt.Errorf("mkdirall %q: %v", p, err)
 			}
-		}()
-		if _, err := io.Copy(df, sf); err != nil {
-			return fmt.Errorf("copy: %w", err)
+			continue
+		} else if !fi.Mode().IsRegular() {
+			return fmt.Errorf("not a regular file in tar file: %q: %o", h.Name, fi.Mode())
 		}
-		err = df.Close()
-		df = nil
-		return err
-	})
+		os.MkdirAll(filepath.Dir(p), 0o750)
+		nf, err := os.Create(p)
+		if err != nil {
+			return fmt.Errorf("create %q: %v", p, err)
+		}
+		if _, err := io.Copy(nf, r); err != nil {
+			if xerr := nf.Close(); xerr != nil {
+				slog.Error("closing new file after error", "err", xerr, "path", p)
+			}
+		}
+		if err := nf.Close(); err != nil {
+			return fmt.Errorf("closing new file %q: %v", p, err)
+		}
+	}
+	return nil
+}
+
+// saveState stores the gosumdb state from a "build home dir" to the state tar
+// file. The current file is untouched if an error occurrs.
+func saveState(srcDir string) error {
+	f, err := os.CreateTemp(filepath.Dir(statePath), "gosumdbstate-tmp.")
+	if err != nil {
+		return fmt.Errorf("create temp gosumdb state file: %w", err)
+	}
+
+	defer func() {
+		if f == nil {
+			return
+		}
+		name := f.Name()
+		err := f.Close()
+		logCheck(err, "closing temp gosumdb state file after error")
+		err = os.Remove(name)
+		logCheck(err, "removing temp gosumdb state file after error")
+	}()
+
+	w := tar.NewWriter(f)
+
+	addTree := func(dir string) error {
+		return filepath.WalkDir(filepath.Join(srcDir, dir), func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return fmt.Errorf("walk: %v", err)
+			}
+			fi, err := d.Info()
+			if err != nil {
+				return fmt.Errorf("fileinfo for entry: %v", err)
+			}
+			// We only add regular files.
+			if d.IsDir() {
+				return nil
+			} else if !fi.Mode().IsRegular() {
+				return fmt.Errorf("not a regular file %q: mode %o", path, fi.Mode())
+			}
+			h, err := tar.FileInfoHeader(fi, "")
+			if err != nil {
+				return fmt.Errorf("fileinfo to tar header for %q: %v", path, err)
+			}
+			h.Name, err = filepath.Rel(srcDir, path)
+			if err != nil {
+				return fmt.Errorf("relative path for %q in %q: %v", path, srcDir, err)
+			}
+			if err := w.WriteHeader(h); err != nil {
+				return fmt.Errorf("write header: %v", err)
+			}
+			xf, err := os.Open(path)
+			if err != nil {
+				return fmt.Errorf("open %q: %v", path, err)
+			}
+			defer xf.Close()
+			if n, err := io.Copy(w, xf); err != nil {
+				return fmt.Errorf("copy %q to gosumdb state file: %w", path, err)
+			} else if int64(n) != h.Size {
+				return fmt.Errorf("copied %d bytes for path %q to gosumdb state file, expected %d", n, path, h.Size)
+			}
+			return nil
+		})
+	}
+
+	// Copy back gosumdb state.
+	paths := []string{
+		"go/pkg/sumdb/sum.golang.org",
+		"go/pkg/mod/cache/download/sumdb/sum.golang.org/tile",
+	}
+	for _, p := range paths {
+		if err := addTree(p); err != nil {
+			return fmt.Errorf("copying gosumdb state to tmp tar file: %v", err)
+		}
+	}
+	if err := w.Close(); err != nil {
+		return fmt.Errorf("closing temp gosumdb state tar writer: %v", err)
+	}
+	name := f.Name()
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("close temp gosumdb state file: %w", err)
+	}
+	if err := os.Rename(name, statePath); err != nil {
+		return fmt.Errorf("renaming temp gosumdb state file %q to final name %q: %v", name, statePath, err)
+	}
+	f = nil
+	return nil
 }
