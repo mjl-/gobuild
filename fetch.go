@@ -73,12 +73,12 @@ func fetchModule(ctx context.Context, cmdDir, modDir, goversion, gobin, mod, ver
 			return output, fmt.Errorf("go mod download module: %v", err)
 		}
 
-		// Mark go.mod writable so download command below can update the go.mod file.
+		// Mark go.mod & go.sum writable so download command below can update them.
 		if err := os.Chmod(filepath.Join(modDir, "go.mod"), 0o640); err != nil {
 			slog.Warn("chmod of go.mod of go module to make it writable, continuing", "path", filepath.Join(modDir, "go.mod"), "err", err)
 		}
 		if err := os.Chmod(filepath.Join(modDir, "go.sum"), 0o640); err != nil {
-			slog.Warn("chmod of go.mod of go module to make it writable, continuing", "path", filepath.Join(modDir, "go.mod"), "err", err)
+			slog.Warn("chmod of go.sum of go module to make it writable, continuing", "path", filepath.Join(modDir, "go.sum"), "err", err)
 		}
 
 		cmd = makeCommand(cmdDir, modDir, goversion, goproxy, cgo, nil, gobin, "mod", "download", "-x")

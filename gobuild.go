@@ -264,7 +264,11 @@ func build(bs buildSpec, expSumOpt string) (int64, *buildResult, string, string,
 		}
 		moreEnv = append(moreEnv, "GOBUILD_GOBIN="+gobuildbindir)
 		resultPath = filepath.Join(gobuildbindir, resultPath)
-		defer os.RemoveAll(gobuildbindir)
+		defer func() {
+			if err := os.RemoveAll(gobuildbindir); err != nil {
+				slog.Error("removing temporary gobuildbindir", "err", err, "dir", gobuildbindir)
+			}
+		}()
 	} else {
 		resultPath = filepath.Join(cmdDir, "go", "bin", resultPath)
 	}
@@ -324,7 +328,7 @@ func build(bs buildSpec, expSumOpt string) (int64, *buildResult, string, string,
 	}
 
 	// Where we store the "recordnumber" file, binary.gz and log.gz.
-	tmpdir, err := os.MkdirTemp(resultDir, "tmpresult")
+	tmpdir, err := os.MkdirTemp(config.DataDir, "tmpresult")
 	if err != nil {
 		return -1, nil, "", "", err
 	}
@@ -332,7 +336,9 @@ func build(bs buildSpec, expSumOpt string) (int64, *buildResult, string, string,
 	// indicated by an empty tmpdir.
 	defer func() {
 		if tmpdir != "" {
-			os.RemoveAll(tmpdir)
+			if err := os.RemoveAll(tmpdir); err != nil {
+				slog.Error("remove tmpresult dir", "err", err, "tmpdir", tmpdir)
+			}
 		}
 	}()
 
@@ -475,13 +481,15 @@ func saveFailure(bs buildSpec, buildErr error, output, reason string) error {
 	}
 	slog.Log(context.Background(), level, "build failure", "err", buildErr, "reason", reason, "buildspec", bs, "output", output)
 
-	tmpdir, err := os.MkdirTemp(resultDir, "tmpfail")
+	tmpdir, err := os.MkdirTemp(config.DataDir, "tmpfail")
 	if err != nil {
 		return err
 	}
 	defer func() {
 		if tmpdir != "" {
-			os.RemoveAll(tmpdir)
+			if err := os.RemoveAll(tmpdir); err != nil {
+				slog.Error("removing result tmpdir for build failure", "err", err, "tmpdir", tmpdir)
+			}
 		}
 	}()
 

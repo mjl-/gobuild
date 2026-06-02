@@ -363,7 +363,11 @@ func ensureSDK(goversion string) (goVersion, error) {
 			sdk.fetch.status[goversion] = err
 			return goVersion{}, err
 		}
-		defer os.RemoveAll(tmpdir)
+		defer func() {
+			if err := os.RemoveAll(tmpdir); err != nil {
+				slog.Error("removing tmpdir for new sdk", "err", err, "dir", tmpdir)
+			}
+		}()
 
 		slog.Info("fetching sdk", "goversion", goversion)
 
