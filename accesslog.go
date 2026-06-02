@@ -119,6 +119,9 @@ func accessLogger(dir string, logc chan logLine) {
 			if file != nil {
 				err := file.Close()
 				logCheck(err, "closing access log file")
+				if err == nil {
+					file = nil
+				}
 			}
 
 			d := lines[0].date
