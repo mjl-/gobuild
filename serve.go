@@ -535,8 +535,8 @@ func serve(args []string) {
 		}()
 	}
 
-	http.Handle("/metrics", promhttp.Handler())
-	http.HandleFunc("/pending", func(w http.ResponseWriter, r *http.Request) {
+	http.Handle("GET /metrics", promhttp.Handler())
+	http.HandleFunc("GET /pending", func(w http.ResponseWriter, r *http.Request) {
 		// Return list of pending builds, including IP addresses.
 		rc := make(chan coordinatorState)
 		coordinate.state <- rc
@@ -549,7 +549,7 @@ func serve(args []string) {
 	})
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/robots.txt", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /robots.txt", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain")
 		f, err := os.Open(filepath.Join(config.DataDir, "robots.txt"))
 		if err == nil {
@@ -561,25 +561,25 @@ func serve(args []string) {
 			fmt.Fprint(w, "User-agent: *\nDisallow: /\n")
 		}
 	})
-	mux.HandleFunc("/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /favicon.ico", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "image/png")
 		w.Write(fileFaviconPng) // nothing to do for errors
 	})
-	mux.HandleFunc("/favicon-building.png", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /favicon-building.png", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "image/png")
 		w.Write(fileFaviconBuildingPng) // nothing to do for errors
 	})
-	mux.HandleFunc("/favicon-error.png", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /favicon-error.png", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "image/png")
 		w.Write(fileFaviconErrorPng) // nothing to do for errors
 	})
 
-	mux.HandleFunc("/emptyconfig", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /emptyconfig", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain")
 		sconf.Describe(w, &emptyConfig) // nothing to do for errors
 	})
 
-	mux.HandleFunc("/buildfailures.txt", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /buildfailures.txt", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain")
 		http.ServeFile(w, r, filepath.Join(config.DataDir, "buildfailures.txt"))
 	})
@@ -596,28 +596,30 @@ func serve(args []string) {
 
 		h := httpRequestHandler{http.StripPrefix("/tlog", sumdb.NewServer(serverOps{signer}))}
 		for _, path := range sumdb.ServerPaths {
-			mux.Handle("/tlog"+path, h)
+			mux.Handle("GET /tlog"+path, h)
 		}
 	}
 
-	mux.HandleFunc("/img/gopher-dance-long.gif", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /img/gopher-dance-long.gif", func(w http.ResponseWriter, r *http.Request) {
 		defer observePage("dance", time.Now())
 		w.Header().Set("Content-Type", "image/gif")
 		w.Write(fileGopherDanceLongGif) // nothing to do for errors
 	})
 
 	// These prefixes are old. We still serve on these paths for compatibility.
-	mux.HandleFunc("/m/", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /m/", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, r.URL.Path[2:], http.StatusTemporaryRedirect)
 	})
-	mux.HandleFunc("/b/", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /b/", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, r.URL.Path[2:], http.StatusTemporaryRedirect)
 	})
-	mux.HandleFunc("/r/", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /r/", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, r.URL.Path[2:], http.StatusTemporaryRedirect)
 	})
 
-	mux.HandleFunc("/", serveHome)
+	mux.HandleFunc("GET /{$}", serveHome)
+	mux.HandleFunc("GET /", serveSpec)
+	mux.HandleFunc("POST /", serveSpec)
 
 	var handler http.Handler = mux
 	var httpErrorLog *log.Logger

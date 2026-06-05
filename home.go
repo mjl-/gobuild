@@ -25,49 +25,45 @@ func readInstanceNotes() string {
 func serveHome(w http.ResponseWriter, r *http.Request) {
 	defer observePage("home", time.Now())
 
-	if r.URL.Path == "/" {
-		if r.Method != "GET" {
-			http.Error(w, "405 - Method Not Allowed", http.StatusMethodNotAllowed)
-			return
-		}
-
-		m := r.FormValue("m")
-		if m != "" {
-			http.Redirect(w, r, "/"+m, http.StatusTemporaryRedirect)
-			return
-		}
-
-		recentBuilds.Lock()
-		recentLinks := slices.Clone(recentBuilds.links)
-		recentBuilds.Unlock()
-
-		// Reverse order for recentLinks most recent first.
-		n := len(recentLinks)
-		for i := range n / 2 {
-			j := n - 1 - i
-			recentLinks[i], recentLinks[j] = recentLinks[j], recentLinks[i]
-		}
-
-		var args = struct {
-			Favicon         string
-			Recents         []string
-			VerifierKey     string
-			GobuildVersion  string
-			GobuildPlatform string
-			InstanceNotes   string
-		}{
-			"favicon.ico",
-			recentLinks,
-			config.VerifierKey,
-			gobuildVersion,
-			gobuildPlatform,
-			readInstanceNotes(),
-		}
-		if err := homeTemplate.Execute(w, args); err != nil {
-			failf(w, "%w: executing home template: %w", errServer, err)
-		}
+	m := r.FormValue("m")
+	if m != "" {
+		http.Redirect(w, r, "/"+m, http.StatusTemporaryRedirect)
 		return
 	}
+
+	recentBuilds.Lock()
+	recentLinks := slices.Clone(recentBuilds.links)
+	recentBuilds.Unlock()
+
+	// Reverse order for recentLinks most recent first.
+	n := len(recentLinks)
+	for i := range n / 2 {
+		j := n - 1 - i
+		recentLinks[i], recentLinks[j] = recentLinks[j], recentLinks[i]
+	}
+
+	var args = struct {
+		Favicon         string
+		Recents         []string
+		VerifierKey     string
+		GobuildVersion  string
+		GobuildPlatform string
+		InstanceNotes   string
+	}{
+		"favicon.ico",
+		recentLinks,
+		config.VerifierKey,
+		gobuildVersion,
+		gobuildPlatform,
+		readInstanceNotes(),
+	}
+	if err := homeTemplate.Execute(w, args); err != nil {
+		failf(w, "%w: executing home template: %w", errServer, err)
+	}
+}
+
+func serveSpec(w http.ResponseWriter, r *http.Request) {
+	defer observePage("spec", time.Now())
 
 	t := strings.Split(r.URL.Path[1:], "/")
 	if !strings.Contains(t[0], ".") {
