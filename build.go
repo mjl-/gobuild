@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -20,8 +19,8 @@ func handleBadClient(w http.ResponseWriter, r *http.Request, bs buildSpec) bool 
 	for _, cp := range config.BadClients {
 		if hostname, ok := cp.Match(r); ok {
 			metricClientBuildRequestsBad.Inc()
-			slog.Info("bad client", "user-agent", r.UserAgent(), "remoteip", remoteIP(r), "hostname", hostname)
-			statusfail(http.StatusForbidden, w, "Your request matched a list of clients/networks with known bad behaviour. Please respect the robots.txt (no crawling that triggers builds!) and be kind. Contact the admins to get access again.")
+			logger(r.Context()).Info("bad client", "user-agent", r.UserAgent(), "remoteip", remoteIP(r), "hostname", hostname)
+			statusfail(r.Context(), http.StatusForbidden, w, "Your request matched a list of clients/networks with known bad behaviour. Please respect the robots.txt (no crawling that triggers builds!) and be kind. Contact the admins to get access again.")
 			return true
 		}
 	}
@@ -32,7 +31,7 @@ func handleBadClient(w http.ResponseWriter, r *http.Request, bs buildSpec) bool 
 
 	ip := remoteIP(r)
 
-	_, supported, _ := listSDK()
+	_, supported, _ := listSDK(r.Context())
 	limiter := &limiterOld
 	goage := "old"
 	metric := metricClientBuildRequestsLimitedOld
@@ -43,8 +42,8 @@ func handleBadClient(w http.ResponseWriter, r *http.Request, bs buildSpec) bool 
 	}
 	if !limiter.Add(net.IP(ip.AsSlice()), time.Now(), 1) {
 		metric.Inc()
-		slog.Info("build requested rejected through rate limit", "remoteip", ip, "user-agent", r.UserAgent(), "goage", goage, "goversion", bs.Goversion)
-		statusfail(http.StatusTooManyRequests, w, fmt.Sprintf("Your IP or its neighbourhood has requested too many builds (for %s Go versions) in a short period. Please slow down, and try again later. Contact the admins to get the rate limit loosened.", goage))
+		logger(r.Context()).Info("build requested rejected through rate limit", "remoteip", ip, "user-agent", r.UserAgent(), "goage", goage, "goversion", bs.Goversion)
+		statusfail(r.Context(), http.StatusTooManyRequests, w, fmt.Sprintf("Your IP or its neighbourhood has requested too many builds (for %s Go versions) in a short period. Please slow down, and try again later. Contact the admins to get the rate limit loosened.", goage))
 		return true
 	}
 
@@ -52,14 +51,15 @@ func handleBadClient(w http.ResponseWriter, r *http.Request, bs buildSpec) bool 
 }
 
 func serveBuild(w http.ResponseWriter, r *http.Request, req request) {
+	log := logger(r.Context())
 
 	var resolvedLatest bool
 	nreq := req
 
 	// Resolve "latest" goversion with a redirect.
 	if req.Goversion == "latest" {
-		if newestAllowed, _, _ := listSDK(); newestAllowed == "" {
-			failf(w, "no supported go toolchains available: %w", errServer)
+		if newestAllowed, _, _ := listSDK(r.Context()); newestAllowed == "" {
+			failf(w, r, "no supported go toolchains available: %w", errServer)
 			return
 		} else {
 			nreq.Goversion = newestAllowed
@@ -70,7 +70,7 @@ func serveBuild(w http.ResponseWriter, r *http.Request, req request) {
 	// Resolve "latest" module version with a redirect.
 	if req.Version == "latest" {
 		if info, err := resolveModuleVersion(r.Context(), req.Mod, req.Version); err != nil {
-			failf(w, "resolving latest for module: %w", err)
+			failf(w, r, "resolving latest for module: %w", err)
 			return
 		} else {
 			nreq.Version = info.Version
@@ -85,7 +85,7 @@ func serveBuild(w http.ResponseWriter, r *http.Request, req request) {
 
 	// See if we have a completed build, and handle it.
 	if _, br, _, failed, err := (serverOps{}).lookupResult(r.Context(), req.buildSpec); err != nil {
-		failf(w, "%w: lookup record: %v", errServer, err)
+		failf(w, r, "%w: lookup record: %v", errServer, err)
 		return
 	} else if br != nil {
 		// Redirect to the permanent URLs that include the hash.
@@ -101,17 +101,17 @@ func serveBuild(w http.ResponseWriter, r *http.Request, req request) {
 			dir := req.buildSpec.storeDir()
 			// Just a sanity check that we aren't removing successful build results.
 			if _, err := os.Stat(filepath.Join(dir, "recordnumber")); err == nil {
-				failf(w, "%w: directory with failed build contains recordnumber-file", errServer)
+				failf(w, r, "%w: directory with failed build contains recordnumber-file", errServer)
 				return
 			}
 
 			tmpdir := dir + ".remove"
 			if err := os.Rename(dir, tmpdir); err != nil {
-				failf(w, "%w: moving away directory with log of failed build: %v", errServer, err)
+				failf(w, r, "%w: moving away directory with log of failed build: %v", errServer, err)
 				return
 			}
 			if err := os.RemoveAll(tmpdir); err != nil {
-				failf(w, "%w: removing path of failed build: %s", errServer, err)
+				failf(w, r, "%w: removing path of failed build: %s", errServer, err)
 				return
 			}
 			req.Page = pageIndex
@@ -121,7 +121,7 @@ func serveBuild(w http.ResponseWriter, r *http.Request, req request) {
 		case pageIndex:
 			serveIndex(w, r, req.buildSpec, nil)
 		default:
-			failf(w, "build failed, see index page for details")
+			failf(w, r, "build failed, see index page for details")
 		}
 		return
 	}
@@ -141,7 +141,7 @@ func serveBuild(w http.ResponseWriter, r *http.Request, req request) {
 	// goproxy that the module and package exist, and seems like it has a chance to
 	// compile.
 	if err := prepareBuild(ctx, req.buildSpec); err != nil {
-		failf(w, "preparing build: %w", err)
+		failf(w, r, "preparing build: %w", err)
 		return
 	}
 
@@ -154,15 +154,15 @@ func serveBuild(w http.ResponseWriter, r *http.Request, req request) {
 	}
 
 	eventc := make(chan buildUpdate, 100)
-	registerBuild(req.buildSpec, "", eventc, remoteIP(r))
+	registerBuild(logger(ctx), req.buildSpec, "", eventc, remoteIP(r))
 
 	switch req.Page {
 	case pageEvents:
 		// For the events endpoint, we send updates as they come in.
 		flusher, ok := w.(http.Flusher)
 		if !ok {
-			slog.Error("ResponseWriter not a http.Flusher")
-			failf(w, "%w: implementation limitation: cannot stream updates", errServer)
+			log.Error("ResponseWriter not a http.Flusher")
+			failf(w, r, "%w: implementation limitation: cannot stream updates", errServer)
 			return
 		}
 
@@ -207,7 +207,7 @@ func serveBuild(w http.ResponseWriter, r *http.Request, req request) {
 				}
 
 				if update.err != nil {
-					failf(w, "build failed: %w", update.err)
+					failf(w, r, "build failed: %w", update.err)
 					return
 				}
 

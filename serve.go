@@ -27,6 +27,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -220,7 +221,7 @@ func (cp ClientPattern) Match(r *http.Request) (hostname string, match bool) {
 		ipstr := net.IP(ip.AsSlice()).String()
 		hosts, err := net.DefaultResolver.LookupAddr(ctx, ipstr)
 		if err != nil {
-			slog.Debug("reverse lookup for ip", "ip", ipstr, "err", err)
+			logger(r.Context()).Debug("reverse lookup for ip", "ip", ipstr, "err", err)
 			return "", false
 		}
 		found := false
@@ -270,7 +271,30 @@ var (
 
 	// For waiting until all http servers and goroutines are shutdown.
 	wgShutdown sync.WaitGroup
+
+	transactionID = new(atomic.Int64)
 )
+
+func init() {
+	transactionID.Store(time.Now().UnixMilli())
+}
+
+type ctxKeyLog struct{} // For context value with an slog.Logger
+
+func logger(ctx context.Context) *slog.Logger {
+	v := ctx.Value(ctxKeyLog{})
+	if v == nil {
+		return slog.Default()
+	}
+	return v.(*slog.Logger)
+}
+
+// tidFmt implements slog.LogValuer.
+type tidFmt int64
+
+func (v tidFmt) LogValue() slog.Value {
+	return slog.StringValue(fmt.Sprintf("%x", v))
+}
 
 var (
 	buildTemplate  = template.Must(template.New("build").Parse(buildHTML + baseHTML))
@@ -397,7 +421,7 @@ func serve(args []string) {
 
 	// Remove any existing commandDir, if the service wasn't properly shut down, there
 	// may be temp files left. We don't want to accumulate old files.
-	chmodRecursive(commandDir) // For pkg/go/mod files that may be read-only.
+	chmodRecursive(context.Background(), commandDir) // For pkg/go/mod files that may be read-only.
 	if err := os.RemoveAll(commandDir); err != nil {
 		slog.Error("removing old commandDir with potential leftover temporary files, continuing", "err", err)
 	}
@@ -468,7 +492,7 @@ func serve(args []string) {
 
 	go func() {
 		// If coordinateBuilds panics, we will grind to a halt, but at least we'll get alerting about it.
-		defer logPanic()
+		defer logPanic(slog.Default())
 
 		coordinateBuilds(shutdownCtx)
 	}()
@@ -520,7 +544,7 @@ func serve(args []string) {
 		// We may need to cleanup now.
 		if reclaim := binaryCacheSizeAdd(0); reclaim > 0 {
 			go func() {
-				defer logPanic()
+				defer logPanic(slog.Default())
 
 				err := binaryCacheCleanup(reclaim)
 				if err != nil {
@@ -531,7 +555,7 @@ func serve(args []string) {
 	}
 	if config.CleanupBinariesAccessTimeAge > 0 {
 		go func() {
-			defer logPanic()
+			defer logPanic(slog.Default())
 			time.Sleep(time.Minute)
 			for {
 				cleanupBinariesAtime(config.CleanupBinariesAccessTimeAge)
@@ -656,14 +680,25 @@ func serve(args []string) {
 
 	var servers []*http.Server // For calling Shutdown after the signal.
 
+	// ctxlogHandler passes the ServeHTTP on to h, but with ctx replaced with one that has
+	// a ctxKeyLog as context value.
+	ctxlogHandler := func(h http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			tid := transactionID.Add(1)
+			log := slog.With("tid", tidFmt(tid), "remoteip", remoteIP(r))
+			ctx := context.WithValue(r.Context(), ctxKeyLog{}, log)
+			h.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+
 	if *listenHTTP != "" {
 		server := &http.Server{
-			Addr:     *listenHTTP,
-			Handler:  handler,
-			ErrorLog: httpErrorLog,
+			Addr: *listenHTTP,
 			BaseContext: func(net.Listener) context.Context {
 				return shutdownCtx
 			},
+			Handler:  ctxlogHandler(handler),
+			ErrorLog: httpErrorLog,
 		}
 		servers = append(servers, server)
 		wgShutdown.Add(1)
@@ -687,11 +722,11 @@ func serve(args []string) {
 			Email:      config.HTTPS.ACME.Email,
 		}
 		server := &http.Server{
-			Handler:  handler,
-			ErrorLog: httpErrorLog,
 			BaseContext: func(net.Listener) context.Context {
 				return shutdownCtx
 			},
+			Handler:  ctxlogHandler(handler),
+			ErrorLog: httpErrorLog,
 		}
 		servers = append(servers, server)
 		wgShutdown.Add(1)
@@ -708,12 +743,12 @@ func serve(args []string) {
 	}
 	if *listenAdmin != "" {
 		server := &http.Server{
-			Addr:     *listenAdmin,
-			Handler:  http.DefaultServeMux,
-			ErrorLog: httpErrorLog,
+			Addr: *listenAdmin,
 			BaseContext: func(net.Listener) context.Context {
 				return shutdownCtx
 			},
+			Handler:  ctxlogHandler(http.DefaultServeMux),
+			ErrorLog: httpErrorLog,
 		}
 		servers = append(servers, server)
 		wgShutdown.Add(1)
@@ -758,25 +793,25 @@ func serve(args []string) {
 	addSumMutex.Lock()
 }
 
-func logPanic() {
+func logPanic(log *slog.Logger) {
 	x := recover()
 	if x == nil {
 		return
 	}
 
 	metricPanics.Inc()
-	slog.Error("unhandled panic", "panic", x)
+	log.Error("unhandled panic", "panic", x)
 	debug.PrintStack()
 }
 
-func logCheck(err error, msg string, args ...any) {
+func logCheck(ctx context.Context, err error, msg string, args ...any) {
 	if err != nil {
 		args = append([]any{"err", err}, args...)
-		slog.Error(msg, args...)
+		logger(ctx).Error(msg, args...)
 	}
 }
 
-func failf(w http.ResponseWriter, format string, args ...any) {
+func failf(w http.ResponseWriter, r *http.Request, format string, args ...any) {
 	err := fmt.Errorf(format, args...)
 	errmsg := err.Error()
 	if isClosed(err) || strings.HasSuffix(errmsg, "http2: stream closed") || strings.HasSuffix(errmsg, "client disconnected") {
@@ -791,32 +826,32 @@ func failf(w http.ResponseWriter, format string, args ...any) {
 	} else {
 		status = http.StatusBadRequest
 	}
-	statusfail(status, w, errmsg)
+	statusfail(r.Context(), status, w, errmsg)
 }
 
-func statusfail(status int, w http.ResponseWriter, errmsg string) {
+func statusfail(ctx context.Context, status int, w http.ResponseWriter, errmsg string) {
 	msg := fmt.Sprintf("%d - %s - %s", status, http.StatusText(status), errmsg)
 	if status/100 == 5 {
 		metricHTTPRequestsServerErrors.Inc()
-		slog.Error("http server error", "status", status, "err", errmsg)
+		logger(ctx).Error("http server error", "status", status, "err", errmsg)
 		debug.PrintStack()
 	} else {
 		metricHTTPRequestsUserErrors.Inc()
-		slog.Debug("http user error", "status", status, "err", errmsg)
+		logger(ctx).Debug("http user error", "status", status, "err", errmsg)
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(status)
 	err := errorTemplate.Execute(w, map[string]string{"Message": msg})
 	if err != nil {
-		slog.Error("executing template for error", "err", err)
+		logger(ctx).Error("executing template for error", "err", err)
 	}
 }
 
 func serveLog(w http.ResponseWriter, r *http.Request, p string) {
 	f, err := os.Open(p)
 	if err != nil {
-		failf(w, "%w: open log.gz: %v", errServer, err)
+		failf(w, r, "%w: open log.gz: %v", errServer, err)
 		return
 	}
 	defer f.Close()
@@ -829,7 +864,7 @@ func serveGzipFile(w http.ResponseWriter, r *http.Request, path string, src io.R
 		w.Header().Set("Content-Encoding", "gzip")
 		io.Copy(w, src) // nothing to do for errors
 	} else if gzr, err := gzip.NewReader(src); err != nil {
-		failf(w, "%w: decompressing %q: %s", errServer, path, err)
+		failf(w, r, "%w: decompressing %q: %s", errServer, path, err)
 	} else {
 		io.Copy(w, gzr) // nothing to do for errors
 	}
@@ -928,7 +963,7 @@ func verifySumState() (int64, error) {
 func remoteIP(r *http.Request) netip.Addr {
 	ipstr, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
-		slog.Info("parsing remote address", "err", err, "addr", r.RemoteAddr)
+		logger(r.Context()).Info("parsing remote address", "err", err, "addr", r.RemoteAddr)
 		return netip.Addr{}
 	}
 
@@ -946,7 +981,7 @@ func remoteIP(r *http.Request) netip.Addr {
 			}
 			ip, err := netip.ParseAddr(host)
 			if err != nil {
-				slog.Info("parsing ip from x-forwarded-for, stopping processing", "err", err, "addr", l[i], "xff", strings.Join(r.Header.Values("X-Forwarded-For"), ","))
+				logger(r.Context()).Info("parsing ip from x-forwarded-for, stopping processing", "err", err, "addr", l[i], "xff", strings.Join(r.Header.Values("X-Forwarded-For"), ","))
 				break
 			}
 			last = ip
@@ -964,7 +999,7 @@ func remoteIP(r *http.Request) netip.Addr {
 
 	ip, err := netip.ParseAddr(ipstr)
 	if err != nil {
-		slog.Info("parsing ip from remote address", "err", err, "addr", r.RemoteAddr, "ipstr", ipstr)
+		logger(r.Context()).Info("parsing ip from remote address", "err", err, "addr", r.RemoteAddr, "ipstr", ipstr)
 		return netip.Addr{}
 	}
 	return ip

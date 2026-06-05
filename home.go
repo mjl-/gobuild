@@ -1,8 +1,8 @@
 package main
 
 import (
+	"context"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"os"
 	"slices"
@@ -10,14 +10,14 @@ import (
 	"time"
 )
 
-func readInstanceNotes() string {
+func readInstanceNotes(ctx context.Context) string {
 	if config.InstanceNotesFile == "" {
 		return ""
 	}
 
 	buf, err := os.ReadFile(config.InstanceNotesFile)
 	if err != nil {
-		slog.Error("reading instance notes failed, skipping", "err", err)
+		logger(ctx).Error("reading instance notes failed, skipping", "err", err)
 	}
 	return string(buf)
 }
@@ -55,10 +55,10 @@ func serveHome(w http.ResponseWriter, r *http.Request) {
 		config.VerifierKey,
 		gobuildVersion,
 		gobuildPlatform,
-		readInstanceNotes(),
+		readInstanceNotes(r.Context()),
 	}
 	if err := homeTemplate.Execute(w, args); err != nil {
-		failf(w, "%w: executing home template: %w", errServer, err)
+		failf(w, r, "%w: executing home template: %w", errServer, err)
 	}
 }
 
@@ -77,7 +77,7 @@ func serveSpec(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		if !checkAllowedRespond(w, r.URL.Path[1:]) {
+		if !checkAllowedRespond(r.Context(), w, r.URL.Path[1:]) {
 			return
 		}
 		serveModules(w, r)
@@ -90,14 +90,14 @@ func serveSpec(w http.ResponseWriter, r *http.Request) {
 	if mod, version, _ := strings.Cut(r.URL.Path[1:], "@"); mod != "" && version != "" && !strings.Contains(version, "@") && !strings.Contains(version, "/") {
 		goversion, err := ensureMostRecentSDK(r.Context())
 		if err != nil {
-			failf(w, "ensuring most recent sdk: %w", err)
+			failf(w, r, "ensuring most recent sdk: %w", err)
 			return
 		}
 
 		// Resolve module version. Could be a git hash.
 		info, err := resolveModuleVersion(r.Context(), mod, version)
 		if err != nil {
-			failf(w, "resolving module version: %w", err)
+			failf(w, r, "resolving module version: %w", err)
 			return
 		}
 		version = info.Version
@@ -123,14 +123,14 @@ func serveSpec(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "405 - Method Not Allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	if !checkAllowedRespond(w, req.Mod) {
+	if !checkAllowedRespond(r.Context(), w, req.Mod) {
 		return
 	}
 
 	// Resolve module version. Could be a git hash.
 	info, err := resolveModuleVersion(r.Context(), req.Mod, req.Version)
 	if err != nil {
-		failf(w, "resolving module version: %w", err)
+		failf(w, r, "resolving module version: %w", err)
 		return
 	}
 	if req.Version != info.Version {
@@ -152,7 +152,7 @@ func serveSpec(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func checkAllowedRespond(w http.ResponseWriter, module string) bool {
+func checkAllowedRespond(ctx context.Context, w http.ResponseWriter, module string) bool {
 	if len(config.ModulePrefixes) == 0 {
 		return true
 	}
@@ -161,6 +161,6 @@ func checkAllowedRespond(w http.ResponseWriter, module string) bool {
 			return true
 		}
 	}
-	statusfail(http.StatusForbidden, w, "403 - Module path not allowed")
+	statusfail(ctx, http.StatusForbidden, w, "403 - Module path not allowed")
 	return false
 }

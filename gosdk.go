@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -216,7 +215,7 @@ func sdkUpdateInstalledList() {
 }
 
 func ensureMostRecentSDK(ctx context.Context) (goVersion, error) {
-	newestAllowed, _, _ := listSDK()
+	newestAllowed, _, _ := listSDK(ctx)
 	if newestAllowed == "" {
 		return goVersion{}, fmt.Errorf("%w: no supported go versions", errServer)
 	}
@@ -227,7 +226,7 @@ func ensureMostRecentSDK(ctx context.Context) (goVersion, error) {
 	}
 }
 
-func listSDK() (newestAllowed string, supported []string, remainingAvailable []string) {
+func listSDK(ctx context.Context) (newestAllowed string, supported []string, remainingAvailable []string) {
 	now := time.Now()
 	sdk.Lock()
 	if now.Sub(sdk.lastSupported) <= time.Hour {
@@ -242,7 +241,7 @@ func listSDK() (newestAllowed string, supported []string, remainingAvailable []s
 		defer sdk.Unlock()
 
 		if err != nil {
-			slog.Error("listing supported go releases", "err", err)
+			logger(ctx).Error("listing supported go releases", "err", err)
 		} else {
 			sdk.supportedList = []string{}
 			for _, rel := range rels {
@@ -253,7 +252,7 @@ func listSDK() (newestAllowed string, supported []string, remainingAvailable []s
 				if sdkVersionStop == nil {
 					newestAllowed = rel.Version
 				} else if gv, err := parseGoVersion(rel.Version); err != nil {
-					slog.Error("parsing go version from listing released go toolchain", "goversion", rel.Version, "err", err)
+					logger(ctx).Error("parsing go version from listing released go toolchain", "goversion", rel.Version, "err", err)
 				} else if gv.num() < sdkVersionStop.num() {
 					newestAllowed = gv.String()
 				}
@@ -367,11 +366,11 @@ func ensureSDK(ctx context.Context, goversion string) (goVersion, error) {
 		}
 		defer func() {
 			if err := os.RemoveAll(tmpdir); err != nil {
-				slog.Error("removing tmpdir for new sdk", "err", err, "dir", tmpdir)
+				logger(ctx).Error("removing tmpdir for new sdk", "err", err, "dir", tmpdir)
 			}
 		}()
 
-		slog.Info("fetching sdk", "goversion", goversion)
+		logger(ctx).Info("fetching sdk", "goversion", goversion)
 
 		if err := goreleases.Fetch(f, tmpdir, nil); err != nil {
 			err = fmt.Errorf("%w: installing sdk: %v", errServer, err)
@@ -415,17 +414,17 @@ func goexe() string {
 }
 
 func checkSDK(ctx context.Context, gobin, goversion string) error {
-	cmdDir, err := newCommandDir("checksdk")
+	cmdDir, err := newCommandDir(ctx, "checksdk")
 	if err != nil {
 		return err
 	}
-	defer removeCommandDir(cmdDir)
+	defer removeCommandDir(ctx, cmdDir)
 
 	const goproxy = false
 	const cgo = false
 	cmd := makeCommand(ctx, cmdDir, cmdDir, goversion, goproxy, cgo, nil, gobin, "version")
 	if output, err := cmd.CombinedOutput(); err != nil {
-		slog.Error("running go version to test toolchain", "err", err, "output", output)
+		logger(ctx).Error("running go version to test toolchain", "err", err, "output", output)
 		return err
 	}
 	return nil

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -84,21 +83,21 @@ func makeCommand(ctx context.Context, cmdHomeDir, workDir, goversion string, wit
 	if len(extraEnv) > 0 {
 		cmd.Env = append(cmd.Env, extraEnv...)
 	}
-	slog.Debug("prepared command", "cmdhomedir", cmdHomeDir, "workdir", workDir, "argv", l, "environment", cmd.Env)
+	logger(ctx).Debug("prepared command", "cmdhomedir", cmdHomeDir, "workdir", workDir, "argv", l, "environment", cmd.Env)
 	return cmd
 }
 
-func newCommandDir(name string) (rdir string, rerr error) {
+func newCommandDir(ctx context.Context, name string) (rdir string, rerr error) {
 	dir, err := os.MkdirTemp(commandDir, name+"-")
 	if err != nil {
-		slog.Error("creating temp dir for executing command", "err", err, "name", name)
+		logger(ctx).Error("creating temp dir for executing command", "err", err, "name", name)
 		return "", err
 	}
 
 	defer func() {
 		if rerr != nil {
 			if err := os.RemoveAll(dir); err != nil {
-				slog.Error("cleaning up temp dir after failure", "err", err, "dir", dir)
+				logger(ctx).Error("cleaning up temp dir after failure", "err", err, "dir", dir)
 			}
 		}
 	}()
@@ -112,27 +111,27 @@ func newCommandDir(name string) (rdir string, rerr error) {
 		return "", fmt.Errorf("open gosumdb state file %q: %v", statePath, err)
 	}
 	defer f.Close()
-	if err := restoreState(f, dir); err != nil {
+	if err := restoreState(ctx, f, dir); err != nil {
 		return "", fmt.Errorf("restoring gosumdb state: %w", err)
 	}
 	return dir, nil
 }
 
-func removeCommandDir(cmdHomeDir string) {
-	if err := saveState(cmdHomeDir); err != nil {
-		slog.Error("saving gosumdb state, ignoring", "err", err)
+func removeCommandDir(ctx context.Context, cmdHomeDir string) {
+	if err := saveState(ctx, cmdHomeDir); err != nil {
+		logger(ctx).Error("saving gosumdb state, ignoring", "err", err)
 	}
 
 	// Walk cmdHomeDir to change permissions of go/pkg/mod directory so we can remove it all.
 	pkgmodDir := filepath.Join(cmdHomeDir, "go/pkg/mod")
-	chmodRecursive(pkgmodDir)
+	chmodRecursive(ctx, pkgmodDir)
 
 	if err := os.RemoveAll(cmdHomeDir); err != nil {
-		slog.Error("removing command dir", "err", err, "cmdhomedir", cmdHomeDir)
+		logger(ctx).Error("removing command dir", "err", err, "cmdhomedir", cmdHomeDir)
 	}
 }
 
-func chmodRecursive(dir string) {
+func chmodRecursive(ctx context.Context, dir string) {
 	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -143,12 +142,12 @@ func chmodRecursive(dir string) {
 		return os.Chmod(path, 0o640)
 	})
 	if err != nil {
-		slog.Error("walk and change permissions before removal, continuing", "err", err, "dir", dir)
+		logger(ctx).Error("walk and change permissions before removal, continuing", "err", err, "dir", dir)
 	}
 }
 
 // restoreState extracts the gosumdb state tar file to a destination directory.
-func restoreState(f io.Reader, dstDir string) error {
+func restoreState(ctx context.Context, f io.Reader, dstDir string) error {
 	r := tar.NewReader(f)
 	for {
 		h, err := r.Next()
@@ -174,7 +173,7 @@ func restoreState(f io.Reader, dstDir string) error {
 		}
 		if _, err := io.Copy(nf, r); err != nil {
 			if xerr := nf.Close(); xerr != nil {
-				slog.Error("closing new file after error", "err", xerr, "path", p)
+				logger(ctx).Error("closing new file after error", "err", xerr, "path", p)
 			}
 		}
 		if err := nf.Close(); err != nil {
@@ -186,7 +185,7 @@ func restoreState(f io.Reader, dstDir string) error {
 
 // saveState stores the gosumdb state from a "build home dir" to the state tar
 // file. The current file is untouched if an error occurrs.
-func saveState(srcDir string) error {
+func saveState(ctx context.Context, srcDir string) error {
 	f, err := os.CreateTemp(filepath.Dir(statePath), "gosumdbstate-tmp.")
 	if err != nil {
 		return fmt.Errorf("create temp gosumdb state file: %w", err)
@@ -198,9 +197,9 @@ func saveState(srcDir string) error {
 		}
 		name := f.Name()
 		err := f.Close()
-		logCheck(err, "closing temp gosumdb state file after error")
+		logCheck(ctx, err, "closing temp gosumdb state file after error")
 		err = os.Remove(name)
-		logCheck(err, "removing temp gosumdb state file after error")
+		logCheck(ctx, err, "removing temp gosumdb state file after error")
 	}()
 
 	w := tar.NewWriter(f)

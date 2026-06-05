@@ -1,8 +1,8 @@
 package main
 
 import (
+	"context"
 	"fmt"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"sync"
@@ -35,7 +35,7 @@ var addSumMutex sync.Mutex
 // hashes, and the result directory. We cannot make the changes atomically. If an
 // error happens halfway through, we are in an inconsistent state. We do log an
 // error in that case, and will detect it and fail on startup.
-func addSum(tmpdir string, br buildResult) (rnum int64, rerr error) {
+func addSum(ctx context.Context, tmpdir string, br buildResult) (rnum int64, rerr error) {
 	defer func() {
 		if rerr != nil {
 			metricTlogAddErrors.Inc()
@@ -119,7 +119,7 @@ func addSum(tmpdir string, br buildResult) (rnum int64, rerr error) {
 	defer func() {
 		if rerr != nil {
 			metricTlogConsistencyErrors.Inc()
-			slog.Error("CRITICAL: Failure while adding record. This means the records and hashes files and result dir are likely in inconsistent state!", "recordnumber", recordNumber, "key", br.String(), "storedir", br.storeDir(), "err", rerr)
+			logger(ctx).Error("CRITICAL: Failure while adding record. This means the records and hashes files and result dir are likely in inconsistent state!", "recordnumber", recordNumber, "key", br.String(), "storedir", br.storeDir(), "err", rerr)
 		}
 	}()
 	if err := hashesFile.Sync(); err != nil {

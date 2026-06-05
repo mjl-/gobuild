@@ -11,7 +11,7 @@ func serveResult(w http.ResponseWriter, r *http.Request, req request) {
 
 	_, br, binaryPresent, failed, err := serverOps{}.lookupResult(r.Context(), req.buildSpec)
 	if err != nil {
-		failf(w, "%w: lookup record: %v", errServer, err)
+		failf(w, r, "%w: lookup record: %v", errServer, err)
 		return
 	} else if failed {
 		http.NotFound(w, r)
@@ -25,7 +25,7 @@ func serveResult(w http.ResponseWriter, r *http.Request, req request) {
 
 		// Attempt to build.
 		if err := prepareBuild(ctx, req.buildSpec); err != nil {
-			failf(w, "preparing build: %w", err)
+			failf(w, r, "preparing build: %w", err)
 			return
 		}
 
@@ -34,7 +34,7 @@ func serveResult(w http.ResponseWriter, r *http.Request, req request) {
 			expSum = br.Sum
 		}
 		eventc := make(chan buildUpdate, 100)
-		registerBuild(req.buildSpec, expSum, eventc, remoteIP(r))
+		registerBuild(logger(r.Context()), req.buildSpec, expSum, eventc, remoteIP(r))
 
 	loop:
 		for {
@@ -48,7 +48,7 @@ func serveResult(w http.ResponseWriter, r *http.Request, req request) {
 				}
 				unregisterBuild(req.buildSpec, eventc)
 				if update.err != nil {
-					failf(w, "build failed: %w", update.err)
+					failf(w, r, "build failed: %w", update.err)
 					return
 				}
 				r := *update.result
@@ -73,7 +73,7 @@ func serveResult(w http.ResponseWriter, r *http.Request, req request) {
 		p := filepath.Join(storeDir, "binary.gz")
 		f, err := os.Open(p)
 		if err != nil {
-			failf(w, "%w: open binary: %v", errServer, err)
+			failf(w, r, "%w: open binary: %v", errServer, err)
 			return
 		}
 		defer f.Close()
@@ -83,7 +83,7 @@ func serveResult(w http.ResponseWriter, r *http.Request, req request) {
 		http.ServeFile(w, r, p)
 	case pageRecord:
 		if msg, err := br.packRecord(); err != nil {
-			failf(w, "%w: packing record: %v", errServer, err)
+			failf(w, r, "%w: packing record: %v", errServer, err)
 		} else {
 			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 			w.Write(msg) // nothing to do for errors
@@ -91,6 +91,6 @@ func serveResult(w http.ResponseWriter, r *http.Request, req request) {
 	case pageIndex:
 		serveIndex(w, r, req.buildSpec, br)
 	default:
-		failf(w, "%w: unknown page %v", errServer, req.Page)
+		failf(w, r, "%w: unknown page %v", errServer, req.Page)
 	}
 }

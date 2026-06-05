@@ -28,11 +28,11 @@ func resolveModuleVersion(ctx context.Context, mod, version string) (mv *modVers
 		return nil, fmt.Errorf("ensuring go version is available while resolving module version: %v (%w)", err, errTempFailure)
 	}
 
-	cmdDir, err := newCommandDir("resolvemodversion")
+	cmdDir, err := newCommandDir(ctx, "resolvemodversion")
 	if err != nil {
 		return nil, fmt.Errorf("making temp dir %v (%w)", err, errTempFailure)
 	}
-	defer removeCommandDir(cmdDir)
+	defer removeCommandDir(ctx, cmdDir)
 
 	defer func() {
 		if rerr != nil {

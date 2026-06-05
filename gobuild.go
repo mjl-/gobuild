@@ -46,11 +46,11 @@ func prepareBuild(ctx context.Context, bs buildSpec) error {
 		return err
 	}
 
-	cmdDir, err := newCommandDir("preparebuild")
+	cmdDir, err := newCommandDir(ctx, "preparebuild")
 	if err != nil {
 		return err
 	}
-	defer removeCommandDir(cmdDir)
+	defer removeCommandDir(ctx, cmdDir)
 
 	modDir, getOutput, err := ensureModule(ctx, cmdDir, bs.Goversion, gobin, bs.Mod, bs.Version)
 	if err != nil {
@@ -125,11 +125,11 @@ func build(ctx context.Context, bs buildSpec, expSumOpt string) (int64, *buildRe
 		return -1, nil, "", "", fmt.Errorf("ensuring go version is available: %v (%w)", err, errTempFailure)
 	}
 
-	cmdDir, err := newCommandDir("build")
+	cmdDir, err := newCommandDir(ctx, "build")
 	if err != nil {
 		return -1, nil, "", "", fmt.Errorf("creating temporary command directory: %v (%w)", err, errTempFailure)
 	}
-	defer removeCommandDir(cmdDir)
+	defer removeCommandDir(ctx, cmdDir)
 
 	if _, output, err := ensureModule(ctx, cmdDir, bs.Goversion, gobin, bs.Mod, bs.Version); err != nil {
 		return -1, nil, "", "", fmt.Errorf("error fetching module from goproxy for build: %v (%w)\n\n# output from go get:\n%s", err, errTempFailure, output)
@@ -203,7 +203,7 @@ func build(ctx context.Context, bs buildSpec, expSumOpt string) (int64, *buildRe
 		wgShutdown.Add(1)
 		go func() {
 			defer wgShutdown.Done()
-			defer logPanic()
+			defer logPanic(logger(ctx))
 
 			result, err := verify(v)
 			if err != nil {
@@ -217,7 +217,7 @@ func build(ctx context.Context, bs buildSpec, expSumOpt string) (int64, *buildRe
 		wgShutdown.Add(1)
 		go func() {
 			defer wgShutdown.Done()
-			defer logPanic()
+			defer logPanic(logger(ctx))
 
 			result, err := verifyURL(verifierBaseURL)
 			if err != nil {
@@ -273,7 +273,7 @@ func build(ctx context.Context, bs buildSpec, expSumOpt string) (int64, *buildRe
 		resultPath = filepath.Join(gobuildbindir, resultPath)
 		defer func() {
 			if err := os.RemoveAll(gobuildbindir); err != nil {
-				slog.Error("removing temporary gobuildbindir", "err", err, "dir", gobuildbindir)
+				logger(ctx).Error("removing temporary gobuildbindir", "err", err, "dir", gobuildbindir)
 			}
 		}()
 	} else {
@@ -344,7 +344,7 @@ func build(ctx context.Context, bs buildSpec, expSumOpt string) (int64, *buildRe
 	defer func() {
 		if tmpdir != "" {
 			if err := os.RemoveAll(tmpdir); err != nil {
-				slog.Error("remove tmpresult dir", "err", err, "tmpdir", tmpdir)
+				logger(ctx).Error("remove tmpresult dir", "err", err, "tmpdir", tmpdir)
 			}
 		}
 	}()
@@ -382,16 +382,16 @@ func build(ctx context.Context, bs buildSpec, expSumOpt string) (int64, *buildRe
 		// cleaned up during a future build.
 		reclaim := binaryCacheSizeAdd(size)
 		if err := binaryCacheSizeWrite(); err != nil {
-			slog.Error("writing result/binary-cache-size.txt", "err", err)
+			logger(ctx).Error("writing result/binary-cache-size.txt", "err", err)
 			// continuing...
 		}
 		if reclaim > 0 {
 			// Do cleanup in the background, it may take a while with a big cache.
 			go func() {
-				defer logPanic()
+				defer logPanic(logger(ctx))
 
 				if err := binaryCacheCleanup(reclaim); err != nil {
-					slog.Error("cleaning up binary cache for max size", "err", err)
+					logger(ctx).Error("cleaning up binary cache for max size", "err", err)
 				}
 			}()
 		}
@@ -437,7 +437,7 @@ func build(ctx context.Context, bs buildSpec, expSumOpt string) (int64, *buildRe
 			matchesFrom = append(matchesFrom, vr.name())
 		} else {
 			metricVerifyMismatch.WithLabelValues(vr.name(), bs.Goos, bs.Goarch, bs.Goversion).Inc()
-			slog.Error("checksum mismatch from verifier", "verifier", vr.name(), "verifiersum", vr.result.Sum, "expectsum", br.Sum)
+			logger(ctx).Error("checksum mismatch from verifier", "verifier", vr.name(), "verifiersum", vr.result.Sum, "expectsum", br.Sum)
 			mismatches = append(mismatches, fmt.Sprintf("%s got %s", vr.name(), vr.result.Sum))
 		}
 	}
@@ -463,7 +463,7 @@ func build(ctx context.Context, bs buildSpec, expSumOpt string) (int64, *buildRe
 
 	// Finally, add to the transparency log, creating the "recordnumber" file and
 	// renaming tmpdir to the final directory in resultDir.
-	recordNumber, err := addSum(tmpdir, br)
+	recordNumber, err := addSum(ctx, tmpdir, br)
 	if err != nil {
 		return -1, nil, "", "", fmt.Errorf("adding sum to tranparency log: %w", err)
 	}
@@ -486,7 +486,7 @@ func saveFailure(ctx context.Context, bs buildSpec, buildErr error, output, reas
 	if reason == "" {
 		level = slog.LevelError
 	}
-	slog.Log(ctx, level, "build failure", "err", buildErr, "reason", reason, "buildspec", bs, "output", output)
+	logger(ctx).Log(ctx, level, "build failure", "err", buildErr, "reason", reason, "buildspec", bs, "output", output)
 
 	tmpdir, err := os.MkdirTemp(config.DataDir, "tmpfail")
 	if err != nil {
@@ -495,7 +495,7 @@ func saveFailure(ctx context.Context, bs buildSpec, buildErr error, output, reas
 	defer func() {
 		if tmpdir != "" {
 			if err := os.RemoveAll(tmpdir); err != nil {
-				slog.Error("removing result tmpdir for build failure", "err", err, "tmpdir", tmpdir)
+				logger(ctx).Error("removing result tmpdir for build failure", "err", err, "tmpdir", tmpdir)
 			}
 		}
 	}()
@@ -510,12 +510,12 @@ func saveFailure(ctx context.Context, bs buildSpec, buildErr error, output, reas
 
 	fp := filepath.Join(config.DataDir, "buildfailures.txt")
 	if f, err := os.OpenFile(fp, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0666); err != nil {
-		slog.Error("open buildfailures.txt", "err", err)
+		logger(ctx).Error("open buildfailures.txt", "err", err)
 	} else {
 		_, err := fmt.Fprintln(f, bs.String())
-		logCheck(err, "writing buildspec to buildfailures.txt")
+		logCheck(ctx, err, "writing buildspec to buildfailures.txt")
 		err = f.Close()
-		logCheck(err, "close buildfailures.txt")
+		logCheck(ctx, err, "close buildfailures.txt")
 	}
 
 	if err := os.Rename(tmpdir, bs.storeDir()); err != nil {

@@ -21,33 +21,33 @@ func serveModules(w http.ResponseWriter, r *http.Request) {
 
 	info, err := resolveModuleVersion(r.Context(), mod, "latest")
 	if err != nil {
-		failf(w, "resolving latest for module: %w", err)
+		failf(w, r, "resolving latest for module: %w", err)
 		return
 	}
 
 	goversion, err := ensureMostRecentSDK(r.Context())
 	if err != nil {
-		failf(w, "ensuring most recent goversion: %w", err)
+		failf(w, r, "ensuring most recent goversion: %w", err)
 		return
 	}
 	gobin, err := ensureGobin(goversion.String())
 	if err != nil {
-		failf(w, "%w", err)
+		failf(w, r, "%w", err)
 		return
 	}
 
 	ctx := r.Context()
 
-	cmdDir, err := newCommandDir("listpkgs")
+	cmdDir, err := newCommandDir(r.Context(), "listpkgs")
 	if err != nil {
-		failf(w, "making temporary directory: %w", err)
+		failf(w, r, "making temporary directory: %w", err)
 		return
 	}
-	defer removeCommandDir(cmdDir)
+	defer removeCommandDir(r.Context(), cmdDir)
 
 	modDir, getOutput, err := ensureModule(ctx, cmdDir, goversion.String(), gobin, mod, info.Version)
 	if err != nil {
-		failf(w, "error fetching module from goproxy for ensuring module is present: %w\n\n# output from go get:\n%s", err, string(getOutput))
+		failf(w, r, "error fetching module from goproxy for ensuring module is present: %w\n\n# output from go get:\n%s", err, string(getOutput))
 		return
 	}
 
@@ -57,10 +57,10 @@ func serveModules(w http.ResponseWriter, r *http.Request) {
 
 	mainDirs, err := listMainPackages(ctx, cmdDir, modDir, goversion, gobin)
 	if err != nil {
-		failf(w, "listing main packages in module: %w", err)
+		failf(w, r, "listing main packages in module: %w", err)
 		return
 	} else if len(mainDirs) == 0 {
-		failf(w, "no main packages in module")
+		failf(w, r, "no main packages in module")
 		return
 	} else if len(mainDirs) == 1 {
 		bs.Dir = "/" + filepath.ToSlash(mainDirs[0])
@@ -98,7 +98,7 @@ func serveModules(w http.ResponseWriter, r *http.Request) {
 		gobuildPlatform,
 	}
 	if err := moduleTemplate.Execute(w, args); err != nil {
-		failf(w, "%w: executing module template: %w", errServer, err)
+		failf(w, r, "%w: executing module template: %w", errServer, err)
 	}
 }
 

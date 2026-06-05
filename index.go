@@ -42,7 +42,7 @@ func serveIndex(w http.ResponseWriter, r *http.Request, bs buildSpec, br *buildR
 	// Do a lookup to the goproxy in the background, to list the module versions.
 	c := make(chan response, 1)
 	go func() {
-		defer logPanic()
+		defer logPanic(logger(r.Context()))
 		t0 := time.Now()
 		defer func() {
 			metricGoproxyListDuration.Observe(time.Since(t0).Seconds())
@@ -102,7 +102,7 @@ func serveIndex(w http.ResponseWriter, r *http.Request, bs buildSpec, br *buildR
 	if br == nil {
 		if buf, err := readGzipFile(filepath.Join(bs.storeDir(), "log.gz")); err != nil {
 			if !os.IsNotExist(err) {
-				failf(w, "%w: reading log.gz: %v", errServer, err)
+				failf(w, r, "%w: reading log.gz: %v", errServer, err)
 				return
 			}
 			// For not-exist, we'll continue below to build.
@@ -120,7 +120,7 @@ func serveIndex(w http.ResponseWriter, r *http.Request, bs buildSpec, br *buildR
 		Active    bool
 	}
 	goversionLinks := []goversionLink{}
-	newestAllowed, supported, remaining := listSDK()
+	newestAllowed, supported, remaining := listSDK(r.Context())
 	for _, goversion := range supported {
 		gvbs := bs
 		gvbs.Goversion = goversion
@@ -247,7 +247,7 @@ func serveIndex(w http.ResponseWriter, r *http.Request, bs buildSpec, br *buildR
 	}
 
 	if err := buildTemplate.Execute(w, args); err != nil {
-		failf(w, "%w: executing build template: %w", errServer, err)
+		failf(w, r, "%w: executing build template: %w", errServer, err)
 	}
 }
 

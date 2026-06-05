@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/netip"
 	"runtime"
 	"slices"
@@ -54,6 +55,7 @@ type buildRequest struct {
 	expSum string // If non-empty, build must result in this sum. Used for rebuilding a binary that was cleaned up.
 	eventc chan buildUpdate
 	remote netip.Addr
+	log    *slog.Logger
 }
 
 type coordinatorState struct {
@@ -75,12 +77,12 @@ var coordinate = struct {
 	make(chan chan coordinatorState),
 }
 
-func registerBuild(bs buildSpec, expSum string, eventc chan buildUpdate, remote netip.Addr) {
-	coordinate.register <- buildRequest{bs, expSum, eventc, remote}
+func registerBuild(log *slog.Logger, bs buildSpec, expSum string, eventc chan buildUpdate, remote netip.Addr) {
+	coordinate.register <- buildRequest{bs, expSum, eventc, remote, log}
 }
 
 func unregisterBuild(bs buildSpec, eventc chan buildUpdate) {
-	coordinate.unregister <- buildRequest{bs, "", eventc, netip.Addr{}}
+	coordinate.unregister <- buildRequest{bs, "", eventc, netip.Addr{}, slog.Default()}
 }
 
 func coordinateBuilds(ctx context.Context) {
@@ -139,10 +141,11 @@ func coordinateBuilds(ctx context.Context) {
 		wgShutdown.Add(1)
 		go func() {
 			defer wgShutdown.Done()
-			defer logPanic()
+			defer logPanic(breq.log)
 
 			metricBuildTotal.Inc()
-			recordNumber, result, errOutput, noBuildReason, err := build(ctx, breq.bs, breq.expSum)
+			bctx := context.WithValue(context.Background(), ctxKeyLog{}, breq.log)
+			recordNumber, result, errOutput, noBuildReason, err := build(bctx, breq.bs, breq.expSum)
 			var errmsg string
 			if err != nil {
 				errmsg = err.Error() + "\n\n" + errOutput

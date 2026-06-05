@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -37,18 +36,18 @@ func (h hashReader) ReadHashes(indexes []int64) ([]tlog.Hash, error) {
 	return hashes, nil
 }
 
-func observeOp(op string, rerr *error, t0 time.Time, errorCounter prometheus.Counter, histo prometheus.Histogram) {
+func observeOp(ctx context.Context, op string, rerr *error, t0 time.Time, errorCounter prometheus.Counter, histo prometheus.Histogram) {
 	delta := time.Since(t0)
 	histo.Observe(delta.Seconds())
 	if *rerr != nil {
 		errorCounter.Inc()
-		slog.Error("serverop error", "op", op, "err", *rerr, "duration", delta)
+		logger(ctx).Error("serverop error", "op", op, "err", *rerr, "duration", delta)
 	}
 }
 
 // Signed returns the signed hash of the latest tree.
 func (s serverOps) Signed(ctx context.Context) (result []byte, rerr error) {
-	defer observeOp("signed", &rerr, time.Now(), metricTlogOpsSignedErrors, metricTlogOpsSignedDuration)
+	defer observeOp(ctx, "signed", &rerr, time.Now(), metricTlogOpsSignedErrors, metricTlogOpsSignedDuration)
 
 	if n, err := treeSize(); err != nil {
 		return nil, err
@@ -63,7 +62,7 @@ func (s serverOps) Signed(ctx context.Context) (result []byte, rerr error) {
 // ReadRecords returns the content for the n records id through id+n-1.
 func (s serverOps) ReadRecords(ctx context.Context, id, n int64) (results [][]byte, rerr error) {
 	// log.Printf("server: ReadRecords %d %d", id, n)
-	defer observeOp("readrecord", &rerr, time.Now(), metricTlogOpsReadrecordsErrors, metricTlogOpsReadrecordsDuration)
+	defer observeOp(ctx, "readrecord", &rerr, time.Now(), metricTlogOpsReadrecordsErrors, metricTlogOpsReadrecordsDuration)
 
 	if n <= 0 {
 		return nil, fmt.Errorf("bad n")
@@ -95,7 +94,7 @@ func (s serverOps) Lookup(ctx context.Context, key string) (results int64, rerr 
 		if err != nil && errors.Is(err, os.ErrNotExist) {
 			err = nil
 		}
-		observeOp("lookup", &err, time.Now(), metricTlogOpsLookupErrors, metricTlogOpsLookupDuration)
+		observeOp(ctx, "lookup", &err, time.Now(), metricTlogOpsLookupErrors, metricTlogOpsLookupDuration)
 	}()
 
 	bs, err := parseBuildSpec(key)
@@ -104,7 +103,7 @@ func (s serverOps) Lookup(ctx context.Context, key string) (results int64, rerr 
 	}
 
 	if bs.Goversion == "latest" {
-		bs.Goversion, _, _ = listSDK()
+		bs.Goversion, _, _ = listSDK(ctx)
 	}
 
 	if !targets.valid(bs.Goos + "/" + bs.Goarch) {
@@ -184,7 +183,7 @@ func lookupBuild(ctx context.Context, bs buildSpec, r *http.Request) (int64, err
 	}
 
 	eventc := make(chan buildUpdate, 100)
-	registerBuild(bs, "", eventc, remoteIP(r))
+	registerBuild(logger(ctx), bs, "", eventc, remoteIP(r))
 
 	for {
 		select {
@@ -199,7 +198,7 @@ func lookupBuild(ctx context.Context, bs buildSpec, r *http.Request) (int64, err
 			if update.err != nil {
 				// If the build simply can't succeed, ensure we don't log it as lookup error.
 				if reason := cannotBuild(update.errOutput); reason != "" {
-					slog.Info("build failed, but output indicates it does not exist", "err", update.err, "reason", reason, "buildspec", bs)
+					logger(ctx).Info("build failed, but output indicates it does not exist", "err", update.err, "reason", reason, "buildspec", bs)
 					return -1, os.ErrNotExist
 				}
 				return -1, update.err
@@ -213,7 +212,7 @@ func lookupBuild(ctx context.Context, bs buildSpec, r *http.Request) (int64, err
 // It is only invoked for hash tiles (t.L ≥ 0).
 func (s serverOps) ReadTileData(ctx context.Context, t tlog.Tile) (results []byte, rerr error) {
 	// log.Printf("server: ReadTileData %#v", t)
-	defer observeOp("readtiledata", &rerr, time.Now(), metricTlogOpsReadtiledataErrors, metricTlogOpsReadtiledataDuration)
+	defer observeOp(ctx, "readtiledata", &rerr, time.Now(), metricTlogOpsReadtiledataErrors, metricTlogOpsReadtiledataDuration)
 
 	return tlog.ReadTileData(t, hashReader{})
 }

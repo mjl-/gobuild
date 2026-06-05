@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -103,7 +104,7 @@ func newLogHandler(h http.Handler, dir string) *logHandler {
 	logc := make(chan logLine, 1024)
 	lh := &logHandler{h, dir, logc}
 	go func() {
-		defer logPanic()
+		defer logPanic(slog.Default())
 
 		accessLogger(dir, logc)
 	}()
@@ -111,6 +112,8 @@ func newLogHandler(h http.Handler, dir string) *logHandler {
 }
 
 func accessLogger(dir string, logc chan logLine) {
+	ctx := context.Background()
+
 	var file *os.File
 	var fileDate date
 
@@ -118,7 +121,7 @@ func accessLogger(dir string, logc chan logLine) {
 		if file == nil || lines[0].date != fileDate {
 			if file != nil {
 				err := file.Close()
-				logCheck(err, "closing access log file")
+				logCheck(ctx, err, "closing access log file")
 				if err == nil {
 					file = nil
 				}
@@ -139,7 +142,7 @@ func accessLogger(dir string, logc chan logLine) {
 			b.WriteString(l.text)
 		}
 		_, err := file.Write([]byte(b.String()))
-		logCheck(err, "writing access log")
+		logCheck(ctx, err, "writing access log")
 	}
 
 	// We write lines as fast as possible. When we have a first line, we try to gather
