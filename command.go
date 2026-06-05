@@ -13,13 +13,13 @@ import (
 	"runtime"
 )
 
-// We allow one concurrent non-build commands, e.g. for fetching modules,
+// We allow multiple concurrent non-build commands, e.g. for fetching modules,
 // listing main commands in a module, checking for cgo. When executing a command
 // based on a web request, a command acquire token is required. Full builds are
 // already managed by the coordinator and its command executions must not get a
 // token.
 // Once we isolate builds more properly, we can increase concurrency again.
-var cmdacquirec = make(chan struct{}, 1)
+var cmdacquirec = make(chan struct{}, 5)
 
 func init() {
 	// Fill with tokens.
