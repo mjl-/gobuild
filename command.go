@@ -148,6 +148,15 @@ func chmodRecursive(ctx context.Context, dir string) {
 
 // restoreState extracts the gosumdb state tar file to a destination directory.
 func restoreState(ctx context.Context, f io.Reader, dstDir string) error {
+	dst, err := os.OpenRoot(dstDir)
+	if err != nil {
+		return fmt.Errorf("root dir for %q: %v", dstDir, err)
+	}
+	defer func() {
+		err := dst.Close()
+		logCheck(ctx, err, "closing root for restoreState")
+	}()
+
 	r := tar.NewReader(f)
 	for {
 		h, err := r.Next()
@@ -157,27 +166,26 @@ func restoreState(ctx context.Context, f io.Reader, dstDir string) error {
 			return fmt.Errorf("next file in tar: %v", err)
 		}
 		fi := h.FileInfo()
-		p := filepath.Join(dstDir, h.Name)
 		if fi.IsDir() {
-			if err := os.MkdirAll(p, 0o750); err != nil {
-				return fmt.Errorf("mkdirall %q: %v", p, err)
+			if err := dst.MkdirAll(h.Name, 0o750); err != nil {
+				return fmt.Errorf("mkdirall %q in %q: %v", h.Name, dstDir, err)
 			}
 			continue
 		} else if !fi.Mode().IsRegular() {
 			return fmt.Errorf("not a regular file in tar file: %q: %o", h.Name, fi.Mode())
 		}
-		os.MkdirAll(filepath.Dir(p), 0o750)
-		nf, err := os.Create(p)
+		dst.MkdirAll(filepath.Dir(h.Name), 0o750)
+		nf, err := dst.Create(h.Name)
 		if err != nil {
-			return fmt.Errorf("create %q: %v", p, err)
+			return fmt.Errorf("create %q in %q: %v", h.Name, dstDir, err)
 		}
 		if _, err := io.Copy(nf, r); err != nil {
 			if xerr := nf.Close(); xerr != nil {
-				logger(ctx).Error("closing new file after error", "err", xerr, "path", p)
+				logger(ctx).Error("closing new file after error", "err", xerr, "dstdir", dstDir, "name", h.Name)
 			}
 		}
 		if err := nf.Close(); err != nil {
-			return fmt.Errorf("closing new file %q: %v", p, err)
+			return fmt.Errorf("closing new file %q in %q: %v", h.Name, dstDir, err)
 		}
 	}
 	return nil

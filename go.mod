@@ -1,6 +1,6 @@
 module github.com/mjl-/gobuild
 
-go 1.24.0
+go 1.25.0
 
 require (
 	github.com/mjl-/goreleases v0.0.5
