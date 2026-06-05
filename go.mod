@@ -6,8 +6,8 @@ require (
 	github.com/mjl-/goreleases v0.0.5
 	github.com/mjl-/sconf v0.0.8
 	github.com/prometheus/client_golang v1.14.0
-	golang.org/x/crypto v0.48.0
-	golang.org/x/mod v0.33.0
+	golang.org/x/crypto v0.52.0
+	golang.org/x/mod v0.35.0
 )
 
 require (
@@ -19,8 +19,8 @@ require (
 	github.com/prometheus/client_model v0.3.0 // indirect
 	github.com/prometheus/common v0.37.0 // indirect
 	github.com/prometheus/procfs v0.8.0 // indirect
-	golang.org/x/net v0.50.0 // indirect
-	golang.org/x/sys v0.41.0 // indirect
-	golang.org/x/text v0.34.0 // indirect
+	golang.org/x/net v0.55.0 // indirect
+	golang.org/x/sys v0.45.0 // indirect
+	golang.org/x/text v0.37.0 // indirect
 	google.golang.org/protobuf v1.28.1 // indirect
 )
