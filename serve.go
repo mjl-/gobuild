@@ -389,6 +389,13 @@ func serve(args []string) {
 	statePath = filepath.Join(homedir, "gosumdbstate.tar") // archive file for atomic replacement
 	commandDir = filepath.Join(homedir, "cmds")
 	emptyDir = filepath.Join(homedir, "tmp")
+
+	// Remove any existing commandDir, if the service wasn't properly shut down, there
+	// may be temp files left. We don't want to accumulate old files.
+	chmodRecursive(commandDir) // For pkg/go/mod files that may be read-only.
+	if err := os.RemoveAll(commandDir); err != nil {
+		slog.Error("removing old commandDir with potential leftover temporary files, continuing", "err", err)
+	}
 	// failures will be caught later
 	os.Mkdir(commandDir, 0777)
 	os.MkdirAll(emptyDir, 0555)

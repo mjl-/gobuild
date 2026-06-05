@@ -125,7 +125,15 @@ func removeCommandDir(cmdHomeDir string) {
 
 	// Walk cmdHomeDir to change permissions of go/pkg/mod directory so we can remove it all.
 	pkgmodDir := filepath.Join(cmdHomeDir, "go/pkg/mod")
-	err := filepath.WalkDir(pkgmodDir, func(path string, d fs.DirEntry, err error) error {
+	chmodRecursive(pkgmodDir)
+
+	if err := os.RemoveAll(cmdHomeDir); err != nil {
+		slog.Error("removing command dir", "err", err, "cmdhomedir", cmdHomeDir)
+	}
+}
+
+func chmodRecursive(dir string) {
+	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -135,10 +143,7 @@ func removeCommandDir(cmdHomeDir string) {
 		return os.Chmod(path, 0o640)
 	})
 	if err != nil {
-		slog.Error("walk and change permissions before removal, continuing", "err", err, "dir", pkgmodDir)
-	}
-	if err := os.RemoveAll(cmdHomeDir); err != nil {
-		slog.Error("removing command dir", "err", err, "cmdhomedir", cmdHomeDir)
+		slog.Error("walk and change permissions before removal, continuing", "err", err, "dir", dir)
 	}
 }
 
