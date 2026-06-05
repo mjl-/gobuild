@@ -230,15 +230,16 @@ func ensureMostRecentSDK(ctx context.Context) (goVersion, error) {
 func listSDK() (newestAllowed string, supported []string, remainingAvailable []string) {
 	now := time.Now()
 	sdk.Lock()
-	defer sdk.Unlock() // note: we unlock and relock below!
-
-	if now.Sub(sdk.lastSupported) > time.Hour {
+	if now.Sub(sdk.lastSupported) <= time.Hour {
+		defer sdk.Unlock()
+	} else {
 		// Don't hold lock while requesting. Don't let others make the same request.
 		sdk.lastSupported = now
 		sdk.Unlock()
 		// todo: set a (low) timeout on the request
 		rels, err := goreleases.ListSupported()
 		sdk.Lock()
+		defer sdk.Unlock()
 
 		if err != nil {
 			slog.Error("listing supported go releases", "err", err)
