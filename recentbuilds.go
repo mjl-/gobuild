@@ -8,7 +8,7 @@ import (
 // Called at startup to read recent builds.
 // It reads the 1000 most recent records, marks them in targets.use, then sorts the targets.
 // It keeps the last 10 builds in memory, for display on the front page.
-func readRecentBuilds() {
+func readRecentBuilds(ctx context.Context) {
 	n, err := treeSize()
 	if err != nil {
 		log.Fatalf("getting sum tree size: %v", err)
@@ -24,7 +24,7 @@ func readRecentBuilds() {
 		return
 	}
 
-	records, err := serverOps{}.ReadRecords(context.Background(), first, n)
+	records, err := serverOps{}.ReadRecords(ctx, first, n)
 	if err != nil {
 		log.Fatalf("reading records: %v", err)
 	}

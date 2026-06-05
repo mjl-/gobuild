@@ -131,7 +131,7 @@ func build(ctx context.Context, bs buildSpec, expSumOpt string) (int64, *buildRe
 	}
 	defer removeCommandDir(cmdDir)
 
-	if _, output, err := ensureModule(context.Background(), cmdDir, bs.Goversion, gobin, bs.Mod, bs.Version); err != nil {
+	if _, output, err := ensureModule(ctx, cmdDir, bs.Goversion, gobin, bs.Mod, bs.Version); err != nil {
 		return -1, nil, "", "", fmt.Errorf("error fetching module from goproxy for build: %v (%w)\n\n# output from go get:\n%s", err, errTempFailure, output)
 	}
 
@@ -152,7 +152,7 @@ func build(ctx context.Context, bs buildSpec, expSumOpt string) (int64, *buildRe
 		}()
 
 		key := bs.String()
-		_, data, err := v.client.Lookup(context.Background(), key)
+		_, data, err := v.client.Lookup(ctx, key)
 		if err != nil {
 			metricVerifyErrors.WithLabelValues(v.name).Inc()
 			return nil, fmt.Errorf("%w: looking up build in remote transparency log: %v", errRemote, err)
@@ -175,7 +175,7 @@ func build(ctx context.Context, bs buildSpec, expSumOpt string) (int64, *buildRe
 		}()
 
 		verifyURL := verifierBaseURL + verifyLink
-		resp, err := httpGet(context.Background(), verifyURL)
+		resp, err := httpGet(ctx, verifyURL)
 		if err != nil {
 			return nil, fmt.Errorf("%w: http request: %v", errServer, err)
 		}
@@ -328,7 +328,7 @@ func build(ctx context.Context, bs buildSpec, expSumOpt string) (int64, *buildRe
 		metricCompileVersionErrors.WithLabelValues(bs.Goversion).Inc()
 		out := string(output)
 		reason := cannotBuild(out)
-		if xerr := saveFailure(bs, err, out, reason); xerr != nil {
+		if xerr := saveFailure(ctx, bs, err, out, reason); xerr != nil {
 			return -1, nil, "", reason, fmt.Errorf("storing results of failure: %v (%w)", xerr, errTempFailure)
 		}
 		return -1, nil, out, reason, err
@@ -481,12 +481,12 @@ func build(ctx context.Context, bs buildSpec, expSumOpt string) (int64, *buildRe
 	return recordNumber, &br, "", "", nil
 }
 
-func saveFailure(bs buildSpec, buildErr error, output, reason string) error {
+func saveFailure(ctx context.Context, bs buildSpec, buildErr error, output, reason string) error {
 	level := slog.LevelInfo
 	if reason == "" {
 		level = slog.LevelError
 	}
-	slog.Log(context.Background(), level, "build failure", "err", buildErr, "reason", reason, "buildspec", bs, "output", output)
+	slog.Log(ctx, level, "build failure", "err", buildErr, "reason", reason, "buildspec", bs, "output", output)
 
 	tmpdir, err := os.MkdirTemp(config.DataDir, "tmpfail")
 	if err != nil {

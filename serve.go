@@ -455,7 +455,7 @@ func serve(args []string) {
 	}).DialContext
 
 	initSDK()
-	readRecentBuilds()
+	readRecentBuilds(context.Background())
 
 	// Once we get a signal, we stop accepting new connections.
 	acceptCtx, acceptCancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

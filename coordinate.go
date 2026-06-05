@@ -199,7 +199,7 @@ func coordinateBuilds(ctx context.Context) {
 				builds[reg.bs] = b
 
 				// We may have just finished a build. Before starting any new work, try reading a result.
-				if recordNumber, br, binaryPresent, failed, err := (serverOps{}.lookupResult(context.Background(), reg.bs)); err != nil || failed {
+				if recordNumber, br, binaryPresent, failed, err := (serverOps{}.lookupResult(ctx, reg.bs)); err != nil || failed {
 					if err == nil {
 						err = fmt.Errorf("build failed")
 					}
