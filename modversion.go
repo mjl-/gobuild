@@ -19,7 +19,7 @@ func resolveModuleVersion(ctx context.Context, mod, version string) (mv *modVers
 		metricGoproxyResolveVersionDuration.Observe(time.Since(t0).Seconds())
 	}()
 
-	goversion, err := ensureMostRecentSDK()
+	goversion, err := ensureMostRecentSDK(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("ensuring most recent toolchain while resolving module version: %v (%w)", err, errTempFailure)
 	}
@@ -48,7 +48,7 @@ func resolveModuleVersion(ctx context.Context, mod, version string) (mv *modVers
 
 	const goproxy = true
 	const cgo = false
-	cmd := makeCommand(cmdDir, cmdDir, goversion.String(), goproxy, cgo, nil, gobin, "list", "-x", "-m", "-json", "--", mod+"@"+version)
+	cmd := makeCommand(ctx, cmdDir, cmdDir, goversion.String(), goproxy, cgo, nil, gobin, "list", "-x", "-m", "-json", "--", mod+"@"+version)
 	stderr := &strings.Builder{}
 	cmd.Stderr = stderr
 	output, err := cmd.Output()

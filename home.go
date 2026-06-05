@@ -88,7 +88,7 @@ func serveSpec(w http.ResponseWriter, r *http.Request) {
 	// have a slash, we'll assume a path like /github.com/mjl-/sherpa@v0.6.0 and
 	// redirect to a path with guessed goos/goarch and latest goversion.
 	if mod, version, _ := strings.Cut(r.URL.Path[1:], "@"); mod != "" && version != "" && !strings.Contains(version, "@") && !strings.Contains(version, "/") {
-		goversion, err := ensureMostRecentSDK()
+		goversion, err := ensureMostRecentSDK(r.Context())
 		if err != nil {
 			failf(w, "ensuring most recent sdk: %w", err)
 			return

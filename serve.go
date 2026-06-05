@@ -81,6 +81,7 @@ var (
 		"",
 		0,
 		Ratelimit{false},
+		5 * time.Second,
 		0,
 		&slog.LevelVar{},
 	}
@@ -158,6 +159,7 @@ type Config struct {
 	BinaryCacheSizeMax           string          `sconf:"optional" sconf-doc:"Maximum size of the cache with built binaries. When adding a new binary would go over the size, binaries with the oldest access time are removed to stay under 90% of the maximum size. Value must end in MB or GB. The actual total size occupied by the binaries can temporarily exceed the configured maximum size. Can not be used with CleanupBinariesAccessTimeAge."`
 	CleanupBinariesAccessTimeAge time.Duration   `sconf:"optional" sconf-doc:"Remove build result binaries with an access time longer this duration ago, if > 0. Binaries will be rebuilt, and verified to match the expected sum, when requested again. Can not be used with BinaryCacheSizeMax."`
 	Ratelimit                    Ratelimit       `sconf:"optional" sconf-doc:"Requests for builds (compilation) through the web pages can be rate limited to prevent overloading the server. The lookups through the /tlog endpoints are not affected."`
+	ShutdownTimeout              time.Duration   `sconf:"optional" sconf-doc:"Maximum time to wait for all connections to finish during shutdown."`
 
 	binaryCacheSizeMax int64 // Active if > 0.
 	loglevel           *slog.LevelVar
@@ -265,6 +267,9 @@ var (
 
 	//go:embed template/error.html
 	errorHTML string
+
+	// For waiting until all http servers and goroutines are shutdown.
+	wgShutdown sync.WaitGroup
 )
 
 var (
@@ -452,20 +457,20 @@ func serve(args []string) {
 	initSDK()
 	readRecentBuilds()
 
+	// Once we get a signal, we stop accepting new connections.
+	acceptCtx, acceptCancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer acceptCancel()
+
+	// HTTP requests use a base context we cancel after the graceful shutdown timeout.
+	// After which we wait one more second until final shutdown.
+	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
+	defer shutdownCancel()
+
 	go func() {
 		// If coordinateBuilds panics, we will grind to a halt, but at least we'll get alerting about it.
 		defer logPanic()
 
-		coordinateBuilds()
-	}()
-
-	// When shutting down, make sure no modifications to transparency log are in progress.
-	sigc := make(chan os.Signal, 1)
-	signal.Notify(sigc, os.Interrupt, syscall.SIGTERM)
-	go func() {
-		<-sigc
-		addSumMutex.Lock()
-		log.Fatal("shutdown after sigint or sigterm")
+		coordinateBuilds(shutdownCtx)
 	}()
 
 	if config.BinaryCacheSizeMax != "" && config.CleanupBinariesAccessTimeAge > 0 {
@@ -649,16 +654,28 @@ func serve(args []string) {
 	}
 	slog.Info("starting gobuild", "httpaddr", *listenHTTP, "httpsaddr", httpsaddr, "adminaddr", *listenAdmin, "version", gobuildVersion, "goversion", runtime.Version(), "goos", runtime.GOOS, "goarch", runtime.GOARCH)
 
+	var servers []*http.Server // For calling Shutdown after the signal.
+
 	if *listenHTTP != "" {
+		server := &http.Server{
+			Addr:     *listenHTTP,
+			Handler:  handler,
+			ErrorLog: httpErrorLog,
+			BaseContext: func(net.Listener) context.Context {
+				return shutdownCtx
+			},
+		}
+		servers = append(servers, server)
+		wgShutdown.Add(1)
 		go func() {
-			server := &http.Server{
-				Addr:     *listenHTTP,
-				Handler:  handler,
-				ErrorLog: httpErrorLog,
-			}
+			defer wgShutdown.Done()
 			err := server.ListenAndServe()
-			slog.Error("listen and serve on http", "err", err)
-			os.Exit(1)
+			if err == http.ErrServerClosed {
+				slog.Info("listen and serve on http", "err", err)
+			} else {
+				slog.Error("listen and serve on http", "err", err)
+				os.Exit(1)
+			}
 		}()
 	}
 	if config.HTTPS != nil {
@@ -669,24 +686,76 @@ func serve(args []string) {
 			Cache:      autocert.DirCache(config.HTTPS.ACME.CertDir),
 			Email:      config.HTTPS.ACME.Email,
 		}
+		server := &http.Server{
+			Handler:  handler,
+			ErrorLog: httpErrorLog,
+			BaseContext: func(net.Listener) context.Context {
+				return shutdownCtx
+			},
+		}
+		servers = append(servers, server)
+		wgShutdown.Add(1)
 		go func() {
-			server := &http.Server{
-				Handler:  handler,
-				ErrorLog: httpErrorLog,
-			}
+			defer wgShutdown.Done()
 			err := server.Serve(m.Listener())
-			slog.Error("listen and serve on https", "err", err)
-			os.Exit(1)
+			if err == http.ErrServerClosed {
+				slog.Info("listen and serve on https", "err", err)
+			} else {
+				slog.Error("listen and serve on https", "err", err)
+				os.Exit(1)
+			}
 		}()
 	}
 	if *listenAdmin != "" {
+		server := &http.Server{
+			Addr:     *listenAdmin,
+			Handler:  http.DefaultServeMux,
+			ErrorLog: httpErrorLog,
+			BaseContext: func(net.Listener) context.Context {
+				return shutdownCtx
+			},
+		}
+		servers = append(servers, server)
+		wgShutdown.Add(1)
 		go func() {
-			err := http.ListenAndServe(*listenAdmin, nil)
-			slog.Error("listen and serve on admin", "err", err)
-			os.Exit(1)
+			defer wgShutdown.Done()
+			err := server.ListenAndServe()
+			if err == http.ErrServerClosed {
+				slog.Info("listen and serve on https", "err", err)
+			} else {
+				slog.Error("listen and serve on admin", "err", err)
+				os.Exit(1)
+			}
 		}()
 	}
-	select {}
+
+	// When shutting down, make sure no modifications to transparency log are in progress.
+	<-acceptCtx.Done()
+	slog.Warn("shutdown after sigint or sigterm, waiting for connections/requests to finish", "timeout", config.ShutdownTimeout)
+	acceptCancel() // Ensure next ctrl-c stops immediately.
+
+	// Shutdown webservers and other goroutines cleanly.
+	stopCtx, stopCancel := context.WithTimeout(shutdownCtx, config.ShutdownTimeout)
+	defer stopCancel()
+
+	for _, s := range servers {
+		wgShutdown.Add(1)
+		go func() {
+			defer wgShutdown.Done()
+			if err := s.Shutdown(stopCtx); err != nil {
+				slog.Error("shutting down http server", "err", err)
+			}
+		}()
+	}
+	// Wait for http servers and select goroutines (e.g. for builds) to finish.
+	wgShutdown.Wait()
+
+	slog.Info("http servers and builds shut down, stopping other active operations and waiting 1s")
+	shutdownCancel()
+	time.Sleep(time.Second)
+
+	slog.Info("exiting... (after any active sumdb add has finished)")
+	addSumMutex.Lock()
 }
 
 func logPanic() {

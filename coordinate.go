@@ -83,7 +83,7 @@ func unregisterBuild(bs buildSpec, eventc chan buildUpdate) {
 	coordinate.unregister <- buildRequest{bs, "", eventc, netip.Addr{}}
 }
 
-func coordinateBuilds() {
+func coordinateBuilds(ctx context.Context) {
 	// Build that was requested, and is still referenced by "events" (clients) or by
 	// the build command that hasn't finished.
 	// If the last "events" leaves, and "final" is set, we remove wipBuild.
@@ -136,11 +136,13 @@ func coordinateBuilds() {
 	startBuild := func(breq buildRequest, b *wipBuild) {
 		active++
 		pathBusy[breq.bs.outputPath()] = struct{}{}
+		wgShutdown.Add(1)
 		go func() {
+			defer wgShutdown.Done()
 			defer logPanic()
 
 			metricBuildTotal.Inc()
-			recordNumber, result, errOutput, noBuildReason, err := build(breq.bs, breq.expSum)
+			recordNumber, result, errOutput, noBuildReason, err := build(ctx, breq.bs, breq.expSum)
 			var errmsg string
 			if err != nil {
 				errmsg = err.Error() + "\n\n" + errOutput
@@ -152,7 +154,7 @@ func coordinateBuilds() {
 			var msg []byte
 			if err == nil {
 				msg = buildUpdateMsg{Kind: kindSuccess, Result: result}.json()
-			} else if errors.Is(err, errTempFailure) {
+			} else if errors.Is(err, errTempFailure) || errors.Is(err, context.Canceled) {
 				msg = buildUpdateMsg{Kind: kindTempFail, Error: errmsg}.json()
 			} else {
 				msg = buildUpdateMsg{Kind: kindPermFail, Error: errmsg}.json()

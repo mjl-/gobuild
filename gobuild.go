@@ -20,6 +20,9 @@ import (
 	"time"
 )
 
+// errTempFailure indicates a build failure has some temporary/transient reason,
+// and should be retried again. Caller should also check for context.Canceled
+// because builds can be canceled by a shutdown signal.
 var errTempFailure = errors.New("temporary failure")
 
 func ensureGobin(goversion string) (string, error) {
@@ -34,7 +37,7 @@ func ensureGobin(goversion string) (string, error) {
 }
 
 func prepareBuild(ctx context.Context, bs buildSpec) error {
-	if _, err := ensureSDK(bs.Goversion); err != nil {
+	if _, err := ensureSDK(ctx, bs.Goversion); err != nil {
 		return fmt.Errorf("ensuring toolchain %q: %w", bs.Goversion, err)
 	}
 
@@ -69,7 +72,7 @@ func prepareBuild(ctx context.Context, bs buildSpec) error {
 		"GOOS=" + bs.Goos,
 		"GOARCH=" + bs.Goarch,
 	}
-	cmd := makeCommand(cmdDir, pkgDir, bs.Goversion, goproxy, cgo, moreEnv, gobin, "list", "-f", "{{.Name}}")
+	cmd := makeCommand(ctx, cmdDir, pkgDir, bs.Goversion, goproxy, cgo, moreEnv, gobin, "list", "-f", "{{.Name}}")
 	stderr := &strings.Builder{}
 	cmd.Stderr = stderr
 	if nameOutput, err := cmd.Output(); err != nil {
@@ -114,7 +117,7 @@ func (rb *remoteBuild) name() string {
 // On failure, returns an error (last value), and optionally the output as
 // string followed by a reason in case this build won't succeed in the future
 // (e.g. due to invalid code and/or compiler combination).
-func build(bs buildSpec, expSumOpt string) (int64, *buildResult, string, string, error) {
+func build(ctx context.Context, bs buildSpec, expSumOpt string) (int64, *buildResult, string, string, error) {
 	targets.increase(bs.Goos + "/" + bs.Goarch)
 
 	gobin, err := ensureGobin(bs.Goversion)
@@ -197,7 +200,9 @@ func build(bs buildSpec, expSumOpt string) (int64, *buildResult, string, string,
 	}
 
 	for _, v := range config.Verifiers {
+		wgShutdown.Add(1)
 		go func() {
+			defer wgShutdown.Done()
 			defer logPanic()
 
 			result, err := verify(v)
@@ -209,7 +214,9 @@ func build(bs buildSpec, expSumOpt string) (int64, *buildResult, string, string,
 	}
 
 	for _, verifierBaseURL := range config.VerifierURLs {
+		wgShutdown.Add(1)
 		go func() {
+			defer wgShutdown.Done()
 			defer logPanic()
 
 			result, err := verifyURL(verifierBaseURL)
@@ -309,9 +316,9 @@ func build(bs buildSpec, expSumOpt string) (int64, *buildResult, string, string,
 		if gv.major == 1 && gv.minor >= 23 {
 			goproxy = true
 		}
-		cmd = makeCommand(cmdDir, cmdDir, bs.Goversion, goproxy, cgo, moreEnv, gobin, "install", "-x", "-v", "-trimpath", "-ldflags="+ldflags, "--", name)
+		cmd = makeCommand(ctx, cmdDir, cmdDir, bs.Goversion, goproxy, cgo, moreEnv, gobin, "install", "-x", "-v", "-trimpath", "-ldflags="+ldflags, "--", name)
 	} else {
-		cmd = makeCommand(cmdDir, cmdDir, bs.Goversion, goproxy, cgo, moreEnv, gobin, "get", "-x", "-v", "-trimpath", "-ldflags="+ldflags, "--", name)
+		cmd = makeCommand(ctx, cmdDir, cmdDir, bs.Goversion, goproxy, cgo, moreEnv, gobin, "get", "-x", "-v", "-trimpath", "-ldflags="+ldflags, "--", name)
 	}
 	output, err := cmd.CombinedOutput()
 	metricCompileDuration.Observe(time.Since(t0).Seconds())

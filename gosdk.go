@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log"
@@ -214,12 +215,12 @@ func sdkUpdateInstalledList() {
 	sdk.installedList = l
 }
 
-func ensureMostRecentSDK() (goVersion, error) {
+func ensureMostRecentSDK(ctx context.Context) (goVersion, error) {
 	newestAllowed, _, _ := listSDK()
 	if newestAllowed == "" {
 		return goVersion{}, fmt.Errorf("%w: no supported go versions", errServer)
 	}
-	if gv, err := ensureSDK(newestAllowed); err != nil {
+	if gv, err := ensureSDK(ctx, newestAllowed); err != nil {
 		return goVersion{}, err
 	} else {
 		return gv, nil
@@ -310,7 +311,7 @@ func parseGoVersion(s string) (goVersion, error) {
 	return r, nil
 }
 
-func ensureSDK(goversion string) (goVersion, error) {
+func ensureSDK(ctx context.Context, goversion string) (goVersion, error) {
 	gv, err := parseGoVersion(goversion)
 	if err != nil {
 		return goVersion{}, fmt.Errorf("%w: %s", errBadGoversion, err)
@@ -380,7 +381,7 @@ func ensureSDK(goversion string) (goVersion, error) {
 		if !filepath.IsAbs(gobin) {
 			gobin = filepath.Join(workdir, gobin)
 		}
-		if err := checkSDK(gobin, goversion); err != nil {
+		if err := checkSDK(ctx, gobin, goversion); err != nil {
 			err = fmt.Errorf("%w: checking of toolchain works: %v", errServer, err)
 			sdk.fetch.status[goversion] = err
 			return goVersion{}, err
@@ -412,7 +413,7 @@ func goexe() string {
 	return ""
 }
 
-func checkSDK(gobin, goversion string) error {
+func checkSDK(ctx context.Context, gobin, goversion string) error {
 	cmdDir, err := newCommandDir("checksdk")
 	if err != nil {
 		return err
@@ -421,7 +422,7 @@ func checkSDK(gobin, goversion string) error {
 
 	const goproxy = false
 	const cgo = false
-	cmd := makeCommand(cmdDir, cmdDir, goversion, goproxy, cgo, nil, gobin, "version")
+	cmd := makeCommand(ctx, cmdDir, cmdDir, goversion, goproxy, cgo, nil, gobin, "version")
 	if output, err := cmd.CombinedOutput(); err != nil {
 		slog.Error("running go version to test toolchain", "err", err, "output", output)
 		return err

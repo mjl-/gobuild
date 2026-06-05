@@ -66,7 +66,7 @@ func fetchModule(ctx context.Context, cmdDir, modDir, goversion, gobin, mod, ver
 		// running "go mod download" again in the checked out module path, but we are no
 		// longer doing that, because we need network access during build for retractions
 		// anyway.
-		cmd := makeCommand(cmdDir, cmdDir, goversion, goproxy, cgo, nil, gobin, "mod", "download", "-x", "--", mod+"@"+version)
+		cmd := makeCommand(ctx, cmdDir, cmdDir, goversion, goproxy, cgo, nil, gobin, "mod", "download", "-x", "--", mod+"@"+version)
 		output, err := cmd.CombinedOutput()
 		if err != nil {
 			metricGogetErrors.Inc()
@@ -81,14 +81,14 @@ func fetchModule(ctx context.Context, cmdDir, modDir, goversion, gobin, mod, ver
 			slog.Warn("chmod of go.sum of go module to make it writable, continuing", "path", filepath.Join(modDir, "go.sum"), "err", err)
 		}
 
-		cmd = makeCommand(cmdDir, modDir, goversion, goproxy, cgo, nil, gobin, "mod", "download", "-x")
+		cmd = makeCommand(ctx, cmdDir, modDir, goversion, goproxy, cgo, nil, gobin, "mod", "download", "-x")
 		if output2, err := cmd.CombinedOutput(); err != nil {
 			metricGogetErrors.Inc()
 			return append(output, output2...), fmt.Errorf("go mod download dependencies: %v", err)
 		}
 
 	} else {
-		cmd := makeCommand(cmdDir, cmdDir, goversion, goproxy, cgo, nil, gobin, "get", "-d", "-x", "-v", "--", mod+"@"+version)
+		cmd := makeCommand(ctx, cmdDir, cmdDir, goversion, goproxy, cgo, nil, gobin, "get", "-d", "-x", "-v", "--", mod+"@"+version)
 		if output, err := cmd.CombinedOutput(); err != nil {
 			metricGogetErrors.Inc()
 			return output, fmt.Errorf("go get: %v", err)

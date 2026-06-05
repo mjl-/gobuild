@@ -43,7 +43,7 @@ func commandAcquire(ctx context.Context) (release func(), err error) {
 // Prepare command, typically for running go get. We sometimes need CGO_ENABLED to
 // properly list the cgo files that would be used during a build. Only set
 // withGoproxy for downloading modules, not doing builds or listing packages.
-func makeCommand(cmdHomeDir, workDir, goversion string, withGoproxy bool, cgoEnabled bool, extraEnv []string, argv ...string) *exec.Cmd {
+func makeCommand(ctx context.Context, cmdHomeDir, workDir, goversion string, withGoproxy bool, cgoEnabled bool, extraEnv []string, argv ...string) *exec.Cmd {
 	cgo := "CGO_ENABLED=0"
 	if cgoEnabled {
 		cgo = "CGO_ENABLED=1"
@@ -57,7 +57,7 @@ func makeCommand(cmdHomeDir, workDir, goversion string, withGoproxy bool, cgoEna
 	var l []string
 	l = append(l, config.Run...)
 	l = append(l, argv...)
-	cmd := exec.Command(l[0], l[1:]...)
+	cmd := exec.CommandContext(ctx, l[0], l[1:]...)
 	cmd.Dir = workDir
 	cmd.Env = []string{
 		goproxy,

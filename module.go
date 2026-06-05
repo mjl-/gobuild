@@ -25,7 +25,7 @@ func serveModules(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	goversion, err := ensureMostRecentSDK()
+	goversion, err := ensureMostRecentSDK(r.Context())
 	if err != nil {
 		failf(w, "ensuring most recent goversion: %w", err)
 		return
@@ -117,7 +117,7 @@ func listMainPackages(ctx context.Context, cmdDir, modDir string, goversion goVe
 		argv = append(argv, "-mod=readonly")
 	}
 	argv = append(argv, "-f", "{{.Name}} {{ .Dir }}", "./...")
-	cmd := makeCommand(cmdDir, modDir, goversion.String(), goproxy, cgo, nil, argv...)
+	cmd := makeCommand(ctx, cmdDir, modDir, goversion.String(), goproxy, cgo, nil, argv...)
 	stderr := &strings.Builder{}
 	cmd.Stderr = stderr
 	output, err := cmd.Output()
