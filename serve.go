@@ -17,6 +17,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	_ "net/http/pprof"
 	"net/netip"
 	"os"
 	"os/signal"
