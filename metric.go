@@ -5,11 +5,15 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/collectors"
 )
 
 func registerGobuildMetrics() *prometheus.Registry {
 	reg := prometheus.NewRegistry()
-	metrics := []prometheus.Collector{
+	reg.MustRegister(
+		collectors.NewBuildInfoCollector(),
+		collectors.NewGoCollector(),
+		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
 		metricPanics,
 		metricGoproxyResolveVersionDuration,
 		metricGoproxyListDuration,
@@ -48,10 +52,7 @@ func registerGobuildMetrics() *prometheus.Registry {
 		metricTlogOpsReadrecordsDuration,
 		metricTlogOpsLookupDuration,
 		metricTlogOpsReadtiledataDuration,
-	}
-	for _, m := range metrics {
-		reg.MustRegister(m)
-	}
+	)
 	return reg
 }
 

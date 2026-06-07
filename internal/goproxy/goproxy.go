@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
@@ -38,11 +39,16 @@ var (
 
 func registerGoproxyMetrics() *prometheus.Registry {
 	reg := prometheus.NewRegistry()
-	reg.MustRegister(metricRequests)
-	reg.MustRegister(metricCachableRequests)
-	reg.MustRegister(metricCachedResponses)
-	reg.MustRegister(metricErrors)
-	reg.MustRegister(metricForwardErrors)
+	reg.MustRegister(
+		collectors.NewBuildInfoCollector(),
+		collectors.NewGoCollector(),
+		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
+		metricRequests,
+		metricCachableRequests,
+		metricCachedResponses,
+		metricErrors,
+		metricForwardErrors,
+	)
 	return reg
 }
 
