@@ -5,17 +5,64 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
+func registerGobuildMetrics() *prometheus.Registry {
+	reg := prometheus.NewRegistry()
+	metrics := []prometheus.Collector{
+		metricPanics,
+		metricGoproxyResolveVersionDuration,
+		metricGoproxyListDuration,
+		metricGoproxyListErrors,
+		metricHTTPRequestsServerErrors,
+		metricHTTPRequestsUserErrors,
+		metricClientBuildRequests,
+		metricClientBuildRequestsBad,
+		metricClientBuildRequestsLimitedRecent,
+		metricClientBuildRequestsLimitedOld,
+		metricPageDuration,
+		metricGogetDuration,
+		metricGogetErrors,
+		metricListPackageErrors,
+		metricNotMainErrors,
+		metricResolveVersionErrors,
+		metricCompileDuration,
+		metricCompileOSErrors,
+		metricCompileArchErrors,
+		metricCompileVersionErrors,
+		metricBuildTotal,
+		metricBuildErrors,
+		metricBuildErrorsUnknownReason,
+		metricRecompileMismatch,
+		metricVerifyDuration,
+		metricVerifyErrors,
+		metricVerifyMismatch,
+		metricTlogAddErrors,
+		metricTlogConsistencyErrors,
+		metricTlogRecords,
+		metricTlogOpsSignedErrors,
+		metricTlogOpsReadrecordsErrors,
+		metricTlogOpsLookupErrors,
+		metricTlogOpsReadtiledataErrors,
+		metricTlogOpsSignedDuration,
+		metricTlogOpsReadrecordsDuration,
+		metricTlogOpsLookupDuration,
+		metricTlogOpsReadtiledataDuration,
+	}
+	for _, m := range metrics {
+		reg.MustRegister(m)
+	}
+	return reg
+}
+
 var (
-	metricPanics = promauto.NewCounter(
+	metricPanics = prometheus.NewCounter(
 		prometheus.CounterOpts{
 			Name: "gobuild_panics_total",
 			Help: "Number of unhandled panics.",
 		},
 	)
-	metricGoproxyResolveVersionDuration = promauto.NewHistogram(
+	metricGoproxyResolveVersionDuration = prometheus.NewHistogram(
 		prometheus.HistogramOpts{
 			Name:    "gobuild_goproxy_resolve_version_duration_seconds",
 			Help:    "Duration of request to goproxy to resolve module version in seconds.",
@@ -23,14 +70,14 @@ var (
 		},
 	)
 
-	metricGoproxyListDuration = promauto.NewHistogram(
+	metricGoproxyListDuration = prometheus.NewHistogram(
 		prometheus.HistogramOpts{
 			Name:    "gobuild_goproxy_list_duration_seconds",
 			Help:    "Duration of request to goproxy to list module versions in seconds.",
 			Buckets: []float64{0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2, 4, 8, 16, 32, 64, 128},
 		},
 	)
-	metricGoproxyListErrors = promauto.NewCounterVec(
+	metricGoproxyListErrors = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "gobuild_goproxy_list_errors_total",
 			Help: "Number of error reponses from goproxy for listing module versions, per http response code.",
@@ -38,45 +85,45 @@ var (
 		[]string{"code"},
 	)
 
-	metricHTTPRequestsServerErrors = promauto.NewCounter(
+	metricHTTPRequestsServerErrors = prometheus.NewCounter(
 		prometheus.CounterOpts{
 			Name: "gobuild_http_requests_server_errors_total",
 			Help: "Total number of http requests resulting in a 5xx response.",
 		},
 	)
-	metricHTTPRequestsUserErrors = promauto.NewCounter(
+	metricHTTPRequestsUserErrors = prometheus.NewCounter(
 		prometheus.CounterOpts{
 			Name: "gobuild_http_requests_user_errors_total",
 			Help: "Total number of http requests resulting in a 4xx response.",
 		},
 	)
 
-	metricClientBuildRequests = promauto.NewCounter(
+	metricClientBuildRequests = prometheus.NewCounter(
 		prometheus.CounterOpts{
 			Name: "gobuild_client_build_requests_total",
 			Help: "Total number of build requests from clients.",
 		},
 	)
-	metricClientBuildRequestsBad = promauto.NewCounter(
+	metricClientBuildRequestsBad = prometheus.NewCounter(
 		prometheus.CounterOpts{
 			Name: "gobuild_client_build_requests_bad_total",
 			Help: "Total number of build requests from bad clients that were blocked.",
 		},
 	)
-	metricClientBuildRequestsLimitedRecent = promauto.NewCounter(
+	metricClientBuildRequestsLimitedRecent = prometheus.NewCounter(
 		prometheus.CounterOpts{
 			Name: "gobuild_client_build_requests_limited_recent_total",
 			Help: "Total number of rejected build requests due to the rate limit for builds with recent go versions.",
 		},
 	)
-	metricClientBuildRequestsLimitedOld = promauto.NewCounter(
+	metricClientBuildRequestsLimitedOld = prometheus.NewCounter(
 		prometheus.CounterOpts{
 			Name: "gobuild_client_build_requests_limited_old_total",
 			Help: "Total number of rejected build requests due to the rate limit for builds with old go versions.",
 		},
 	)
 
-	metricPageDuration = promauto.NewHistogramVec(
+	metricPageDuration = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Name:    "gobuild_page_duration_seconds",
 			Help:    "Duration of request for page in seconds, per http response code.",
@@ -85,60 +132,60 @@ var (
 		[]string{"page"},
 	)
 
-	metricGogetDuration = promauto.NewHistogram(
+	metricGogetDuration = prometheus.NewHistogram(
 		prometheus.HistogramOpts{
 			Name:    "gobuild_goget_duration_seconds",
 			Help:    "Duration of go get to fetch module source in seconds.",
 			Buckets: []float64{0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2, 4, 8, 16, 32, 64, 128},
 		},
 	)
-	metricGogetErrors = promauto.NewCounter(
+	metricGogetErrors = prometheus.NewCounter(
 		prometheus.CounterOpts{
 			Name: "gobuild_goget_errors_total",
 			Help: "Number of error reponses during go get.",
 		},
 	)
-	metricListPackageErrors = promauto.NewCounter(
+	metricListPackageErrors = prometheus.NewCounter(
 		prometheus.CounterOpts{
 			Name: "gobuild_list_package_errors_total",
 			Help: "Number of errors listing packages.",
 		},
 	)
-	metricNotMainErrors = promauto.NewCounter(
+	metricNotMainErrors = prometheus.NewCounter(
 		prometheus.CounterOpts{
 			Name: "gobuild_not_main_errors_total",
 			Help: "Number of errors due to requested package not being main.",
 		},
 	)
-	metricResolveVersionErrors = promauto.NewCounter(
+	metricResolveVersionErrors = prometheus.NewCounter(
 		prometheus.CounterOpts{
 			Name: "gobuild_resolve_version_errors_total",
 			Help: "Number of errors while resolving version for module.",
 		},
 	)
 
-	metricCompileDuration = promauto.NewHistogram(
+	metricCompileDuration = prometheus.NewHistogram(
 		prometheus.HistogramOpts{
 			Name:    "gobuild_compile_duration_seconds",
 			Help:    "Duration of go build to compile program in seconds.",
 			Buckets: []float64{0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2, 4, 8, 16, 32, 64, 128, 256},
 		},
 	)
-	metricCompileOSErrors = promauto.NewCounterVec(
+	metricCompileOSErrors = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "gobuild_compile_goos_errors_total",
 			Help: "Number of error reponses during go build per goos.",
 		},
 		[]string{"goos"},
 	)
-	metricCompileArchErrors = promauto.NewCounterVec(
+	metricCompileArchErrors = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "gobuild_compile_goarch_errors_total",
 			Help: "Number of error reponses during go build per goarch.",
 		},
 		[]string{"goarch"},
 	)
-	metricCompileVersionErrors = promauto.NewCounterVec(
+	metricCompileVersionErrors = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "gobuild_compile_goversion_errors_total",
 			Help: "Number of error reponses during go build per goversion.",
@@ -146,26 +193,26 @@ var (
 		[]string{"goversion"},
 	)
 
-	metricBuildTotal = promauto.NewCounter(
+	metricBuildTotal = prometheus.NewCounter(
 		prometheus.CounterOpts{
 			Name: "gobuild_build_total",
 			Help: "Total number of builds.",
 		},
 	)
-	metricBuildErrors = promauto.NewCounter(
+	metricBuildErrors = prometheus.NewCounter(
 		prometheus.CounterOpts{
 			Name: "gobuild_build_errors_total",
 			Help: "Total number of failed builds, including those where the code can never be compiled, e.g. due to invalid source or use of wrong toolchain version.",
 		},
 	)
-	metricBuildErrorsUnknownReason = promauto.NewCounter(
+	metricBuildErrorsUnknownReason = prometheus.NewCounter(
 		prometheus.CounterOpts{
 			Name: "gobuild_build_errors_unknown_reason_total",
 			Help: "Total number of failed builds with unknown reason, not due to bad code or use of wrong toolchain version.",
 		},
 	)
 
-	metricRecompileMismatch = promauto.NewCounterVec(
+	metricRecompileMismatch = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "gobuild_recompile_mismatch_total",
 			Help: "Number of sum mismatches when recompiling cleaned up binaries.",
@@ -173,7 +220,7 @@ var (
 		[]string{"goos", "goarch", "goversion"},
 	)
 
-	metricVerifyDuration = promauto.NewHistogramVec(
+	metricVerifyDuration = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Name:    "gobuild_verify_duration_seconds",
 			Help:    "Duration of verifying build with other backend, in seconds.",
@@ -181,14 +228,14 @@ var (
 		},
 		[]string{"baseurl"},
 	)
-	metricVerifyErrors = promauto.NewCounterVec(
+	metricVerifyErrors = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "gobuild_verify_errors_total",
 			Help: "Number of error reponses verifying with other backends.",
 		},
 		[]string{"baseurl"},
 	)
-	metricVerifyMismatch = promauto.NewCounterVec(
+	metricVerifyMismatch = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "gobuild_verify_mismatch_total",
 			Help: "Number of sum mismatches with other backends.",
@@ -196,19 +243,19 @@ var (
 		[]string{"baseurl", "goos", "goarch", "goversion"},
 	)
 
-	metricTlogAddErrors = promauto.NewCounter(
+	metricTlogAddErrors = prometheus.NewCounter(
 		prometheus.CounterOpts{
 			Name: "gobuild_tlog_add_errors_total",
 			Help: "Number of errors (of any kind, including consistency) while adding a sum to the transparency log.",
 		},
 	)
-	metricTlogConsistencyErrors = promauto.NewCounter(
+	metricTlogConsistencyErrors = prometheus.NewCounter(
 		prometheus.CounterOpts{
 			Name: "gobuild_tlog_consistency_errors_total",
 			Help: "Number of consistency errors encountered while adding a sum to the transparency log.",
 		},
 	)
-	metricTlogRecords = promauto.NewGauge(
+	metricTlogRecords = prometheus.NewGauge(
 		prometheus.GaugeOpts{
 			Name: "gobuild_tlog_record_total",
 			Help: "Number of records in the transparency log.",
@@ -227,7 +274,7 @@ var (
 )
 
 func newOpsErrorCounter(op string) prometheus.Counter {
-	return promauto.NewCounter(
+	return prometheus.NewCounter(
 		prometheus.CounterOpts{
 			Name: fmt.Sprintf("gobuild_tlog_ops_%s_errors_total", op),
 			Help: fmt.Sprintf("Number of transparency log errors for server op %s on the transparency log.", op),
@@ -236,7 +283,7 @@ func newOpsErrorCounter(op string) prometheus.Counter {
 }
 
 func newOpsHistogram(op string) prometheus.Histogram {
-	return promauto.NewHistogram(
+	return prometheus.NewHistogram(
 		prometheus.HistogramOpts{
 			Name:    fmt.Sprintf("gobuild_tlog_ops_%s_duration_seconds", op),
 			Help:    fmt.Sprintf("Duration of transparency log server op %s in seconds.", op),

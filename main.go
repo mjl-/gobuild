@@ -16,6 +16,7 @@ import (
 	"github.com/mjl-/sconf"
 	"golang.org/x/mod/sumdb/note"
 
+	"github.com/mjl-/gobuild/internal/goproxy"
 	"github.com/mjl-/gobuild/internal/httpsproxy"
 )
 
@@ -27,6 +28,7 @@ func usage() {
 	log.Println("       gobuild get [flags] module[@version/package]")
 	log.Println("       gobuild sum < file")
 	log.Println("       gobuild httpsproxy [flags]")
+	log.Println("       gobuild goproxy [flags] cachedir")
 	flag.PrintDefaults()
 	os.Exit(2)
 }
@@ -87,6 +89,8 @@ func main() {
 		}
 	case "httpsproxy":
 		httpsproxy.HTTPSProxy(args)
+	case "goproxy":
+		goproxy.Goproxy(args)
 	}
 }
 

@@ -173,5 +173,9 @@ connections). The proxy should allow the following addresses:
 	acme-v02.api.letsencrypt.org:443
 
 	# Optional, any verifier URLs you have configured.
+
+You can also configure a (local) GOPROXY in "Environment" in the config file,
+pointing to an instance of the "gobuild goproxy subcommand", which caches Go
+modules locally, reducing the number of requests to the public go module proxy.
 */
 package main

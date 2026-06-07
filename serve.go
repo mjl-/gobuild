@@ -564,7 +564,8 @@ func serve(args []string) {
 		}()
 	}
 
-	http.Handle("GET /metrics", promhttp.Handler())
+	reg := registerGobuildMetrics()
+	http.Handle("GET /metrics", promhttp.HandlerFor(reg, promhttp.HandlerOpts{Registry: reg}))
 	http.HandleFunc("GET /pending", func(w http.ResponseWriter, r *http.Request) {
 		// Return list of pending builds, including IP addresses.
 		rc := make(chan coordinatorState)
