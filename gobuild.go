@@ -482,7 +482,7 @@ func saveFailure(ctx context.Context, bs buildSpec, buildErr error, output, reas
 	if reason == "" {
 		level = slog.LevelError
 	}
-	logger(ctx).Log(ctx, level, "build failure", "err", buildErr, "reason", reason, "buildspec", bs, "output", output)
+	logger(ctx).Log(ctx, level, "build failure", "err", buildErr, "reason", reason, "buildspec", bs, "outputpath", filepath.Join(bs.storeDir(), "log.gz"))
 
 	tmpdir, err := os.MkdirTemp(config.DataDir, "tmpfail")
 	if err != nil {
