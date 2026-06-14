@@ -25,6 +25,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -589,8 +590,25 @@ func serve(args []string) {
 		state := <-rc
 
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		for _, elem := range state.queue {
-			fmt.Fprintf(w, "%s %s\n", elem.buildSpec.String(), elem.initiator.String())
+		type elem struct {
+			bs        buildSpec
+			added     time.Time
+			started   *time.Time
+			initiator netip.Addr
+		}
+		var l []elem
+		for bs, b := range state.builds {
+			l = append(l, elem{bs, b.added, b.started, b.initiator})
+		}
+		slices.SortFunc(l, func(a, b elem) int {
+			if a.added.Before(b.added) {
+				return -1
+			}
+			return 1
+		})
+		for _, e := range l {
+			fmt.Fprintf(w, "# buildspec, added, started, initiator\n")
+			fmt.Fprintf(w, "%s %v %v %s\n", e.bs.String(), e.added, e.started, e.initiator.String())
 		}
 	})
 

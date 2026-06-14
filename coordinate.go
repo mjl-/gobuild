@@ -6,9 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/netip"
 	"runtime"
 	"slices"
+	"time"
 )
 
 type kind string
@@ -63,12 +65,7 @@ type buildUnregister struct {
 }
 
 type coordinatorState struct {
-	queue []queueElem
-}
-
-type queueElem struct {
-	buildSpec
-	initiator netip.Addr
+	builds map[buildSpec]*wipBuild
 }
 
 var coordinate = struct {
@@ -89,20 +86,24 @@ func unregisterBuild(bs buildSpec, eventc chan buildUpdate) {
 	coordinate.unregister <- buildUnregister{bs, eventc}
 }
 
+// Build that was requested, and is still referenced by "events" (clients) or by
+// the build command that hasn't finished.
+// If the last "events" leaves, and "final" is set, we remove wipBuild.
+type wipBuild struct {
+	// All listeners for events. These will all get updates.
+	events []chan buildUpdate
+
+	added   time.Time
+	started *time.Time
+
+	// Last update, with done set to true. We store it to know the command has
+	// finished, and give all listeners the concluding update.
+	final *buildUpdate
+
+	initiator netip.Addr
+}
+
 func coordinateBuilds(ctx context.Context) {
-	// Build that was requested, and is still referenced by "events" (clients) or by
-	// the build command that hasn't finished.
-	// If the last "events" leaves, and "final" is set, we remove wipBuild.
-	type wipBuild struct {
-		// All listeners for events. These will all get updates.
-		events []chan buildUpdate
-
-		// Last update, with done set to true. We store it to know the command has
-		// finished, and give all listeners the concluding update.
-		final *buildUpdate
-
-		initiator netip.Addr
-	}
 	builds := map[buildSpec]*wipBuild{}
 
 	active := 0
@@ -114,11 +115,6 @@ func coordinateBuilds(ctx context.Context) {
 	// Build requests always go through the queue. We'll pick up the next for which the
 	// output path is available, but only if we are below maxBuilds builds in progress.
 	queue := []buildRequest{}
-
-	// Keep track of output paths that are "busy", i.e. paths that currently running
-	// builds will write the resulting binary to.
-	// Keys are the result of request.outputPath.
-	pathBusy := map[string]struct{}{}
 
 	updatec := make(chan buildUpdate)
 
@@ -141,7 +137,8 @@ func coordinateBuilds(ctx context.Context) {
 
 	startBuild := func(breq buildRequest, b *wipBuild) {
 		active++
-		pathBusy[breq.bs.outputPath()] = struct{}{}
+		now := time.Now()
+		b.started = &now
 		wgShutdown.Go(func() {
 			defer logPanic(breq.log)
 
@@ -176,13 +173,9 @@ func coordinateBuilds(ctx context.Context) {
 			return
 		}
 
-		for i := 0; i < len(queue); {
-			breq := queue[i]
-			if _, busy := pathBusy[breq.bs.outputPath()]; busy {
-				i++
-				continue
-			}
-			queue = slices.Delete(queue, i, i+1)
+		for len(queue) > 0 {
+			breq := queue[0]
+			queue = slices.Delete(queue, 0, 1)
 			nb := builds[breq.bs]
 			if len(nb.events) == 0 {
 				// All parties interested have gone, don't build.
@@ -190,8 +183,8 @@ func coordinateBuilds(ctx context.Context) {
 			}
 			sendPending(nb, 0)
 			startBuild(breq, nb)
-			for j, wbreq := range queue[i:] {
-				sendPending(builds[wbreq.bs], i+j+1)
+			for j, wbreq := range queue {
+				sendPending(builds[wbreq.bs], j+1)
 			}
 			break
 		}
@@ -202,7 +195,7 @@ func coordinateBuilds(ctx context.Context) {
 		case reg := <-coordinate.register:
 			b, ok := builds[reg.bs]
 			if !ok {
-				b = &wipBuild{nil, nil, reg.remote}
+				b = &wipBuild{nil, time.Now(), nil, nil, reg.remote}
 				builds[reg.bs] = b
 
 				// We may have just finished a build. Before starting any new work, try reading a result.
@@ -264,7 +257,6 @@ func coordinateBuilds(ctx context.Context) {
 			if !update.done {
 				continue
 			}
-			delete(pathBusy, update.bs.outputPath())
 			b.final = &update
 			active--
 			if len(b.events) == 0 {
@@ -273,11 +265,7 @@ func coordinateBuilds(ctx context.Context) {
 			kick()
 
 		case rc := <-coordinate.state:
-			q := make([]queueElem, 0, len(builds))
-			for bs, wb := range builds {
-				q = append(q, queueElem{bs, wb.initiator})
-			}
-			rc <- coordinatorState{q}
+			rc <- coordinatorState{maps.Clone(builds)}
 		}
 	}
 }

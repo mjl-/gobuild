@@ -54,23 +54,6 @@ func (bs buildSpec) String() string {
 	return fmt.Sprintf("%s@%s/%s%s-%s-%s%s/", bs.Mod, bs.Version, bs.appendDir(), bs.Goos, bs.Goarch, bs.Goversion, variant)
 }
 
-// GOBIN-relative name of file created by "go get". Used as key to prevent
-// concurrent builds that would create the same output file. This does not take
-// into account that compiles for the same GOOS/GOARCH as host will just write to
-// $GOBIN.
-func (bs buildSpec) outputPath() string {
-	var name string
-	if bs.Dir != "/" {
-		name = filepath.Base(bs.Dir)
-	} else {
-		name = filepath.Base(bs.Mod)
-	}
-	if bs.Goos == "windows" {
-		name += ".exe"
-	}
-	return fmt.Sprintf("%s-%s/%s", bs.Goos, bs.Goarch, name)
-}
-
 // Local directory where results are stored, both successful and failed.
 // Directories of failed builds can be removed, for a retry.
 func (bs buildSpec) storeDir() string {
