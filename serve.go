@@ -707,9 +707,7 @@ func serve(args []string) {
 			IdleTimeout:       120 * time.Second,
 		}
 		servers = append(servers, server)
-		wgShutdown.Add(1)
-		go func() {
-			defer wgShutdown.Done()
+		wgShutdown.Go(func() {
 			err := server.ListenAndServe()
 			if err == http.ErrServerClosed {
 				slog.Info("listen and serve on http", "err", err)
@@ -717,7 +715,7 @@ func serve(args []string) {
 				slog.Error("listen and serve on http", "err", err)
 				os.Exit(1)
 			}
-		}()
+		})
 	}
 	if config.HTTPS != nil {
 		os.MkdirAll(config.HTTPS.ACME.CertDir, 0700) // errors will come up later
@@ -740,9 +738,7 @@ func serve(args []string) {
 			IdleTimeout:       120 * time.Second,
 		}
 		servers = append(servers, server)
-		wgShutdown.Add(1)
-		go func() {
-			defer wgShutdown.Done()
+		wgShutdown.Go(func() {
 			err := server.Serve(m.Listener())
 			if err == http.ErrServerClosed {
 				slog.Info("listen and serve on https", "err", err)
@@ -750,7 +746,7 @@ func serve(args []string) {
 				slog.Error("listen and serve on https", "err", err)
 				os.Exit(1)
 			}
-		}()
+		})
 	}
 	if *listenAdmin != "" {
 		server := &http.Server{
@@ -767,9 +763,7 @@ func serve(args []string) {
 			IdleTimeout:       120 * time.Second,
 		}
 		servers = append(servers, server)
-		wgShutdown.Add(1)
-		go func() {
-			defer wgShutdown.Done()
+		wgShutdown.Go(func() {
 			err := server.ListenAndServe()
 			if err == http.ErrServerClosed {
 				slog.Info("listen and serve on https", "err", err)
@@ -777,7 +771,7 @@ func serve(args []string) {
 				slog.Error("listen and serve on admin", "err", err)
 				os.Exit(1)
 			}
-		}()
+		})
 	}
 
 	// When shutting down, make sure no modifications to transparency log are in progress.
@@ -790,13 +784,11 @@ func serve(args []string) {
 	defer stopCancel()
 
 	for _, s := range servers {
-		wgShutdown.Add(1)
-		go func() {
-			defer wgShutdown.Done()
+		wgShutdown.Go(func() {
 			if err := s.Shutdown(stopCtx); err != nil {
 				slog.Error("shutting down http server", "err", err)
 			}
-		}()
+		})
 	}
 	// Wait for http servers and select goroutines (e.g. for builds) to finish.
 	wgShutdown.Wait()

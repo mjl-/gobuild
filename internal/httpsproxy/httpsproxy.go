@@ -196,10 +196,8 @@ func (c connectServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	var wg sync.WaitGroup
 
-	wg.Add(1)
 	// Copy from remote to local request.
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 
 		buf := make([]byte, 32*1024)
 		for {
@@ -221,7 +219,7 @@ func (c connectServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-	}()
+	})
 
 	// Copy from local request to remote.
 	func() {

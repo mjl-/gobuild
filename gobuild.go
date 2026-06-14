@@ -200,9 +200,7 @@ func build(ctx context.Context, bs buildSpec, expSumOpt string) (int64, *buildRe
 	}
 
 	for _, v := range config.Verifiers {
-		wgShutdown.Add(1)
-		go func() {
-			defer wgShutdown.Done()
+		wgShutdown.Go(func() {
 			defer logPanic(logger(ctx))
 
 			result, err := verify(v)
@@ -210,13 +208,11 @@ func build(ctx context.Context, bs buildSpec, expSumOpt string) (int64, *buildRe
 				err = fmt.Errorf("verifying with verifier %s: %w", v.Key, err)
 			}
 			verifyResult <- remoteBuild{&v, "", err, result}
-		}()
+		})
 	}
 
 	for _, verifierBaseURL := range config.VerifierURLs {
-		wgShutdown.Add(1)
-		go func() {
-			defer wgShutdown.Done()
+		wgShutdown.Go(func() {
 			defer logPanic(logger(ctx))
 
 			result, err := verifyURL(verifierBaseURL)
@@ -224,7 +220,7 @@ func build(ctx context.Context, bs buildSpec, expSumOpt string) (int64, *buildRe
 				err = fmt.Errorf("verifying with verifierURL %s: %w", verifierBaseURL, err)
 			}
 			verifyResult <- remoteBuild{nil, verifierBaseURL, err, result}
-		}()
+		})
 	}
 
 	t0 := time.Now()

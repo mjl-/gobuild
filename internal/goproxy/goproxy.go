@@ -251,9 +251,7 @@ func Goproxy(args []string) {
 			ErrorLog: httpErrorLog,
 		}
 		servers = append(servers, server)
-		wgShutdown.Add(1)
-		go func() {
-			defer wgShutdown.Done()
+		wgShutdown.Go(func() {
 			err := server.ListenAndServe()
 			if err == http.ErrServerClosed {
 				slog.Info("listen and serve on http", "err", err)
@@ -261,7 +259,7 @@ func Goproxy(args []string) {
 				slog.Error("listen and serve on http", "err", err)
 				os.Exit(1)
 			}
-		}()
+		})
 	}
 	if listenAdmin != "" {
 		server := &http.Server{
@@ -273,9 +271,7 @@ func Goproxy(args []string) {
 			ErrorLog: httpErrorLog,
 		}
 		servers = append(servers, server)
-		wgShutdown.Add(1)
-		go func() {
-			defer wgShutdown.Done()
+		wgShutdown.Go(func() {
 			err := server.ListenAndServe()
 			if err == http.ErrServerClosed {
 				slog.Info("listen and serve on https", "err", err)
@@ -283,7 +279,7 @@ func Goproxy(args []string) {
 				slog.Error("listen and serve on admin", "err", err)
 				os.Exit(1)
 			}
-		}()
+		})
 	}
 
 	// When shutting down, make sure no modifications to transparency log are in progress.
@@ -296,13 +292,11 @@ func Goproxy(args []string) {
 	defer stopCancel()
 
 	for _, s := range servers {
-		wgShutdown.Add(1)
-		go func() {
-			defer wgShutdown.Done()
+		wgShutdown.Go(func() {
 			if err := s.Shutdown(stopCtx); err != nil {
 				slog.Error("shutting down http server", "err", err)
 			}
-		}()
+		})
 	}
 	// Wait for http servers and select goroutines (e.g. for builds) to finish.
 	wgShutdown.Wait()

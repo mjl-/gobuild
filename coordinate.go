@@ -138,9 +138,7 @@ func coordinateBuilds(ctx context.Context) {
 	startBuild := func(breq buildRequest, b *wipBuild) {
 		active++
 		pathBusy[breq.bs.outputPath()] = struct{}{}
-		wgShutdown.Add(1)
-		go func() {
-			defer wgShutdown.Done()
+		wgShutdown.Go(func() {
 			defer logPanic(breq.log)
 
 			metricBuildTotal.Inc()
@@ -164,7 +162,7 @@ func coordinateBuilds(ctx context.Context) {
 			}
 			update := buildUpdate{bs: breq.bs, done: true, err: err, errOutput: errOutput, noBuildReason: noBuildReason, result: result, recordNumber: recordNumber, msg: msg}
 			updatec <- update
-		}()
+		})
 	}
 
 	kick := func() {
