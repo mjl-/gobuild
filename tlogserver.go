@@ -184,17 +184,16 @@ func lookupBuild(ctx context.Context, bs buildSpec, r *http.Request) (int64, err
 
 	eventc := make(chan buildUpdate, 100)
 	registerBuild(logger(ctx), bs, "", eventc, remoteIP(r))
+	defer unregisterBuild(bs, eventc)
 
 	for {
 		select {
 		case <-ctx.Done():
-			unregisterBuild(bs, eventc)
 			return -1, ctx.Err()
 		case update := <-eventc:
 			if !update.done {
 				continue
 			}
-			unregisterBuild(bs, eventc)
 			if update.err != nil {
 				// If the build simply can't succeed, ensure we don't log it as lookup error.
 				if reason := cannotBuild(update.errOutput); reason != "" {

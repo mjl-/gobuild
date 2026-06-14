@@ -35,18 +35,17 @@ func serveResult(w http.ResponseWriter, r *http.Request, req request) {
 		}
 		eventc := make(chan buildUpdate, 100)
 		registerBuild(logger(ctx), req.buildSpec, expSum, eventc, remoteIP(r))
+		defer unregisterBuild(req.buildSpec, eventc)
 
 	loop:
 		for {
 			select {
 			case <-ctx.Done():
-				unregisterBuild(req.buildSpec, eventc)
 				return
 			case update := <-eventc:
 				if !update.done {
 					continue
 				}
-				unregisterBuild(req.buildSpec, eventc)
 				if update.err != nil {
 					failf(w, r, "build failed: %w", update.err)
 					return

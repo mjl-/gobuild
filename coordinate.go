@@ -1,7 +1,6 @@
 package main
 
 import (
-	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -58,6 +57,11 @@ type buildRequest struct {
 	log    *slog.Logger
 }
 
+type buildUnregister struct {
+	bs     buildSpec
+	eventc chan buildUpdate
+}
+
 type coordinatorState struct {
 	queue []queueElem
 }
@@ -69,11 +73,11 @@ type queueElem struct {
 
 var coordinate = struct {
 	register   chan buildRequest
-	unregister chan buildRequest
+	unregister chan buildUnregister
 	state      chan chan coordinatorState
 }{
-	make(chan buildRequest, 1),
-	make(chan buildRequest, 1),
+	make(chan buildRequest),
+	make(chan buildUnregister),
 	make(chan chan coordinatorState),
 }
 
@@ -82,7 +86,7 @@ func registerBuild(log *slog.Logger, bs buildSpec, expSum string, eventc chan bu
 }
 
 func unregisterBuild(bs buildSpec, eventc chan buildUpdate) {
-	coordinate.unregister <- buildRequest{bs, "", eventc, netip.Addr{}, slog.Default()}
+	coordinate.unregister <- buildUnregister{bs, eventc}
 }
 
 func coordinateBuilds(ctx context.Context) {
@@ -223,16 +227,18 @@ func coordinateBuilds(ctx context.Context) {
 				kick()
 			}
 			update := buildUpdate{
-				queuePosition: len(queue),
-				msg:           buildUpdateMsg{Kind: kindQueuePosition, QueuePosition: intptr(len(queue))}.json(),
+				queuePosition: slices.IndexFunc(queue, func(e buildRequest) bool {
+					return e.bs == reg.bs
+				}),
+				msg: buildUpdateMsg{Kind: kindQueuePosition, QueuePosition: intptr(len(queue))}.json(),
 			}
 			reg.eventc <- update
 
-		case reg := <-coordinate.unregister:
-			b := builds[reg.bs]
+		case unreg := <-coordinate.unregister:
+			b := builds[unreg.bs]
 			l := []chan buildUpdate{}
 			for _, c := range b.events {
-				if c != reg.eventc {
+				if c != unreg.eventc {
 					l = append(l, c)
 				}
 			}
@@ -241,7 +247,7 @@ func coordinateBuilds(ctx context.Context) {
 			}
 			b.events = l
 			if len(b.events) == 0 && b.final != nil {
-				delete(builds, reg.bs)
+				delete(builds, unreg.bs)
 			}
 
 		case update := <-updatec:
@@ -269,9 +275,6 @@ func coordinateBuilds(ctx context.Context) {
 			for bs, wb := range builds {
 				q = append(q, queueElem{bs, wb.initiator})
 			}
-			slices.SortFunc(q, func(a, b queueElem) int {
-				return cmp.Compare(a.buildSpec.String(), b.buildSpec.String())
-			})
 			rc <- coordinatorState{q}
 		}
 	}

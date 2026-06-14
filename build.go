@@ -155,6 +155,7 @@ func serveBuild(w http.ResponseWriter, r *http.Request, req request) {
 
 	eventc := make(chan buildUpdate, 100)
 	registerBuild(logger(ctx), req.buildSpec, "", eventc, remoteIP(r))
+	defer unregisterBuild(req.buildSpec, eventc)
 
 	switch req.Page {
 	case pageEvents:
@@ -173,33 +174,29 @@ func serveBuild(w http.ResponseWriter, r *http.Request, req request) {
 		}
 		flusher.Flush()
 
-	loop:
 		for {
 			select {
 			case <-ctx.Done():
-				break loop
+				return
 			case update := <-eventc:
 				_, err := w.Write(update.msg)
 				flusher.Flush()
 				if update.done || err != nil {
-					break loop
+					return
 				}
 			}
 		}
-		unregisterBuild(req.buildSpec, eventc)
 
 	default:
 		// For all other pages, we just wait until the build completes.
 		for {
 			select {
 			case <-ctx.Done():
-				unregisterBuild(req.buildSpec, eventc)
 				return
 			case update := <-eventc:
 				if !update.done {
 					continue
 				}
-				unregisterBuild(req.buildSpec, eventc)
 
 				if req.Page == pageLog {
 					serveLog(w, r, filepath.Join(req.storeDir(), "log.gz"))
