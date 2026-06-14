@@ -182,7 +182,7 @@ func Goproxy(args []string) {
 			}
 			files := make([]file, 0, len(l))
 			for _, e := range l {
-				if strings.HasSuffix(e.Name(), ".tmp") {
+				if strings.HasPrefix(e.Name(), "tmp-") {
 					continue
 				}
 				fi, err := e.Info()
@@ -424,18 +424,19 @@ func serveGoProxy(w http.ResponseWriter, r *http.Request) {
 	if resp.StatusCode == http.StatusOK && canCache {
 		// We'll write the entire file to disk, and copy it to the client as well, ignoring
 		// errors when writing to the client.
-		f, err := os.OpenFile(p+".tmp", os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0o640)
+		f, err := os.CreateTemp(filepath.Dir(p), "tmp-"+filepath.Base(p)+"-")
 		if err != nil {
 			metricErrors.Inc()
 			log.Error("creating cache file failed, continuing without cache", "err", err)
 			io.Copy(w, resp.Body)
 			return
 		}
+		tmpname := f.Name()
 		defer func() {
 			if f != nil {
 				err := f.Close()
 				loggerCheck(log, err, "closing tmp cache file")
-				err = os.Remove(p + ".tmp")
+				err = os.Remove(tmpname)
 				loggerCheck(log, err, "removing tmp cache file")
 			}
 		}()
@@ -452,10 +453,10 @@ func serveGoProxy(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		f = nil
-		if err := os.Rename(p+".tmp", p); err != nil {
+		if err := os.Rename(tmpname, p); err != nil {
 			metricErrors.Inc()
 			log.Error("putting cache file in place", "err", err)
-			err := os.Remove(p + ".tmp")
+			err := os.Remove(tmpname)
 			loggerCheck(log, err, "removing temp cache file after failure")
 		} else {
 			log = log.With("tocache", true)
