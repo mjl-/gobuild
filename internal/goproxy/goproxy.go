@@ -29,6 +29,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+
+	"github.com/mjl-/gobuild/internal/atime"
 )
 
 var (
@@ -174,10 +176,10 @@ func Goproxy(args []string) {
 
 			slog.Info("cache too large, cleaning up", "size", size, "maxsize", cacheSize, "targetsize", targetSize)
 
-			// List all cached files, sort by mtime, oldest first.
+			// List all cached files, sort by atime, oldest first.
 			type file struct {
 				name  string
-				mtime time.Time
+				atime time.Time
 				size  int64
 			}
 			l, err := os.ReadDir(proxyCacheDir)
@@ -197,10 +199,15 @@ func Goproxy(args []string) {
 					slog.Error("stat cached file", "err", err, "name", e.Name())
 					continue
 				}
-				files = append(files, file{e.Name(), fi.ModTime(), fi.Size()})
+				at, err := atime.Get(fi)
+				if err != nil {
+					slog.Error("get atime, using mtime instead", "err", err, "name", e.Name())
+					at = fi.ModTime()
+				}
+				files = append(files, file{e.Name(), at, fi.Size()})
 			}
 			sort.Slice(files, func(i, j int) bool {
-				return files[i].mtime.Before(files[j].mtime)
+				return files[i].atime.Before(files[j].atime)
 			})
 
 			// Keep removing files (oldest first) as long as we are above target size.

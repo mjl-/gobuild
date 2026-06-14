@@ -1,6 +1,6 @@
-//go:build freebsd || netbsd || darwin
+//go:build !freebsd && !netbsd && !darwin && !windows && !plan9
 
-package main
+package atime
 
 import (
 	"fmt"
@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-func atime(fi os.FileInfo) (time.Time, error) {
+func Get(fi os.FileInfo) (time.Time, error) {
 	sys := fi.Sys()
 	if sys == nil {
 		return time.Time{}, fmt.Errorf("fileinfo sys is nil")
@@ -18,6 +18,6 @@ func atime(fi os.FileInfo) (time.Time, error) {
 	if !ok {
 		return time.Time{}, fmt.Errorf("fileinfo sys is not *syscall.Stat_t, but %T", sys)
 	}
-	sec, nsec := st.Atimespec.Unix()
+	sec, nsec := st.Atim.Unix()
 	return time.Unix(sec, nsec), nil
 }

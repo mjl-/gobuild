@@ -10,6 +10,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/mjl-/gobuild/internal/atime"
 )
 
 // Total size of the binaries (sum of the sizes of the binary.gz files) in the
@@ -85,7 +87,7 @@ func binaryCacheCleanup(reclaim int64) error {
 		}
 		if fi, err := d.Info(); err != nil {
 			slog.Error("cleanup binaries by size: stat", "err", err, "path", path)
-		} else if t, err := atime(fi); err != nil {
+		} else if t, err := atime.Get(fi); err != nil {
 			slog.Error("cleanup binaries by size: get access time", "err", err, "path", path)
 		} else {
 			binaries = append(binaries, Binary{path, fi.Size(), t})
@@ -145,7 +147,7 @@ func cleanupBinariesAtime(atimeAge time.Duration) {
 		}
 		if fi, err := d.Info(); err != nil {
 			slog.Error("cleanup binaries: stat", "err", err, "path", path)
-		} else if t, err := atime(fi); err != nil {
+		} else if t, err := atime.Get(fi); err != nil {
 			slog.Error("cleanup binaries: get access time", "err", err, "path", path)
 		} else if time.Since(t) > atimeAge {
 			if err := os.Remove(path); err != nil {

@@ -1,4 +1,4 @@
-package main
+package atime
 
 import (
 	"fmt"
@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-func atime(fi os.FileInfo) (time.Time, error) {
+func Get(fi os.FileInfo) (time.Time, error) {
 	sys := fi.Sys()
 	if sys == nil {
 		return time.Time{}, fmt.Errorf("fileinfo sys is nil")
