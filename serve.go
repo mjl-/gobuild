@@ -20,6 +20,7 @@ import (
 	_ "net/http/pprof"
 	"net/netip"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"runtime"
@@ -323,17 +324,7 @@ func serve(args []string) {
 		serveFlags.Usage()
 		os.Exit(2)
 	}
-	for s := range strings.SplitSeq(*trustedProxyIPsStr, ",") {
-		s = strings.TrimSpace(s)
-		if s == "" {
-			continue
-		}
-		prefix, err := netip.ParsePrefix(s)
-		if err != nil {
-			log.Fatalf("parsing ip network %q for trusted proxy ips: %v", s, err)
-		}
-		trustedProxyIPs = append(trustedProxyIPs, prefix)
-	}
+
 	if len(args) > 0 {
 		if err := parseConfig(args[0], &config); err != nil {
 			log.Fatalf("parsing config file: %v", err)
@@ -352,6 +343,30 @@ func serve(args []string) {
 	logHandler := slog.NewTextHandler(os.Stderr, &slogOpts)
 	logger := slog.New(logHandler)
 	slog.SetDefault(logger)
+
+	_, errGcc := exec.Command("which", "gcc").CombinedOutput()
+	_, errClang := exec.Command("which", "clang").CombinedOutput()
+	if errGcc == nil {
+		slog.Error("gcc must not be installed (in $PATH) to prevent interference with builds")
+	}
+	if errClang == nil {
+		slog.Error("clang must not be installed (in $PATH) to prevent interference with builds")
+	}
+	if errGcc == nil || errClang == nil {
+		os.Exit(1)
+	}
+
+	for s := range strings.SplitSeq(*trustedProxyIPsStr, ",") {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			continue
+		}
+		prefix, err := netip.ParsePrefix(s)
+		if err != nil {
+			log.Fatalf("parsing ip network %q for trusted proxy ips: %v", s, err)
+		}
+		trustedProxyIPs = append(trustedProxyIPs, prefix)
+	}
 
 	if !strings.HasSuffix(config.GoProxy, "/") {
 		config.GoProxy += "/"
