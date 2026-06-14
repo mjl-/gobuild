@@ -146,7 +146,7 @@ func coordinateBuilds(ctx context.Context) {
 			defer logPanic(breq.log)
 
 			metricBuildTotal.Inc()
-			bctx := context.WithValue(context.Background(), ctxKeyLog{}, breq.log)
+			bctx := context.WithValue(ctx, ctxKeyLog{}, breq.log)
 			recordNumber, result, errOutput, noBuildReason, err := build(bctx, breq.bs, breq.expSum)
 			var errmsg string
 			if err != nil {

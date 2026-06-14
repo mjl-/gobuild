@@ -398,6 +398,15 @@ func serve(args []string) {
 	}
 	gobuildVersion += " " + runtime.Version()
 
+	// Once we get a signal, we stop accepting new connections.
+	acceptCtx, acceptCancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer acceptCancel()
+
+	// HTTP requests use a base context we cancel after the graceful shutdown timeout.
+	// After which we wait one more second until final shutdown.
+	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
+	defer shutdownCancel()
+
 	var err error
 	workdir, err = os.Getwd()
 	if err != nil {
@@ -421,7 +430,7 @@ func serve(args []string) {
 
 	// Remove any existing commandDir, if the service wasn't properly shut down, there
 	// may be temp files left. We don't want to accumulate old files.
-	chmodRecursive(context.Background(), commandDir) // For pkg/go/mod files that may be read-only.
+	chmodRecursive(shutdownCtx, commandDir) // For pkg/go/mod files that may be read-only.
 	if err := os.RemoveAll(commandDir); err != nil {
 		slog.Error("removing old commandDir with potential leftover temporary files, continuing", "err", err)
 	}
@@ -462,7 +471,7 @@ func serve(args []string) {
 	}
 
 	// Verify the most recent additions to the records & hashes files are consistent.
-	if recordCount, err := verifySumState(); err != nil {
+	if recordCount, err := verifySumState(shutdownCtx); err != nil {
 		log.Fatal(err)
 	} else {
 		metricTlogRecords.Set(float64(recordCount))
@@ -479,16 +488,8 @@ func serve(args []string) {
 	}).DialContext
 
 	initSDK()
-	readRecentBuilds(context.Background())
 
-	// Once we get a signal, we stop accepting new connections.
-	acceptCtx, acceptCancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer acceptCancel()
-
-	// HTTP requests use a base context we cancel after the graceful shutdown timeout.
-	// After which we wait one more second until final shutdown.
-	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
-	defer shutdownCancel()
+	readRecentBuilds(shutdownCtx)
 
 	go func() {
 		// If coordinateBuilds panics, we will grind to a halt, but at least we'll get alerting about it.
@@ -894,7 +895,7 @@ func acceptsGzip(r *http.Request) bool {
 	return false
 }
 
-func verifySumState() (int64, error) {
+func verifySumState(ctx context.Context) (int64, error) {
 	// Verify records & hashes files have consistent sizes.
 	numRecords, err := treeSize()
 	if err != nil {
@@ -912,7 +913,7 @@ func verifySumState() (int64, error) {
 	}
 
 	lastRecordNum := numRecords - 1
-	records, err := serverOps{}.ReadRecords(context.Background(), lastRecordNum, 1)
+	records, err := serverOps{}.ReadRecords(ctx, lastRecordNum, 1)
 	if err != nil {
 		return -1, fmt.Errorf("reading last record: %v", err)
 	}
