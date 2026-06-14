@@ -145,6 +145,8 @@ func coordinateBuilds(ctx context.Context) {
 		wgShutdown.Go(func() {
 			defer logPanic(breq.log)
 
+			breq.log.Info("starting build", "buildspec", breq.bs)
+
 			metricBuildTotal.Inc()
 			bctx := context.WithValue(ctx, ctxKeyLog{}, breq.log)
 			recordNumber, result, errOutput, noBuildReason, err := build(bctx, breq.bs, breq.expSum)
