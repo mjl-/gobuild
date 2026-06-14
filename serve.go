@@ -885,7 +885,7 @@ func statusfail(ctx context.Context, status int, w http.ResponseWriter, errmsg s
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(status)
 	err := errorTemplate.Execute(w, map[string]string{"Message": msg})
-	if err != nil {
+	if err != nil && !(isClosed(err) || strings.HasSuffix(errmsg, "http2: stream closed") || strings.HasSuffix(errmsg, "client disconnected")) {
 		logger(ctx).Error("executing template for error", "err", err)
 	}
 }
