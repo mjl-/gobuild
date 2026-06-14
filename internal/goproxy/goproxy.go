@@ -55,7 +55,11 @@ func registerGoproxyMetrics() *prometheus.Registry {
 var (
 	metricRequests = prometheus.NewCounter(prometheus.CounterOpts{
 		Name: "gobuild_goproxy_requests_total",
-		Help: "Total number of requests to goproxy.",
+		Help: "Total number of incoming goproxy requests, including for sumdb.",
+	})
+	metricSumDBRequests = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "gobuild_goproxy_sumdb_requests_total",
+		Help: "Total number of requests to for sumdb proxy.",
 	})
 	metricCachableRequests = prometheus.NewCounter(prometheus.CounterOpts{
 		Name: "gobuild_goproxy_cacheable_requests_total",
@@ -86,12 +90,14 @@ func Goproxy(args []string) {
 		listenAdmin     string
 		listenHTTP      string
 		goproxyURLStr   string
+		proxySumDB      bool
 		shutdownTimeout time.Duration
 		cacheSize       int64
 	)
 	goproxyFlags.StringVar(&listenAdmin, "listen-admin", "localhost:8101", "address to serve admin-related http server on")
 	goproxyFlags.StringVar(&listenHTTP, "listen-http", "localhost:8100", "address to serve plain http server on")
 	goproxyFlags.StringVar(&goproxyURLStr, "goproxyurl", "https://proxy.golang.org", "goproxy url to forward requests to")
+	goproxyFlags.BoolVar(&proxySumDB, "proxysumdb", true, "whether to proxy sumdb requests")
 	goproxyFlags.DurationVar(&shutdownTimeout, "shutdown-timeout", 3*time.Second, "max time to do graceful shutdown of http servers")
 	goproxyFlags.TextVar(&loglevel, "loglevel", loglevel, "log level, info prints connection requests")
 	goproxyFlags.Int64Var(&cacheSize, "cachesize", 2*1024*1024*1024, "max total size for cached responses; old cached responses will be removed first")
@@ -228,6 +234,12 @@ func Goproxy(args []string) {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /", serveGoProxy)
+	if proxySumDB {
+		mux.HandleFunc("GET /sumdb/sum.golang.org/supported", func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		})
+		mux.HandleFunc("GET /sumdb/sum.golang.org/", serveGoProxy)
+	}
 
 	httpErrorLog := slog.NewLogLogger(logHandler.WithAttrs([]slog.Attr{slog.String("httperr", "")}), slog.LevelInfo)
 	slog.Info("gobuild goproxy",
@@ -357,10 +369,41 @@ func (c *cacheWriter) Write(buf []byte) (int, error) {
 	return n, err
 }
 
+type Latest struct {
+	sync.Mutex
+	data []byte
+	last time.Time
+}
+
+func (l *Latest) Lookup() []byte {
+	latest.Lock()
+	defer latest.Unlock()
+	if latest.data != nil && time.Since(latest.last) < time.Minute {
+		return latest.data
+	}
+	return nil
+}
+
+func (l *Latest) Put(buf []byte) {
+	latest.Lock()
+	defer latest.Unlock()
+	latest.data = buf
+	latest.last = time.Now()
+}
+
+// cache for sum.golang.org/latest
+var latest Latest
+
 // See https://go.dev/ref/mod#goproxy-protocol for the goproxy protocol.
 // We just forward requests to the actual go proxy. With the exception of files
 // ending in .zip, .mod, .info. Those don't change. The zip files are large. We
 // don't cache "list" and "@latest" files at all, their contents can change.
+//
+// We also serve /sumdb/sum.golang.org/ from cache. We cache
+// /sumdb/sum.golang.org/latest in memory for 1 minute.
+// See
+// https://go.googlesource.com/proposal/+/master/design/25530-sumdb.md#proxying-a-checksum-database
+// for the protocol.
 func serveGoProxy(w http.ResponseWriter, r *http.Request) {
 	log := slog.With("request", r.URL.Path)
 
@@ -376,14 +419,25 @@ func serveGoProxy(w http.ResponseWriter, r *http.Request) {
 	ext := filepath.Ext(r.URL.Path)
 	var canCache bool
 	var p string
-	switch ext {
-	case ".info", ".mod", ".zip":
+
+	ismod := ext == ".info" || ext == ".mod" || ext == ".zip"
+	issumdb := strings.HasPrefix(r.URL.Path, "/sumdb/sum.golang.org/")
+	if ismod || issumdb {
+		if issumdb {
+			metricSumDBRequests.Inc()
+		}
 		metricCachableRequests.Inc()
 		canCache = true
 
-		base := strings.TrimSuffix(r.URL.Path, ext)
-		buf := sha256.Sum256([]byte(base))
-		name := base64.RawURLEncoding.EncodeToString(buf[:]) + ext
+		var name string
+		if issumdb {
+			buf := sha256.Sum256([]byte(r.URL.Path))
+			name = base64.RawURLEncoding.EncodeToString(buf[:]) + ".sumdb"
+		} else {
+			base := strings.TrimSuffix(r.URL.Path, ext)
+			buf := sha256.Sum256([]byte(base))
+			name = base64.RawURLEncoding.EncodeToString(buf[:]) + ext
+		}
 		log = log.With("cachepath", name)
 		p = filepath.Join(proxyCacheDir, name)
 		f, err := os.Open(p)
@@ -401,7 +455,19 @@ func serveGoProxy(w http.ResponseWriter, r *http.Request) {
 	}
 
 	u := *r.URL
-	u.Scheme, u.Opaque, u.User, u.Host = goproxyURL.Scheme, goproxyURL.Opaque, goproxyURL.User, goproxyURL.Host
+	if issumdb {
+		u.Scheme, u.Host, u.Path = "https", "sum.golang.org", strings.TrimPrefix(r.URL.Path, "/sumdb/sum.golang.org")
+		if u.Path == "/latest" {
+			// Serve from memory cache if we have it.
+			if buf := latest.Lookup(); buf != nil {
+				fromcache = true
+				w.Write(buf)
+				return
+			}
+		}
+	} else {
+		u.Scheme, u.Opaque, u.User, u.Host = goproxyURL.Scheme, goproxyURL.Opaque, goproxyURL.User, goproxyURL.Host
+	}
 	nr, err := http.NewRequestWithContext(r.Context(), "GET", u.String(), nil)
 	if err != nil {
 		metricErrors.Inc()
@@ -422,6 +488,20 @@ func serveGoProxy(w http.ResponseWriter, r *http.Request) {
 		metricForwardErrors.Inc()
 	}
 	if resp.StatusCode == http.StatusOK && canCache {
+		if issumdb && u.Path == "/latest" {
+			buf, err := io.ReadAll(resp.Body)
+			if err != nil {
+				log.Error("reading /latest response from sum.golang.org", "err", err)
+				metricForwardErrors.Inc()
+				http.Error(w, "502 - bad request - http transaction to goproxy: "+err.Error(), http.StatusBadGateway)
+				return
+			}
+			metricCachedResponses.Inc()
+			latest.Put(buf)
+			w.Write(buf)
+			return
+		}
+
 		// We'll write the entire file to disk, and copy it to the client as well, ignoring
 		// errors when writing to the client.
 		f, err := os.CreateTemp(filepath.Dir(p), "tmp-"+filepath.Base(p)+"-")
