@@ -1,10 +1,9 @@
 package main
 
 import (
-	"archive/tar"
 	"context"
+	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -102,24 +101,27 @@ func newCommandDir(ctx context.Context, name string) (rdir string, rerr error) {
 		}
 	}()
 
-	// Copy gosumdb state if it exists.
-	f, err := os.Open(statePath)
+	// Copy sumdb latest if it exists.
+	buf, err := os.ReadFile(latestPath)
 	if err != nil {
-		if os.IsNotExist(err) {
+		if errors.Is(err, fs.ErrNotExist) {
 			return dir, nil
 		}
-		return "", fmt.Errorf("open gosumdb state file %q: %v", statePath, err)
+		return "", fmt.Errorf("open sumdb latest file %q: %v", latestPath, err)
 	}
-	defer f.Close()
-	if err := restoreState(ctx, f, dir); err != nil {
-		return "", fmt.Errorf("restoring gosumdb state: %w", err)
+	p := filepath.Join(dir, "go/pkg/sumdb/sum.golang.org/latest")
+	os.MkdirAll(filepath.Dir(p), 0o700)
+	logCheck(ctx, err, "creating path to sumdb latest")
+	if err := os.WriteFile(p, buf, 0o600); err != nil {
+		return "", fmt.Errorf("restoring sumdb latest: %w", err)
 	}
+
 	return dir, nil
 }
 
 func removeCommandDir(ctx context.Context, cmdHomeDir string) {
-	if err := saveState(ctx, cmdHomeDir); err != nil {
-		logger(ctx).Error("saving gosumdb state, ignoring", "err", err)
+	if err := saveLatest(ctx, cmdHomeDir); err != nil {
+		logger(ctx).Error("saving sumdb latest, ignoring", "err", err)
 	}
 
 	// Walk cmdHomeDir to change permissions of go/pkg/mod directory so we can remove it all.
@@ -146,132 +148,38 @@ func chmodRecursive(ctx context.Context, dir string) {
 	}
 }
 
-// restoreState extracts the gosumdb state tar file to a destination directory.
-func restoreState(ctx context.Context, f io.Reader, dstDir string) error {
-	dst, err := os.OpenRoot(dstDir)
+// saveLatest stores the sumdb latest from a "build home dir" to latestPath. The
+// current file is untouched if an error occurrs.
+func saveLatest(ctx context.Context, srcDir string) error {
+	p := filepath.Join(srcDir, "go/pkg/sumdb/sum.golang.org/latest")
+	buf, err := os.ReadFile(p)
 	if err != nil {
-		return fmt.Errorf("root dir for %q: %v", dstDir, err)
-	}
-	defer func() {
-		err := dst.Close()
-		logCheck(ctx, err, "closing root for restoreState")
-	}()
-
-	r := tar.NewReader(f)
-	for {
-		h, err := r.Next()
-		if err == io.EOF {
-			break
-		} else if err != nil {
-			return fmt.Errorf("next file in tar: %v", err)
-		}
-		fi := h.FileInfo()
-		if fi.IsDir() {
-			if err := dst.MkdirAll(h.Name, 0o750); err != nil {
-				return fmt.Errorf("mkdirall %q in %q: %v", h.Name, dstDir, err)
-			}
-			continue
-		} else if !fi.Mode().IsRegular() {
-			return fmt.Errorf("not a regular file in tar file: %q: %o", h.Name, fi.Mode())
-		}
-		dst.MkdirAll(filepath.Dir(h.Name), 0o750)
-		nf, err := dst.Create(h.Name)
-		if err != nil {
-			return fmt.Errorf("create %q in %q: %v", h.Name, dstDir, err)
-		}
-		if _, err := io.Copy(nf, r); err != nil {
-			if xerr := nf.Close(); xerr != nil {
-				logger(ctx).Error("closing new file after error", "err", xerr, "dstdir", dstDir, "name", h.Name)
-			}
-		}
-		if err := nf.Close(); err != nil {
-			return fmt.Errorf("closing new file %q in %q: %v", h.Name, dstDir, err)
-		}
-	}
-	return nil
-}
-
-// saveState stores the gosumdb state from a "build home dir" to the state tar
-// file. The current file is untouched if an error occurrs.
-func saveState(ctx context.Context, srcDir string) error {
-	f, err := os.CreateTemp(filepath.Dir(statePath), "gosumdbstate-tmp.")
-	if err != nil {
-		return fmt.Errorf("create temp gosumdb state file: %w", err)
-	}
-
-	defer func() {
-		if f == nil {
-			return
-		}
-		name := f.Name()
-		err := f.Close()
-		logCheck(ctx, err, "closing temp gosumdb state file after error")
-		err = os.Remove(name)
-		logCheck(ctx, err, "removing temp gosumdb state file after error")
-	}()
-
-	w := tar.NewWriter(f)
-
-	addTree := func(dir string) error {
-		return filepath.WalkDir(filepath.Join(srcDir, dir), func(path string, d fs.DirEntry, err error) error {
-			if err != nil {
-				return fmt.Errorf("walk: %v", err)
-			}
-			fi, err := d.Info()
-			if err != nil {
-				return fmt.Errorf("fileinfo for entry: %v", err)
-			}
-			// We only add regular files.
-			if d.IsDir() {
-				return nil
-			} else if !fi.Mode().IsRegular() {
-				return fmt.Errorf("not a regular file %q: mode %o", path, fi.Mode())
-			}
-			h, err := tar.FileInfoHeader(fi, "")
-			if err != nil {
-				return fmt.Errorf("fileinfo to tar header for %q: %v", path, err)
-			}
-			h.Name, err = filepath.Rel(srcDir, path)
-			if err != nil {
-				return fmt.Errorf("relative path for %q in %q: %v", path, srcDir, err)
-			}
-			if err := w.WriteHeader(h); err != nil {
-				return fmt.Errorf("write header: %v", err)
-			}
-			xf, err := os.Open(path)
-			if err != nil {
-				return fmt.Errorf("open %q: %v", path, err)
-			}
-			defer xf.Close()
-			if n, err := io.Copy(w, xf); err != nil {
-				return fmt.Errorf("copy %q to gosumdb state file: %w", path, err)
-			} else if int64(n) != h.Size {
-				return fmt.Errorf("copied %d bytes for path %q to gosumdb state file, expected %d", n, path, h.Size)
-			}
+		if errors.Is(err, fs.ErrNotExist) {
 			return nil
-		})
+		}
+		return fmt.Errorf("open go/pkg/sumdb/sum.golang.org/latest: %v", err)
 	}
 
-	// Copy back gosumdb state.
-	paths := []string{
-		"go/pkg/sumdb/sum.golang.org",
-		"go/pkg/mod/cache/download/sumdb/sum.golang.org/tile",
+	nf, err := os.CreateTemp(filepath.Dir(latestPath), "sumdb-latest-tmp.")
+	if err != nil {
+		return fmt.Errorf("create temp sumdb latest file: %w", err)
 	}
-	for _, p := range paths {
-		if err := addTree(p); err != nil {
-			return fmt.Errorf("copying gosumdb state to tmp tar file: %v", err)
+	tmpname := nf.Name()
+	defer func() {
+		if tmpname != "" {
+			err := os.Remove(tmpname)
+			logCheck(ctx, err, "removing temp sumdb latest file after error")
 		}
+	}()
+	err = nf.Close()
+	logCheck(ctx, err, "closing temp sumdb latest file")
+	if err := os.WriteFile(tmpname, buf, 0o600); err != nil {
+		return fmt.Errorf("writing temp sumdb latest file: %w", err)
 	}
-	if err := w.Close(); err != nil {
-		return fmt.Errorf("closing temp gosumdb state tar writer: %v", err)
+
+	if err := os.Rename(tmpname, latestPath); err != nil {
+		return fmt.Errorf("renaming temp sumdb latest file %q to final name %q: %v", tmpname, latestPath, err)
 	}
-	name := f.Name()
-	if err := f.Close(); err != nil {
-		return fmt.Errorf("close temp gosumdb state file: %w", err)
-	}
-	if err := os.Rename(name, statePath); err != nil {
-		return fmt.Errorf("renaming temp gosumdb state file %q to final name %q: %v", name, statePath, err)
-	}
-	f = nil
+	tmpname = ""
 	return nil
 }

@@ -45,7 +45,7 @@ var (
 	// Set to absolute paths: the config file can have relative paths.
 	workdir    string
 	homedir    string
-	statePath  string
+	latestPath string
 	commandDir string
 	emptyDir   string
 
@@ -415,7 +415,7 @@ func serve(args []string) {
 	if err != nil {
 		log.Fatalf("evaluating symlinks in homedir: %v", err)
 	}
-	statePath = filepath.Join(homedir, "gosumdbstate.tar") // archive file for atomic replacement
+	latestPath = filepath.Join(homedir, "sumdb-latest")
 	commandDir = filepath.Join(homedir, "cmds")
 	emptyDir = filepath.Join(homedir, "tmp")
 
