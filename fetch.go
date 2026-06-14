@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"time"
@@ -73,10 +74,10 @@ func fetchModule(ctx context.Context, cmdDir, modDir, goversion, gobin, mod, ver
 		}
 
 		// Mark go.mod & go.sum writable so download command below can update them.
-		if err := os.Chmod(filepath.Join(modDir, "go.mod"), 0o640); err != nil {
+		if err := os.Chmod(filepath.Join(modDir, "go.mod"), 0o640); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			logger(ctx).Warn("chmod of go.mod of go module to make it writable, continuing", "path", filepath.Join(modDir, "go.mod"), "err", err)
 		}
-		if err := os.Chmod(filepath.Join(modDir, "go.sum"), 0o640); err != nil {
+		if err := os.Chmod(filepath.Join(modDir, "go.sum"), 0o640); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			logger(ctx).Warn("chmod of go.sum of go module to make it writable, continuing", "path", filepath.Join(modDir, "go.sum"), "err", err)
 		}
 
