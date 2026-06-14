@@ -606,9 +606,9 @@ func serve(args []string) {
 			}
 			return 1
 		})
+		fmt.Fprintf(w, "# buildspec, added, started, initiator\n")
 		for _, e := range l {
-			fmt.Fprintf(w, "# buildspec, added, started, initiator\n")
-			fmt.Fprintf(w, "%s %v %v %s\n", e.bs.String(), e.added, e.started, e.initiator.String())
+			fmt.Fprintf(w, "%s\t%v\t%v\t%s\n", e.bs.String(), e.added, e.started, e.initiator.String())
 		}
 	})
 
