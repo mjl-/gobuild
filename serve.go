@@ -700,6 +700,11 @@ func serve(args []string) {
 			},
 			Handler:  ctxlogHandler(handler),
 			ErrorLog: httpErrorLog,
+
+			ReadHeaderTimeout: 30 * time.Second,
+			ReadTimeout:       5 * time.Minute,
+			WriteTimeout:      30 * time.Minute,
+			IdleTimeout:       120 * time.Second,
 		}
 		servers = append(servers, server)
 		wgShutdown.Add(1)
@@ -728,6 +733,11 @@ func serve(args []string) {
 			},
 			Handler:  ctxlogHandler(handler),
 			ErrorLog: httpErrorLog,
+
+			ReadHeaderTimeout: 30 * time.Second,
+			ReadTimeout:       5 * time.Minute,
+			WriteTimeout:      30 * time.Minute,
+			IdleTimeout:       120 * time.Second,
 		}
 		servers = append(servers, server)
 		wgShutdown.Add(1)
@@ -750,6 +760,11 @@ func serve(args []string) {
 			},
 			Handler:  ctxlogHandler(http.DefaultServeMux),
 			ErrorLog: httpErrorLog,
+
+			ReadHeaderTimeout: 30 * time.Second,
+			ReadTimeout:       5 * time.Minute,
+			WriteTimeout:      30 * time.Minute,
+			IdleTimeout:       120 * time.Second,
 		}
 		servers = append(servers, server)
 		wgShutdown.Add(1)
