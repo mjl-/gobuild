@@ -231,9 +231,6 @@ func serveIndex(w http.ResponseWriter, r *http.Request, bs buildSpec, br *buildR
 		"NewerText":              newerText,
 		"NewerURL":               newerURL,
 
-		// Whether we will do SSE request for updates.
-		"InProgress": br.Sum == "" && output == "",
-
 		// Non-empty on failure.
 		"Output": output,
 

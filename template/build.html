@@ -9,10 +9,10 @@
 		<div class="charwrap"><span style="cursor:pointer" onclick="return copyOneliner()" title="SHA256 hash of the binary, truncated to 20 bytes, encoded as url-safe base64, with a 0 prepended as a version. You can generate the same hash with the following one-liner (click to copy to clipboard):
 
 	python3 -c 'import sys, hashlib, base64; print(&quot;0&quot; + base64.urlsafe_b64encode(hashlib.sha256(sys.stdin.buffer.read()).digest()[:20]).decode(&quot;utf-8&quot;).rstrip(&quot;=&quot;))' &lt; {{ .DownloadFilename }}">{{ .Sum }}</span><span class="success">✓</span></div>
-	{{ else if .InProgress -}}
-		<div class="charwrap"><img style="max-height: 1.5rem;" id="dancer" src="/img/gopher-dance-long.gif" title="Dancing gopher, by Egon Elbre, CC0" /> <span id="progress">Connecting for updates... <a rel="nofollow noindex" href="dl">trigger build</a></span></div>
-	{{ else -}}
+	{{ else if .Output -}}
 		<div class="charwrap">Error<span class="failure">❌</span></div>
+	{{ else -}}
+		<div class="charwrap"><img style="max-height: 1.5rem; display: none" id="dancer" src="/img/gopher-dance-long.gif" title="Dancing gopher, by Egon Elbre, CC0" /> <span id="progress" style="display: none">Connecting for updates... <a rel="nofollow noindex" href="dl">trigger build</a></span></div>
 	{{ end }}
 	</h1>
 
@@ -35,7 +35,13 @@
 	<p>To download while <span title="Only if you download with the &quot;gobuild get&quot; command will you verify that the hash shown on this page is present in the signed append-only transparency log, and update your local copy of the log. If you download through the links above, no verification with the transparency log takes place." style="text-decoration: underline; text-decoration-style: dotted">verifying with the transparency log:</span></p>
 	<pre class="command charwrap">gobuild get {{ if ne .VerifierKey .GobuildsOrgVerifierKey }}<span title="This gobuild instance is configured with a non-standard verifierkey (i.e. not for gobuilds.org), so in order to verify the signed append-only transparency log, the (public) verifierkey to check against must be specified on the command-line.">-verifierkey {{ .VerifierKey }}</span> {{ end }}-sum {{ .Sum }} -target {{ .Req.Goos }}/{{ .Req.Goarch }} -goversion {{ .Req.Goversion }} {{ if .Req.Stripped }}-stripped {{ end }}{{ .Req.Mod }}@{{ .Req.Version }}{{ .Req.Dir }}</pre>
 
-{{ else if .InProgress }}
+{{ else if .Output }}
+	<h2>Error</h2>
+	<div><span style="background-color: #ffdc9b; display: inline-block; padding: .25ex .5ex; border-radius: .25ex">Note: This software possibly does not have support for the selected operating system ("{{ .Req.Goos }}") and architecture ("{{ .Req.Goarch }}").</span> See <a href="#versions">below</a> for other options.</div>
+	<p>The last lines of the following build log typically indicate the failure.</p>
+	<pre class="prewrap">{{ .Output }}</pre>
+	<form method="POST" action="retry"><button type="submit">Retry</button></form>
+{{ else }}
 	<div id="error" style="display: none">
 		<h2>Error</h2>
 		<div><span style="background-color: #ffdc9b; display: inline-block; padding: .25ex .5ex; border-radius: .25ex">Note: This software possibly does not have support for the selected operating system ("{{ .Req.Goos }}") and architecture ("{{ .Req.Goarch }}").</span> See <a href="#versions">below</a> for other options.</div>
@@ -46,31 +52,38 @@
 
 	<div id="download">
 		<h2>Download</h2>
+
+		<div id="buildbox">
+			<div>
+				<span style="background-color: #ffdc9b; display: inline-block; padding: .25ex .5ex; border-radius: .25ex">Builds needs to be started manually</span>
+				<button type="button" id="startbuild" title="Build this module version for the selected Go OS/architecture, and add the result to the Go sum database. Builds can't be triggered automatically anymore due to aggressive crawlers that don't respect robots.txt.">Start build</button>
+			</div>
+			<br/>
+		</div>
+
 		<table>
 			<tr>
 				<td>{{ .DownloadFilename }}</td>
-				<td style="padding-left: 1rem; text-align: right">(pending)</td>
+				<td style="padding-left: 1rem; text-align: right">(waiting)</td>
 			</tr>
 			<tr>
 				<td>{{ .DownloadFilename }}.gz</td>
-				<td style="padding-left: 1rem; text-align: right">(pending)</td>
+				<td style="padding-left: 1rem; text-align: right">(waiting)</td>
 			</tr>
 		</table>
 		<p>To download using the transparency log:</p>
 		<pre class="command charwrap">gobuild get {{ if ne .VerifierKey .GobuildsOrgVerifierKey }}<span title="This gobuild instance is configured with a non-standard verifierkey (i.e. not for gobuilds.org), so in order to verify the signed append-only transparency log, the (public) verifierkey to check against must be set on the command-line.">-verifierkey {{ .VerifierKey }}</span> {{ end }}-target {{ .Req.Goos }}/{{ .Req.Goarch }} -goversion {{ .Req.Goversion }} {{ .Req.Mod }}@{{ .Req.Version }}{{ .Req.Dir }}</pre>
 	</div>
-{{ else }}
-	<h2>Error</h2>
-	<div><span style="background-color: #ffdc9b; display: inline-block; padding: .25ex .5ex; border-radius: .25ex">Note: This software possibly does not have support for the selected operating system ("{{ .Req.Goos }}") and architecture ("{{ .Req.Goarch }}").</span> See <a href="#versions">below</a> for other options.</div>
-	<p>The last lines of the following build log typically indicate the failure.</p>
-	<pre class="prewrap">{{ .Output }}</pre>
-	<form method="POST" action="retry"><button type="submit">Retry</button></form>
 {{ end }}
 
 	<h2>More</h2>
 	<ul>
+	{{ if or .Success .Output }}
 		<li><a rel="nofollow noindex" href="log">Build log</a></li>
-		<li><a rel="nofollow noindex" href="/{{ .Req.Mod }}@latest/{{ .DirAppend }}{{ .Req.Goos }}-{{ .Req.Goarch }}-latest{{ if .Req.Stripped }}-stripped{{ end }}/">{{ .Req.Mod }}@<b>latest</b>/{{ .DirAppend }}{{ .Req.Goos }}-{{ .Req.Goarch }}-<b>latest</b>{{ if .Req.Stripped }}-stripped{{ end }}/</a> (<a rel="nofollow noindex" href="/{{ .Req.Mod }}@latest/{{ .DirAppend }}{{ .Req.Goos }}-{{ .Req.Goarch }}-latest{{ if .Req.Stripped }}-stripped{{ end }}/dl">direct download</a>)</li>
+	{{ else }}
+		<li>Build log (available when built)</li>
+	{{ end }}
+		<li><a rel="nofollow noindex" href="/{{ .Req.Mod }}@latest/{{ .DirAppend }}{{ .Req.Goos }}-{{ .Req.Goarch }}-latest{{ if .Req.Stripped }}-stripped{{ end }}/">{{ .Req.Mod }}@<b>latest</b>/{{ .DirAppend }}{{ .Req.Goos }}-{{ .Req.Goarch }}-<b>latest</b>{{ if .Req.Stripped }}-stripped{{ end }}/</a> (add "dl" for a direct link to the binary)
 		<li>Documentation at <a href="{{ .PkgGoDevURL }}">pkg.go.dev</a></li>
 	</ul>
 
@@ -117,7 +130,7 @@ function copyOneliner() {
 	return false;
 }
 	</script>
-	{{ else if .InProgress }}
+	{{ else if not .Output }}
 	<script>
 (function() {
 	function text(s) { return document.createTextNode(s) }
@@ -174,6 +187,8 @@ function copyOneliner() {
 	var progress = document.getElementById('progress')
 	var errorElem = document.getElementById('error')
 	var errormsgElem = document.getElementById('errormsg')
+	var startBuild = document.getElementById('startbuild')
+	var buildBox = document.getElementById('buildbox')
 
 	function showError(line, details) {
 		dancer.style.display = 'none'
@@ -194,6 +209,9 @@ function copyOneliner() {
 	var initialProgressID
 
 	var requestBuildWithUpdates = function() {
+		dancer.style.display = ''
+		progress.style.display = ''
+
 		var src = new EventSource('events')
 		src.addEventListener('update', function(e) {
 			if (initialProgressID) {
@@ -254,7 +272,12 @@ function copyOneliner() {
 		})
 	}
 
-	requestBuildWithUpdates()
+	startBuild.addEventListener('click', function() {
+		buildBox.style.display = 'none'
+		setTimeout(function() {
+			requestBuildWithUpdates()
+		}, 1000)
+	})
 })()
 	</script>
 	{{ end }}

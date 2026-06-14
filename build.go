@@ -145,9 +145,9 @@ func serveBuild(w http.ResponseWriter, r *http.Request, req request) {
 		return
 	}
 
-	// We serve the index page immediately. It makes an SSE-request to the /events
-	// endpoint to register a request for the build and to receive updates.
-	// Pages other than /events will block until a build completes.
+	// We serve the index page immediately. It can make an SSE-request to the /events
+	// endpoint to register a request for the build and to receive updates. Pages other
+	// than /events will block until a build completes.
 	if req.Page == pageIndex {
 		serveIndex(w, r, req.buildSpec, nil)
 		return
