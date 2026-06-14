@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"slices"
@@ -62,8 +63,55 @@ func serveHome(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+type specResponseWriter struct {
+	Start               time.Time
+	Request             *http.Request
+	Code                int
+	http.ResponseWriter // Pass through Header().
+}
+
+func newSpecResponseWriter(w http.ResponseWriter, r *http.Request) *specResponseWriter {
+	return &specResponseWriter{Start: time.Now(), Request: r, ResponseWriter: w}
+}
+
+func (w *specResponseWriter) Log(ctx context.Context) {
+	logger(ctx).Info("http response", "method", w.Request.Method, "path", w.Request.URL.Path, "statuscode", w.Code, "duration", time.Since(w.Start))
+}
+
+func (w *specResponseWriter) Status(statusCode int) {
+	if w.Code == 0 {
+		w.Code = statusCode
+	}
+}
+
+func (w *specResponseWriter) Write(buf []byte) (int, error) {
+	w.Status(http.StatusOK)
+	return w.ResponseWriter.Write(buf)
+}
+
+func (w *specResponseWriter) WriteHeader(statusCode int) {
+	w.Status(statusCode)
+	w.ResponseWriter.WriteHeader(statusCode)
+}
+
+func (w *specResponseWriter) Flush() {
+	if f, ok := w.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	} else {
+		slog.Error("ResponseWriter not a http.Flusher")
+	}
+}
+
 func serveSpec(w http.ResponseWriter, r *http.Request) {
 	defer observePage("spec", time.Now())
+
+	ctx := r.Context()
+
+	// Log request as it comes in, and the result when done.
+	logger(ctx).Info("http request", "method", r.Method, "path", r.URL.Path)
+	sw := newSpecResponseWriter(w, r)
+	w = sw
+	defer sw.Log(ctx)
 
 	t := strings.Split(r.URL.Path[1:], "/")
 	if !strings.Contains(t[0], ".") {
@@ -77,9 +125,10 @@ func serveSpec(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		if !checkAllowedRespond(r.Context(), w, r.URL.Path[1:]) {
+		if !checkAllowedRespond(ctx, w, r.URL.Path[1:]) {
 			return
 		}
+
 		serveModules(w, r)
 		return
 	}
@@ -88,14 +137,14 @@ func serveSpec(w http.ResponseWriter, r *http.Request) {
 	// have a slash, we'll assume a path like /github.com/mjl-/sherpa@v0.6.0 and
 	// redirect to a path with guessed goos/goarch and latest goversion.
 	if mod, version, _ := strings.Cut(r.URL.Path[1:], "@"); mod != "" && version != "" && !strings.Contains(version, "@") && !strings.Contains(version, "/") {
-		goversion, err := ensureMostRecentSDK(r.Context())
+		goversion, err := ensureMostRecentSDK(ctx)
 		if err != nil {
 			failf(w, r, "ensuring most recent sdk: %w", err)
 			return
 		}
 
 		// Resolve module version. Could be a git hash.
-		info, err := resolveModuleVersion(r.Context(), mod, version)
+		info, err := resolveModuleVersion(ctx, mod, version)
 		if err != nil {
 			failf(w, r, "resolving module version: %w", err)
 			return
@@ -123,12 +172,12 @@ func serveSpec(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "405 - Method Not Allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	if !checkAllowedRespond(r.Context(), w, req.Mod) {
+	if !checkAllowedRespond(ctx, w, req.Mod) {
 		return
 	}
 
 	// Resolve module version. Could be a git hash.
-	info, err := resolveModuleVersion(r.Context(), req.Mod, req.Version)
+	info, err := resolveModuleVersion(ctx, req.Mod, req.Version)
 	if err != nil {
 		failf(w, r, "resolving module version: %w", err)
 		return
