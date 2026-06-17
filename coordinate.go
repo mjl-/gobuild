@@ -112,8 +112,8 @@ func coordinateBuilds(ctx context.Context) {
 		maxBuilds = runtime.NumCPU() + 1
 	}
 
-	// Build requests always go through the queue. We'll pick up the next for which the
-	// output path is available, but only if we are below maxBuilds builds in progress.
+	// Build requests always go through the queue. We'll pick up the next if there are
+	// less than maxBuilds builds in progress.
 	queue := []buildRequest{}
 
 	updatec := make(chan buildUpdate)
@@ -241,8 +241,15 @@ func coordinateBuilds(ctx context.Context) {
 				panic("did not find channel")
 			}
 			b.events = l
-			if len(b.events) == 0 && b.final != nil {
+			if len(b.events) == 0 && (b.final != nil || b.started == nil) {
 				delete(builds, unreg.bs)
+
+				// If we weren't started yet, the buildSpec is still in the queue, remove it.
+				if b.started == nil {
+					queue = slices.DeleteFunc(queue, func(e buildRequest) bool {
+						return e.bs == unreg.bs
+					})
+				}
 			}
 
 		case update := <-updatec:
