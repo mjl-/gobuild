@@ -485,6 +485,9 @@ func serveGoProxy(w http.ResponseWriter, r *http.Request) {
 
 	resp, err := http.DefaultClient.Do(nr)
 	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			return
+		}
 		metricForwardErrors.Inc()
 		http.Error(w, "502 - bad request - http transaction to goproxy: "+err.Error(), http.StatusBadGateway)
 		log.Error("http transaction to goproxy", "err", err)
@@ -498,6 +501,9 @@ func serveGoProxy(w http.ResponseWriter, r *http.Request) {
 		if issumdb && u.Path == "/latest" {
 			buf, err := io.ReadAll(resp.Body)
 			if err != nil {
+				if errors.Is(err, context.Canceled) {
+					return
+				}
 				log.Error("reading /latest response from sum.golang.org", "err", err)
 				metricForwardErrors.Inc()
 				http.Error(w, "502 - bad request - http transaction to goproxy: "+err.Error(), http.StatusBadGateway)
@@ -530,6 +536,9 @@ func serveGoProxy(w http.ResponseWriter, r *http.Request) {
 		mw := &cacheWriter{f, w}
 		size, err := io.Copy(mw, resp.Body)
 		if err != nil {
+			if errors.Is(err, context.Canceled) {
+				return
+			}
 			metricErrors.Inc()
 			log.Error("writing cache file", "err", err)
 			return

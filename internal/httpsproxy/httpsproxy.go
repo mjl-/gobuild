@@ -3,6 +3,8 @@
 package httpsproxy
 
 import (
+	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -177,6 +179,9 @@ func (c connectServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	rconn, err := dialer.DialContext(r.Context(), "tcp", addr.String())
 	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			return
+		}
 		result = "dialerr"
 		slog.Info("connect to remote", "err", err, "addr", addr)
 		http.Error(w, fmt.Sprintf("503 - service not available - connect to remote failed: %s", err), http.StatusServiceUnavailable)
@@ -198,7 +203,6 @@ func (c connectServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Copy from remote to local request.
 	wg.Go(func() {
-
 		buf := make([]byte, 32*1024)
 		for {
 			if rerr := rconn.SetReadDeadline(time.Now().Add(ioTimeout)); rerr != nil {
