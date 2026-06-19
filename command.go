@@ -61,9 +61,15 @@ func makeCommand(ctx context.Context, cmdHomeDir, workDir, goversion string, wit
 		goproxy,
 		cgo,
 		"GO111MODULE=on",
-		"GO19CONCURRENTCOMPILATION=0",
 		"GOTOOLCHAIN=" + goversion,
 	}
+	if gv, err := parseGoVersion(goversion); err != nil {
+		logger(ctx).Error("parsing go version", "err", err, "version", goversion)
+	} else if gv.major == 1 && gv.minor < 26 {
+		// go1.26 removed GO19CONCURRENTCOMPILATION
+		cmd.Env = append(cmd.Env, "GO19CONCURRENTCOMPILATION=0")
+	}
+
 	switch runtime.GOOS {
 	case "windows":
 		cmd.Env = append(cmd.Env,

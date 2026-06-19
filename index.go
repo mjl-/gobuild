@@ -27,6 +27,12 @@ func serveIndex(w http.ResponseWriter, r *http.Request, bs buildSpec, br *buildR
 	xreq := request{bs, "", pageIndex}
 	xlink := xreq.link()
 
+	gv, err := parseGoVersion(bs.Goversion)
+	if err != nil {
+		failf(w, r, "%w: parsing go version: %v", errServer, err)
+		return
+	}
+
 	type versionLink struct {
 		Version string
 		URLPath string
@@ -237,6 +243,8 @@ func serveIndex(w http.ResponseWriter, r *http.Request, bs buildSpec, br *buildR
 		// Below only meaningful when "success".
 		"Filesize":   fmt.Sprintf("%.1f MB", float64(br.Filesize)/(1024*1024)),
 		"FilesizeGz": filesizeGz,
+
+		"GO19CONCURRENTCOMPILATION": gv.major == 1 && gv.minor < 26,
 	}
 
 	if br.Sum == "" {

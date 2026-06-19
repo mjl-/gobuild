@@ -3,7 +3,6 @@
 - Test using gobuild with other goproxy, sumdb. And with private git modules? Make some known invalid modules and check we get the right error.
 - Add subcommand to validate all records, hashes and links.
 - When downloading an SDK, explain it on a page, possibly with progress updates.
-- Use concurrentcompilation again after the release that fixed the issue (remove GO19CONCURRENTCOMPILATION=0).
 - For next go release, consider stripping only part of the buildid.
 - Write tests.
 - Implement better backend with transactions for tlog server. To ensure we either have all information about a build, or none. Now we could get a mismatch between the records, hashes, and index files.
@@ -19,4 +18,3 @@
 - Consider a mode where we create docker images for a binary. Perhaps only for a specific dockerfile in the module zip, taking command/entrypoint/ports.
 - Mode where go toolchain version go1.2.latest is allowed, with latest resolved.
 - "gobuild get" should look in $HOME/.config/gobuild/ or similar for a signerkey and/or baseurl.
-- Keep temporary build (command) directories for building a moduleversion around between executions and reuse them.
