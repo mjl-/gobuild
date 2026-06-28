@@ -149,7 +149,7 @@ func chmodRecursive(ctx context.Context, dir string) {
 		}
 		return os.Chmod(path, 0o640)
 	})
-	if err != nil {
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		logger(ctx).Error("walk and change permissions before removal, continuing", "err", err, "dir", dir)
 	}
 }
