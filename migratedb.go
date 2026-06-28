@@ -18,8 +18,6 @@ import (
 	"golang.org/x/mod/sumdb/note"
 	"golang.org/x/mod/sumdb/tlog"
 
-	"github.com/mjl-/bstore"
-
 	"github.com/mjl-/gobuild/internal/sumdb"
 )
 
@@ -63,142 +61,175 @@ func migrateToDB(ctx context.Context) (rerr error) {
 	var renames []rename
 
 	log.Info("building database from hashes and records files")
-	err := database.Write(ctx, func(tx *bstore.Tx) error {
-		// Open hashes file.
-		hashesPath := filepath.Join(config.DataDir, "sum", "hashes")
-		hf, err := os.Open(hashesPath)
+
+	// Open hashes file.
+	hashesPath := filepath.Join(config.DataDir, "sum", "hashes")
+	hf, err := os.Open(hashesPath)
+	if err != nil {
+		return fmt.Errorf("open $datadir/sum/hashes: %v", err)
+	}
+	defer hf.Close()
+
+	// Open records file.
+	recordsPath := filepath.Join(config.DataDir, "sum", "records")
+	rf, err := os.Open(recordsPath)
+	if err != nil {
+		return fmt.Errorf("open $datadir/sum/records file: %v", err)
+	}
+	defer rf.Close()
+
+	// Verify state is sane before starting migration.
+	if _, err := verifySumStateMigrate(ctx, hf, rf); err != nil {
+		return fmt.Errorf("verifying hashes & records before starting: %v", err)
+	}
+
+	// We keep chunks of work and commit. Bolt keeps changes in memory. Large
+	// migrations would require a lot of working memory. By committing every 10k hashes
+	// and every 1k records, we should prevent swapping in most cases.
+	tx, err := database.Begin(ctx, true)
+	if err != nil {
+		return fmt.Errorf("begin transaction: %v", err)
+	}
+	defer func() {
+		if tx != nil {
+			err := tx.Rollback()
+			logCheck(ctx, err, "rolling back transaction")
+		}
+	}()
+
+	// Insert all hashes into database.
+	br := bufio.NewReader(hf)
+	var hashCount int64
+	for {
+		var h tlog.Hash
+		if _, err := io.ReadFull(br, h[:]); err == io.EOF {
+			break
+		} else if err != nil {
+			return fmt.Errorf("read hash: %v", err)
+		}
+		th := TreeHash{Number(hashCount).ID(), h}
+		if err := tx.Insert(&th); err != nil {
+			return fmt.Errorf("insert hash: %v", err)
+		}
+		hashCount++
+		if hashCount%10000 == 0 {
+			if err := tx.Commit(); err != nil {
+				return fmt.Errorf("committing: %v", err)
+			}
+			tx, err = database.Begin(ctx, true)
+			if err != nil {
+				return fmt.Errorf("begin transaction: %v", err)
+			}
+			log.Info("committed 10k hashes")
+		}
+	}
+
+	// Insert all records into database.
+	br = bufio.NewReader(rf)
+	var recordCount int64
+
+	processRecord := func(record *Record) error {
+		result := record.result()
+
+		dir := storeDir(record.buildSpec)
+
+		// Verify recordnumber has the expected value.
+		f, err := os.Open(filepath.Join(dir, "recordnumber"))
 		if err != nil {
-			return fmt.Errorf("open $datadir/sum/hashes: %v", err)
+			return fmt.Errorf("open recordnumber: %v", err)
 		}
-		defer hf.Close()
-
-		// Open records file.
-		recordsPath := filepath.Join(config.DataDir, "sum", "records")
-		rf, err := os.Open(recordsPath)
+		defer f.Close()
+		if st, err := f.Stat(); err != nil {
+			return fmt.Errorf("stat recordnumber: %v", err)
+		} else {
+			result.Created = st.ModTime()
+		}
+		rnbuf, err := os.ReadFile(filepath.Join(dir, "recordnumber"))
 		if err != nil {
-			return fmt.Errorf("open $datadir/sum/records file: %v", err)
+			return fmt.Errorf("read recordnumber: %v", err)
 		}
-		defer rf.Close()
+		if num, err := strconv.ParseInt(string(rnbuf), 10, 64); err != nil {
+			return fmt.Errorf("parse recordnumber: %v", err)
+		} else if num != recordCount {
+			return fmt.Errorf("unexpected recordnumber, got %d, expected %d", num, recordCount)
+		} else {
+			result.TreeRecordID = Number(num).ID()
+		}
+		// no ErrorReason
 
-		// Verify state is sane before starting migration.
-		if _, err := verifySumStateMigrate(ctx, hf, rf); err != nil {
-			return fmt.Errorf("verifying hashes & records before starting: %v", err)
+		// Prepare moving binary.
+		p := filepath.Join(dir, "binary.gz")
+		if fi, err := os.Stat(p); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return fmt.Errorf("stat binary.gz: %v", err)
+		} else if err == nil {
+			result.FileSizeGz = fi.Size()
+			renames = append(renames, rename{p, filepath.Join(config.DataDir, "binaries", fmt.Sprintf("%d.gz", result.TreeRecordID))})
 		}
 
-		// Insert all hashes into database.
-		br := bufio.NewReader(hf)
-		var hashCount int64
-		for {
-			var h tlog.Hash
-			if _, err := io.ReadFull(br, h[:]); err == io.EOF {
-				break
-			} else if err != nil {
-				return fmt.Errorf("read hash: %v", err)
+		if err := tx.Insert(&result); err != nil {
+			return fmt.Errorf("inserting result: %v", err)
+		}
+
+		// Read the build log and insert it.
+		var logBuf []byte // gzipped, absent if nil
+		lf, err := os.Open(filepath.Join(dir, "log.gz"))
+		if err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return fmt.Errorf("open log.gz for record: %v", err)
+		} else if err == nil {
+			defer lf.Close()
+			if logBuf, err = io.ReadAll(lf); err != nil {
+				return fmt.Errorf("read log.gz for record: %v", err)
 			}
-			th := TreeHash{Number(hashCount).ID(), h}
-			if err := tx.Insert(&th); err != nil {
-				return fmt.Errorf("insert hash: %v", err)
+
+			bl := BuildLog{ID: result.ID, Data: logBuf}
+			if err := tx.Insert(&bl); err != nil {
+				return fmt.Errorf("insert build log: %v", err)
 			}
-			hashCount++
 		}
 
-		// Insert all records into database.
-		br = bufio.NewReader(rf)
-		var recordCount int64
+		// Insert the record.
+		rec := TreeRecord{Number(recordCount).ID(), record.Filesize, record.Sum, result.ID}
+		if err := tx.Insert(&rec); err != nil {
+			return fmt.Errorf("inserting record: %v", err)
+		}
+		recordCount++
 
-		processRecord := func(record *Record) error {
-			result := record.result()
-
-			dir := storeDir(record.buildSpec)
-
-			// Verify recordnumber has the expected value.
-			f, err := os.Open(filepath.Join(dir, "recordnumber"))
+		if recordCount%1000 == 0 {
+			if err := tx.Commit(); err != nil {
+				return fmt.Errorf("committing transaction: %v", err)
+			}
+			tx, err = database.Begin(ctx, true)
 			if err != nil {
-				return fmt.Errorf("open recordnumber: %v", err)
+				return fmt.Errorf("begin transaction: %v", err)
 			}
-			defer f.Close()
-			if st, err := f.Stat(); err != nil {
-				return fmt.Errorf("stat recordnumber: %v", err)
-			} else {
-				result.Created = st.ModTime()
-			}
-			rnbuf, err := os.ReadFile(filepath.Join(dir, "recordnumber"))
-			if err != nil {
-				return fmt.Errorf("read recordnumber: %v", err)
-			}
-			if num, err := strconv.ParseInt(string(rnbuf), 10, 64); err != nil {
-				return fmt.Errorf("parse recordnumber: %v", err)
-			} else if num != recordCount {
-				return fmt.Errorf("unexpected recordnumber, got %d, expected %d", num, recordCount)
-			} else {
-				result.TreeRecordID = Number(num).ID()
-			}
-			// no ErrorReason
-
-			// Prepare moving binary.
-			p := filepath.Join(dir, "binary.gz")
-			if fi, err := os.Stat(p); err != nil && !errors.Is(err, fs.ErrNotExist) {
-				return fmt.Errorf("stat binary.gz: %v", err)
-			} else if err == nil {
-				result.FileSizeGz = fi.Size()
-				renames = append(renames, rename{p, filepath.Join(config.DataDir, "binaries", fmt.Sprintf("%d.gz", result.TreeRecordID))})
-			}
-
-			if err := tx.Insert(&result); err != nil {
-				return fmt.Errorf("inserting result: %v", err)
-			}
-
-			// Read the build log and insert it.
-			var logBuf []byte // gzipped, absent if nil
-			lf, err := os.Open(filepath.Join(dir, "log.gz"))
-			if err != nil && !errors.Is(err, fs.ErrNotExist) {
-				return fmt.Errorf("open log.gz for record: %v", err)
-			} else if err == nil {
-				defer lf.Close()
-				if logBuf, err = io.ReadAll(lf); err != nil {
-					return fmt.Errorf("read log.gz for record: %v", err)
-				}
-
-				bl := BuildLog{ID: result.ID, Data: logBuf}
-				if err := tx.Insert(&bl); err != nil {
-					return fmt.Errorf("insert build log: %v", err)
-				}
-			}
-
-			// Insert the record.
-			rec := TreeRecord{Number(recordCount).ID(), record.Filesize, record.Sum, result.ID}
-			if err := tx.Insert(&rec); err != nil {
-				return fmt.Errorf("inserting record: %v", err)
-			}
-			recordCount++
-
-			return nil
-		}
-
-		var recordBuf [512]byte
-		for {
-			if _, err := io.ReadFull(br, recordBuf[:]); err == io.EOF {
-				break
-			} else if err != nil {
-				return fmt.Errorf("read size of record: %v", err)
-			}
-			size := int(recordBuf[0])<<8 | int(recordBuf[1])
-			record, err := parseRecord(recordBuf[2 : 2+size])
-			if err != nil {
-				return fmt.Errorf("parse record: %v", err)
-			}
-
-			if err := processRecord(record); err != nil {
-				return fmt.Errorf("inserting record number %d: %v", recordCount, err)
-			}
-
+			log.Info("committed 1k records")
 		}
 
 		return nil
-	})
-	if err != nil {
-		return err
 	}
+
+	var recordBuf [512]byte
+	for {
+		if _, err := io.ReadFull(br, recordBuf[:]); err == io.EOF {
+			break
+		} else if err != nil {
+			return fmt.Errorf("read size of record: %v", err)
+		}
+		size := int(recordBuf[0])<<8 | int(recordBuf[1])
+		record, err := parseRecord(recordBuf[2 : 2+size])
+		if err != nil {
+			return fmt.Errorf("parse record: %v", err)
+		}
+
+		if err := processRecord(record); err != nil {
+			return fmt.Errorf("inserting record number %d: %v", recordCount, err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit transaction: %v", err)
+	}
+	tx = nil
 
 	// Rename files.
 	log.Info("renaming gzipped binaries")
