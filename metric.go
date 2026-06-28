@@ -44,6 +44,7 @@ func registerGobuildMetrics() *prometheus.Registry {
 		metricTlogAddErrors,
 		metricTlogConsistencyErrors,
 		metricTlogRecords,
+		metricCommandsBusy,
 		metricTlogOpsSignedErrors,
 		metricTlogOpsReadrecordsErrors,
 		metricTlogOpsLookupErrors,
@@ -260,6 +261,12 @@ var (
 		prometheus.GaugeOpts{
 			Name: "gobuild_tlog_record_total",
 			Help: "Number of records in the transparency log.",
+		},
+	)
+	metricCommandsBusy = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "gobuild_commands_busy_total",
+			Help: "Number of commands that are busy (acquired).",
 		},
 	)
 

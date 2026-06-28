@@ -17,7 +17,7 @@ import (
 // already managed by the coordinator and its command executions must not get a
 // token.
 // Once we isolate builds more properly, we can increase concurrency again.
-var cmdacquirec = make(chan struct{}, 5)
+var cmdacquirec = make(chan struct{}, 15)
 
 func init() {
 	// Fill with tokens.
@@ -32,7 +32,9 @@ func commandAcquire(ctx context.Context) (release func(), err error) {
 		return func() {}, ctx.Err()
 
 	case <-cmdacquirec:
+		metricCommandsBusy.Inc()
 		return func() {
+			metricCommandsBusy.Dec()
 			cmdacquirec <- struct{}{}
 		}, nil
 	}
