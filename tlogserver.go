@@ -232,7 +232,7 @@ func (s serverOps) lookupBuild(ctx context.Context, bs buildSpec, r *http.Reques
 				}
 				return -1, update.err
 			}
-			return int64(update.buildResult.TreeRecord.ID.Number()), nil
+			return int64(update.treeRecord.ID.Number()), nil
 		}
 	}
 }

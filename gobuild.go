@@ -114,26 +114,26 @@ func (rb *remoteBuild) name() string {
 // This build will restore the binary. If exp is empty and the build is
 // successful, a record is added to the transparency log.
 //
-// On success, returns a build result.
-// On failure, returns an error (last value), and optionally the output as
+// On success, returns result and a record.
+// On failure, can return a result and an error (last value), and optionally the output as
 // string followed by a reason in case this build won't succeed in the future
 // (e.g. due to invalid code and/or compiler combination).
-func build(ctx context.Context, bs buildSpec, exp *BuildResult) (*BuildResult, string, string, error) {
+func build(ctx context.Context, bs buildSpec, exp *BuildResult) (*Result, *TreeRecord, string, string, error) {
 	targets.increase(bs.Goos + "/" + bs.Goarch)
 
 	gobin, err := ensureGobin(bs.Goversion)
 	if err != nil {
-		return nil, "", "", fmt.Errorf("ensuring go version is available: %v (%w)", err, errTempFailure)
+		return nil, nil, "", "", fmt.Errorf("ensuring go version is available: %v (%w)", err, errTempFailure)
 	}
 
 	cmdDir, err := newCommandDir(ctx, "build")
 	if err != nil {
-		return nil, "", "", fmt.Errorf("creating temporary command directory: %v (%w)", err, errTempFailure)
+		return nil, nil, "", "", fmt.Errorf("creating temporary command directory: %v (%w)", err, errTempFailure)
 	}
 	defer removeCommandDir(ctx, cmdDir)
 
 	if _, output, err := ensureModule(ctx, cmdDir, bs.Goversion, gobin, bs.Mod, bs.Version); err != nil {
-		return nil, "", "", fmt.Errorf("error fetching module from goproxy for build: %v (%w)\n\n# output from go get:\n%s", err, errTempFailure, output)
+		return nil, nil, "", "", fmt.Errorf("error fetching module from goproxy for build: %v (%w)\n\n# output from go get:\n%s", err, errTempFailure, output)
 	}
 
 	// Launch goroutines to let the verifiers build the same code and return their
@@ -264,7 +264,7 @@ func build(ctx context.Context, bs buildSpec, exp *BuildResult) (*BuildResult, s
 		// builds.
 		gobuildbindir, err = os.MkdirTemp("", "gobuildbindir")
 		if err != nil {
-			return nil, "", "", fmt.Errorf("making temp dir: %v", err)
+			return nil, nil, "", "", fmt.Errorf("making temp dir: %v", err)
 		}
 		moreEnv = append(moreEnv, "GOBUILD_GOBIN="+gobuildbindir)
 		resultPath = filepath.Join(gobuildbindir, resultPath)
@@ -281,7 +281,7 @@ func build(ctx context.Context, bs buildSpec, exp *BuildResult) (*BuildResult, s
 	// This might be a leftover from some earlier build attempt.
 	err = os.Remove(resultPath)
 	if err != nil && !os.IsNotExist(err) {
-		return nil, "", "", fmt.Errorf("attempting to remove preexisting binary: %v (%w)", err, errTempFailure)
+		return nil, nil, "", "", fmt.Errorf("attempting to remove preexisting binary: %v (%w)", err, errTempFailure)
 	}
 
 	// Always remove binary from $GOBIN when we're done here. We copied it on success.
@@ -300,7 +300,7 @@ func build(ctx context.Context, bs buildSpec, exp *BuildResult) (*BuildResult, s
 	var cmd *exec.Cmd
 	gv, err := parseGoVersion(bs.Goversion)
 	if err != nil {
-		return nil, "", "", fmt.Errorf("%w: %s", errBadGoversion, err)
+		return nil, nil, "", "", fmt.Errorf("%w: %s", errBadGoversion, err)
 	}
 	ldflags := "-buildid="
 	if bs.Stripped {
@@ -325,16 +325,17 @@ func build(ctx context.Context, bs buildSpec, exp *BuildResult) (*BuildResult, s
 		metricCompileVersionErrors.WithLabelValues(bs.Goversion).Inc()
 		out := string(output)
 		reason := cannotBuild(out)
-		if xerr := saveFailure(ctx, bs, err, out, reason); xerr != nil {
-			return nil, "", reason, fmt.Errorf("storing results of failure: %v (%w)", xerr, errTempFailure)
+		if result, xerr := saveFailure(ctx, bs, err, out, reason); xerr != nil {
+			return nil, nil, "", reason, fmt.Errorf("storing results of failure: %v (%w)", xerr, errTempFailure)
+		} else {
+			return result, nil, out, reason, err
 		}
-		return nil, out, reason, err
 	}
 
 	// Where we temporarily store the gzipped binary.
 	tmpdir, err := os.MkdirTemp(config.DataDir, "tmp-binaries-")
 	if err != nil {
-		return nil, "", "", err
+		return nil, nil, "", "", err
 	}
 	defer func() {
 		if err := os.RemoveAll(tmpdir); err != nil {
@@ -349,21 +350,21 @@ func build(ctx context.Context, bs buildSpec, exp *BuildResult) (*BuildResult, s
 	// Calculate our hash.
 	rf, err := os.Open(resultPath)
 	if err != nil {
-		return nil, "", "", fmt.Errorf("open result: %v", err)
+		return nil, nil, "", "", fmt.Errorf("open result: %v", err)
 	}
 	defer rf.Close()
 
 	if info, err := rf.Stat(); err != nil {
-		return nil, "", "", fmt.Errorf("stat result: %v", err)
+		return nil, nil, "", "", fmt.Errorf("stat result: %v", err)
 	} else {
 		br.Filesize = info.Size()
 	}
 
 	h := sha256.New()
 	if _, err := io.Copy(h, rf); err != nil {
-		return nil, "", "", fmt.Errorf("read result: %v", err)
+		return nil, nil, "", "", fmt.Errorf("read result: %v", err)
 	} else if _, err := rf.Seek(0, 0); err != nil {
-		return nil, "", "", fmt.Errorf("seek result: %v", err)
+		return nil, nil, "", "", fmt.Errorf("seek result: %v", err)
 	}
 	br.Sum = buildSum{[20]byte(h.Sum(nil)[:20])}
 
@@ -391,24 +392,24 @@ func build(ctx context.Context, bs buildSpec, exp *BuildResult) (*BuildResult, s
 	if exp != nil {
 		if br.Sum != exp.TreeRecord.Sum {
 			metricRecompileMismatch.WithLabelValues(bs.Goos, bs.Goarch, bs.Goversion).Inc()
-			return nil, "", "", fmt.Errorf("sum of rebuilt binary %s does not match previous sum %s", br.Sum, exp.TreeRecord.Sum)
+			return nil, nil, "", "", fmt.Errorf("sum of rebuilt binary %s does not match previous sum %s", br.Sum, exp.TreeRecord.Sum)
 		}
 		p := filepath.Join(config.DataDir, "binaries", fmt.Sprintf("%d.gz", exp.TreeRecord.ID))
 		ptmp := filepath.Join(tmpdir, "binary.gz")
 		if size, err := writeGz(ptmp, rf); err != nil {
-			return nil, "", "", err
+			return nil, nil, "", "", err
 		} else if err := os.Rename(ptmp, p); err != nil {
-			return nil, "", "", fmt.Errorf("moving binary.gz to destination: %w", err)
+			return nil, nil, "", "", fmt.Errorf("moving binary.gz to destination: %w", err)
 		} else {
 			handleBinaryCacheAdd(size)
 			if exp.Result.FileSizeGz == 0 {
 				exp.Result.FileSizeGz = size
 				if err := database.Update(ctx, &exp.Result); err != nil {
-					return nil, "", "", fmt.Errorf("updating gzipped filesize in database: %w", err)
+					return nil, nil, "", "", fmt.Errorf("updating gzipped filesize in database: %w", err)
 				}
 			}
 
-			return exp, "", "", nil
+			return &exp.Result, &exp.TreeRecord, "", "", nil
 		}
 	}
 
@@ -418,7 +419,7 @@ func build(ctx context.Context, bs buildSpec, exp *BuildResult) (*BuildResult, s
 	for n := len(config.Verifiers) + len(config.VerifierURLs); n > 0; n-- {
 		vr := <-verifyResult
 		if vr.err != nil {
-			return nil, "", "", fmt.Errorf("build at verifier failed: %v (%w)", vr.err, errTempFailure)
+			return nil, nil, "", "", fmt.Errorf("build at verifier failed: %v (%w)", vr.err, errTempFailure)
 		}
 		if vr.result.Sum == br.Sum {
 			matchesFrom = append(matchesFrom, vr.name())
@@ -430,16 +431,16 @@ func build(ctx context.Context, bs buildSpec, exp *BuildResult) (*BuildResult, s
 	}
 	if len(mismatches) > 0 {
 		if len(matchesFrom) > 0 {
-			return nil, "", "", fmt.Errorf("build mismatches, we and %d others got %s, but %s (%w)", len(matchesFrom), br.Sum, strings.Join(mismatches, ", "), errTempFailure)
+			return nil, nil, "", "", fmt.Errorf("build mismatches, we and %d others got %s, but %s (%w)", len(matchesFrom), br.Sum, strings.Join(mismatches, ", "), errTempFailure)
 		}
-		return nil, "", "", fmt.Errorf("build mismatches, we got %s, but %s (%w)", br.Sum, strings.Join(mismatches, ", "), errTempFailure)
+		return nil, nil, "", "", fmt.Errorf("build mismatches, we got %s, but %s (%w)", br.Sum, strings.Join(mismatches, ", "), errTempFailure)
 	}
 
 	// Write binary.
 	binaryPath := filepath.Join(tmpdir, "binary.gz")
 	var filesizeGz int64
 	if size, err := writeGz(binaryPath, rf); err != nil {
-		return nil, "", "", err
+		return nil, nil, "", "", err
 	} else {
 		filesizeGz = size
 	}
@@ -447,13 +448,13 @@ func build(ctx context.Context, bs buildSpec, exp *BuildResult) (*BuildResult, s
 	// Compress build log.
 	buildLogGz, err := compress([]byte(output))
 	if err != nil {
-		return nil, "", "", fmt.Errorf("compressing build log: %v", err)
+		return nil, nil, "", "", fmt.Errorf("compressing build log: %v", err)
 	}
 
 	// Finally, add to the transparency log.
 	nbr, err := addSum(ctx, br, buildLogGz, binaryPath, filesizeGz)
 	if err != nil {
-		return nil, "", "", fmt.Errorf("adding sum to tranparency log: %w", err)
+		return nil, nil, "", "", fmt.Errorf("adding sum to tranparency log: %w", err)
 	}
 
 	handleBinaryCacheAdd(filesizeGz)
@@ -465,10 +466,10 @@ func build(ctx context.Context, bs buildSpec, exp *BuildResult) (*BuildResult, s
 	}
 	recentBuilds.Unlock()
 
-	return &nbr, "", "", nil
+	return &nbr.Result, &nbr.TreeRecord, "", "", nil
 }
 
-func saveFailure(ctx context.Context, bs buildSpec, buildErr error, output, reason string) error {
+func saveFailure(ctx context.Context, bs buildSpec, buildErr error, output, reason string) (*Result, error) {
 	level := slog.LevelInfo
 	switch reason {
 	case "", "unknown":
@@ -478,12 +479,12 @@ func saveFailure(ctx context.Context, bs buildSpec, buildErr error, output, reas
 
 	outputGz, err := compress([]byte(buildErr.Error() + "\n\n" + output))
 	if err != nil {
-		return fmt.Errorf("compressing build log: %v", err)
+		return nil, fmt.Errorf("compressing build log: %v", err)
 	}
 
 	result := bs.result()
 	result.ErrorReason = reason
-	return database.Write(ctx, func(tx *bstore.Tx) error {
+	err = database.Write(ctx, func(tx *bstore.Tx) error {
 		if err := tx.Insert(&result); err != nil {
 			return err
 		}
@@ -495,6 +496,10 @@ func saveFailure(ctx context.Context, bs buildSpec, buildErr error, output, reas
 
 		return nil
 	})
+	if err != nil {
+		return nil, err
+	}
+	return &result, nil
 }
 
 func compress(buf []byte) ([]byte, error) {

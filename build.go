@@ -187,8 +187,8 @@ func serveBuild(w http.ResponseWriter, r *http.Request, req request) {
 					continue
 				}
 
-				if req.Page == pageLog {
-					serveLog(w, r, update.buildResult.Result.ID)
+				if req.Page == pageLog && update.result != nil {
+					serveLog(w, r, update.result.ID)
 					return
 				}
 
@@ -198,7 +198,7 @@ func serveBuild(w http.ResponseWriter, r *http.Request, req request) {
 				}
 
 				// Redirect to the permanent URLs that include the hash.
-				link := request{update.buildResult.Result.buildSpec(), &update.buildResult.TreeRecord.Sum, req.Page}.link()
+				link := request{update.result.buildSpec(), &update.treeRecord.Sum, req.Page}.link()
 				http.Redirect(w, r, link, http.StatusTemporaryRedirect)
 				return
 			}

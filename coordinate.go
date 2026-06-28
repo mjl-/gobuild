@@ -50,13 +50,14 @@ func (bum buildUpdateMsg) json() []byte {
 
 type buildUpdate struct {
 	bs            buildSpec
-	done          bool         // If true, build finished, failure or success.
-	err           error        // If not nil, build failed.
-	errOutput     string       // Output of build, if it failed during a build command.
-	noBuildReason string       // If the build failed, and it won't succeed in the future, this is a short reason.
-	buildResult   *BuildResult // Only in case of success.
-	queuePosition int          // If 0, no longer queued, but building.
-	msg           []byte       // JSON-encoded buildUpdateMsg to write to clients.
+	done          bool        // If true, build finished, failure or success.
+	err           error       // If not nil, build failed.
+	errOutput     string      // Output of build, if it failed during a build command.
+	noBuildReason string      // If the build failed, and it won't succeed in the future, this is a short reason.
+	result        *Result     // Optional for failures.
+	treeRecord    *TreeRecord // Only in case of success.
+	queuePosition int         // If 0, no longer queued, but building.
+	msg           []byte      // JSON-encoded buildUpdateMsg to write to clients.
 }
 
 type buildRequest struct {
@@ -154,7 +155,7 @@ func coordinateBuilds(ctx context.Context) {
 
 			metricBuildTotal.Inc()
 			bctx := context.WithValue(ctx, ctxKeyLog{}, breq.log)
-			result, errOutput, noBuildReason, err := build(bctx, breq.bs, breq.exp)
+			result, treeRecord, errOutput, noBuildReason, err := build(bctx, breq.bs, breq.exp)
 			var errmsg string
 			if err != nil {
 				errmsg = err.Error() + "\n\n" + errOutput
@@ -165,13 +166,13 @@ func coordinateBuilds(ctx context.Context) {
 			}
 			var msg []byte
 			if err == nil {
-				msg = buildUpdateMsg{Kind: kindSuccess, Sum: result.TreeRecord.Sum.String()}.json()
+				msg = buildUpdateMsg{Kind: kindSuccess, Sum: treeRecord.Sum.String()}.json()
 			} else if errors.Is(err, errTempFailure) || errors.Is(err, context.Canceled) {
 				msg = buildUpdateMsg{Kind: kindTempFail, Error: errmsg}.json()
 			} else {
 				msg = buildUpdateMsg{Kind: kindPermFail, Error: errmsg}.json()
 			}
-			update := buildUpdate{bs: breq.bs, done: true, err: err, errOutput: errOutput, noBuildReason: noBuildReason, buildResult: result, msg: msg}
+			update := buildUpdate{bs: breq.bs, done: true, err: err, errOutput: errOutput, noBuildReason: noBuildReason, result: result, treeRecord: treeRecord, msg: msg}
 			updatec <- update
 		})
 	}
@@ -207,16 +208,15 @@ func coordinateBuilds(ctx context.Context) {
 				builds[reg.bs] = b
 
 				// We may have just finished a build. Before starting any new work, try reading a result.
-				if result, record, binaryPresent, err := (serverOps{}.lookupResult(ctx, reg.bs)); err != nil || result != nil && record == nil {
+				if result, treeRecord, binaryPresent, err := (serverOps{}.lookupResult(ctx, reg.bs)); err != nil || result != nil && treeRecord == nil {
 					if err == nil {
 						err = fmt.Errorf("build failed")
 					}
 					msg := buildUpdateMsg{Kind: kindTempFail, Error: err.Error()}.json()
-					b.final = &buildUpdate{reg.bs, true, err, "", "", nil, 0, msg}
+					b.final = &buildUpdate{reg.bs, true, err, "", "", result, nil, 0, msg}
 				} else if binaryPresent {
-					br := BuildResult{*result, *record}
-					msg := buildUpdateMsg{Kind: kindSuccess, Sum: br.TreeRecord.Sum.String()}.json()
-					b.final = &buildUpdate{reg.bs, true, nil, "", "", &br, 0, msg}
+					msg := buildUpdateMsg{Kind: kindSuccess, Sum: treeRecord.Sum.String()}.json()
+					b.final = &buildUpdate{reg.bs, true, nil, "", "", result, treeRecord, 0, msg}
 				}
 				// Else no result or no binary, we'll continue as normal, starting a build.
 			}
