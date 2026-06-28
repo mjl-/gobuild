@@ -176,17 +176,26 @@ func serveSpec(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Resolve module version. Could be a git hash.
-	info, err := resolveModuleVersion(ctx, req.Mod, req.Version)
+	// If we have a result for this request, don't look up the module version, which
+	// involves executing a command.
+	result, _, _, err := (serverOps{}).lookupResult(ctx, req.buildSpec)
 	if err != nil {
-		failf(w, r, "resolving module version: %w", err)
+		failf(w, r, "%w: resolving module version: %v", errServer, err)
 		return
 	}
-	if req.Version != info.Version {
-		req.Version = info.Version
-		http.Redirect(w, r, req.link(), http.StatusTemporaryRedirect)
-		req.link()
-		return
+	if result == nil {
+		// Try resolving the module version. It could be a git hash.
+		info, err := resolveModuleVersion(ctx, req.Mod, req.Version)
+		if err != nil {
+			failf(w, r, "resolving module version: %w", err)
+			return
+		}
+		if req.Version != info.Version {
+			req.Version = info.Version
+			http.Redirect(w, r, req.link(), http.StatusTemporaryRedirect)
+			req.link()
+			return
+		}
 	}
 
 	what := "build"
