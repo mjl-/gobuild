@@ -622,6 +622,12 @@ func cannotBuild(output string) string {
 		return "unknown field in struct likely only available in newer stdlib"
 	}
 
+	// github.com/caddyserver/caddy@v1.0.2/caddy/darwin-arm64-go1.26.4-stripped/
+	// link: golang.org/x/net/internal/socket: invalid reference to syscall.recvmsg
+	if strings.Contains(output, "link: ") && strings.Contains(output, ": invalid reference to ") {
+		return "invalid link reference"
+	}
+
 	if reSourceError.MatchString(output) {
 		return "error on go source line"
 	}
