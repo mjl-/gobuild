@@ -9,7 +9,7 @@ import (
 // It reads the 1000 most recent records, marks them in targets.use, then sorts the targets.
 // It keeps the last 10 builds in memory, for display on the front page.
 func readRecentBuilds(ctx context.Context) {
-	n, err := treeSize()
+	n, err := treeSize(ctx)
 	if err != nil {
 		log.Fatalf("getting sum tree size: %v", err)
 	}
@@ -42,7 +42,7 @@ func readRecentBuilds(ctx context.Context) {
 		if i < keepFrom {
 			continue
 		}
-		link := request{br.buildSpec, br.Sum, pageIndex}.link()
+		link := request{br.buildSpec, &br.Sum, pageIndex}.link()
 		links = append(links, link)
 	}
 	targets.sort()

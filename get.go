@@ -4,11 +4,11 @@ import (
 	"compress/gzip"
 	"context"
 	"crypto/sha256"
-	"encoding/base64"
 	"flag"
 	"fmt"
 	"io"
 	"log"
+	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -103,8 +103,12 @@ func get(args []string) {
 	}
 
 	if *sum != "" {
-		if *sum != br.Sum {
-			log.Fatalf("remote has different sum %s, expected %s", br.Sum, *sum)
+		bsum, err := parseBuildSum(*sum)
+		if err != nil {
+			log.Fatalf("parsing build sum: %v", err)
+		}
+		if bsum != br.Sum {
+			log.Fatalf("remote has different sum %s, expected %s", br.Sum, bsum)
 		}
 		getLog("sum matches")
 	}
@@ -138,15 +142,15 @@ func get(args []string) {
 	}
 }
 
-func fetch(f *os.File, gobuildBaseURL string, br *buildResult, dst string) error {
-	link := gobuildBaseURL + request{br.buildSpec, br.Sum, pageDownloadGz}.link()
+func fetch(f *os.File, gobuildBaseURL string, br *Record, dst string) error {
+	link := gobuildBaseURL + request{br.buildSpec, &br.Sum, pageDownloadGz}.link()
 	getLog("downloading and verifying binary at %s", link)
 	resp, err := httpGet(context.Background(), link)
 	if err != nil {
 		return fmt.Errorf("making request to download binary: %v", err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("remote http response for downloading binary: %s", resp.Status)
 	}
 
@@ -164,8 +168,7 @@ func fetch(f *os.File, gobuildBaseURL string, br *buildResult, dst string) error
 		return fmt.Errorf("close gzip stream: %v", err)
 	}
 
-	sha := h.Sum(nil)
-	dlSum := "0" + base64.RawURLEncoding.EncodeToString(sha[:20])
+	dlSum := buildSum{[20]byte(h.Sum(nil)[:20])}
 	if dlSum != br.Sum {
 		return fmt.Errorf("downloaded binary has sum %s, expected %s", dlSum, br.Sum)
 	}

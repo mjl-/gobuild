@@ -98,23 +98,23 @@
 		{{ if .Mod.Err }}
 			<div>error: {{ .Mod.Err }}</div>
 		{{ else }}
-		{{ range .Mod.VersionLinks }}	<div><a rel="nofollow noindex" href="{{ .URLPath }}" class="buildlink{{ if .Active }} active{{ end }} ">{{ .Version }}</a>{{ if .Success }}<span class="success">✓</span>{{ end }}</div>{{ end }}
+		{{ range .Mod.VersionLinks }}	<div><a rel="nofollow noindex" href="{{ .URLPath }}" class="buildlink{{ if .Active }} active{{ end }} ">{{ .Version }}</a>{{ if .Sum }}<span class="success">✓</span>{{ end }}</div>{{ end }}
 		{{ end }}
 		</div>
 
 		<div>
 			<h2>Targets</h2>
-		{{ range .TargetLinks }}	<div><a rel="nofollow noindex" href="{{ .URLPath }}" class="buildlink{{ if .Active }} active{{ end }} ">{{ .Goos }}/{{ .Goarch }}</a>{{ if .Success }}<span class="success">✓</span>{{ end }}</div>{{ end }}
+		{{ range .TargetLinks }}	<div><a rel="nofollow noindex" href="{{ .URLPath }}" class="buildlink{{ if .Active }} active{{ end }} ">{{ .Goos }}/{{ .Goarch }}</a>{{ if .Sum }}<span class="success">✓</span>{{ end }}</div>{{ end }}
 		</div>
 
 		<div>
 			<h2>Go versions</h2>
-		{{ range .GoversionLinks }}	<div><a rel="nofollow noindex" href="{{ .URLPath }}" class="buildlink{{ if .Active }} active{{ end }} {{ if not .Supported }} unsupported{{ end }}">{{ .Goversion }}</a>{{ if .Success }}<span class="success">✓</span>{{ end }}</div>{{ end }}
+		{{ range .GoversionLinks }}	<div><a rel="nofollow noindex" href="{{ .URLPath }}" class="buildlink{{ if .Active }} active{{ end }} {{ if not .Supported }} unsupported{{ end }}">{{ .Goversion }}</a>{{ if .Sum }}<span class="success">✓</span>{{ end }}</div>{{ end }}
 		</div>
 
 		<div>
 			<h2>Variants</h2>
-		{{ range .VariantLinks }}	<div><a rel="nofollow noindex" href="{{ .URLPath }}" class="buildlink{{ if .Active }} active{{ end }}" title="{{ .Title }}">{{ .Variant }}</a>{{ if .Success }}<span class="success">✓</span>{{ end }}</div>{{ end }}
+		{{ range .VariantLinks }}	<div><a rel="nofollow noindex" href="{{ .URLPath }}" class="buildlink{{ if .Active }} active{{ end }}" title="{{ .Title }}">{{ .Variant }}</a>{{ if .Sum }}<span class="success">✓</span>{{ end }}</div>{{ end }}
 		</div>
 	</div>
 {{ end }}
@@ -242,7 +242,7 @@ function copyOneliner() {
 				break
 			case 'Success':
 				{
-					var resultsURL = location.pathname + update.Result.Sum + '/'
+					var resultsURL = location.pathname + update.Sum + '/'
 					showProgress(span('Build successful, redirecting to ', link(resultsURL, 'results page'), '.'))
 					src.close()
 					location.href = resultsURL

@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"os"
-	"path/filepath"
 	"slices"
 	"time"
+
+	"github.com/mjl-/bstore"
 )
 
 // handleBadClient is called for builds triggered through the web interface (not
@@ -51,14 +51,15 @@ func handleBadClient(w http.ResponseWriter, r *http.Request, bs buildSpec) bool 
 }
 
 func serveBuild(w http.ResponseWriter, r *http.Request, req request) {
-	log := logger(r.Context())
+	ctx := r.Context()
+	log := logger(ctx)
 
 	var resolvedLatest bool
 	nreq := req
 
 	// Resolve "latest" goversion with a redirect.
 	if req.Goversion == "latest" {
-		if newestAllowed, _, _ := listSDK(r.Context()); newestAllowed == "" {
+		if newestAllowed, _, _ := listSDK(ctx); newestAllowed == "" {
 			failf(w, r, "no supported go toolchains available: %w", errServer)
 			return
 		} else {
@@ -69,7 +70,7 @@ func serveBuild(w http.ResponseWriter, r *http.Request, req request) {
 
 	// Resolve "latest" module version with a redirect.
 	if req.Version == "latest" {
-		if info, err := resolveModuleVersion(r.Context(), req.Mod, req.Version); err != nil {
+		if info, err := resolveModuleVersion(ctx, req.Mod, req.Version); err != nil {
 			failf(w, r, "resolving latest for module: %w", err)
 			return
 		} else {
@@ -84,42 +85,32 @@ func serveBuild(w http.ResponseWriter, r *http.Request, req request) {
 	}
 
 	// See if we have a completed build, and handle it.
-	if _, br, _, failed, err := (serverOps{}).lookupResult(r.Context(), req.buildSpec); err != nil {
+	if result, record, _, err := (serverOps{}).lookupResult(ctx, req.buildSpec); err != nil {
 		failf(w, r, "%w: lookup record: %v", errServer, err)
 		return
-	} else if br != nil {
+	} else if record != nil {
 		// Redirect to the permanent URLs that include the hash.
-		link := request{br.buildSpec, br.Sum, req.Page}.link()
+		link := request{result.buildSpec(), &record.Sum, req.Page}.link()
 		http.Redirect(w, r, link, http.StatusTemporaryRedirect)
 		return
-	} else if failed {
+	} else if result != nil {
 		// Show failed build to user, for the pages where that works.
 		switch req.Page {
 		case pageRetry:
-			// We'll move away the directory with the failed build, remove it, and redirect
-			// user to the index page so a new build is triggered.
-			dir := req.buildSpec.storeDir()
-			// Just a sanity check that we aren't removing successful build results.
-			if _, err := os.Stat(filepath.Join(dir, "recordnumber")); err == nil {
-				failf(w, r, "%w: directory with failed build contains recordnumber-file", errServer)
-				return
-			}
-
-			tmpdir := dir + ".remove"
-			if err := os.Rename(dir, tmpdir); err != nil {
-				failf(w, r, "%w: moving away directory with log of failed build: %v", errServer, err)
-				return
-			}
-			if err := os.RemoveAll(tmpdir); err != nil {
-				failf(w, r, "%w: removing path of failed build: %s", errServer, err)
+			err := database.Write(ctx, func(tx *bstore.Tx) error {
+				bl := BuildLog{ID: result.ID}
+				return tx.Delete(&bl, result)
+			})
+			if err != nil {
+				failf(w, r, "%w: deleting previous result: %v", errServer, err)
 				return
 			}
 			req.Page = pageIndex
 			http.Redirect(w, r, req.link(), http.StatusSeeOther)
 		case pageLog:
-			serveLog(w, r, filepath.Join(req.storeDir(), "log.gz"))
+			serveLog(w, r, result.ID)
 		case pageIndex:
-			serveIndex(w, r, req.buildSpec, nil)
+			serveIndex(w, r, req.buildSpec, result, nil)
 		default:
 			failf(w, r, "build failed, see index page for details")
 		}
@@ -135,8 +126,6 @@ func serveBuild(w http.ResponseWriter, r *http.Request, req request) {
 	// and builds go through the coordinator, which always first checks if a build has
 	// completed.
 
-	ctx := r.Context()
-
 	// We always immediately attempt to get the files for a build. This checks with the
 	// goproxy that the module and package exist, and seems like it has a chance to
 	// compile.
@@ -149,12 +138,12 @@ func serveBuild(w http.ResponseWriter, r *http.Request, req request) {
 	// endpoint to register a request for the build and to receive updates. Pages other
 	// than /events will block until a build completes.
 	if req.Page == pageIndex {
-		serveIndex(w, r, req.buildSpec, nil)
+		serveIndex(w, r, req.buildSpec, nil, nil)
 		return
 	}
 
 	eventc := make(chan buildUpdate, 100)
-	registerBuild(logger(ctx), req.buildSpec, "", eventc, remoteIP(r))
+	registerBuild(logger(ctx), req.buildSpec, nil, eventc, remoteIP(r))
 	defer unregisterBuild(req.buildSpec, eventc)
 
 	switch req.Page {
@@ -199,7 +188,7 @@ func serveBuild(w http.ResponseWriter, r *http.Request, req request) {
 				}
 
 				if req.Page == pageLog {
-					serveLog(w, r, filepath.Join(req.storeDir(), "log.gz"))
+					serveLog(w, r, update.buildResult.Result.ID)
 					return
 				}
 
@@ -209,7 +198,7 @@ func serveBuild(w http.ResponseWriter, r *http.Request, req request) {
 				}
 
 				// Redirect to the permanent URLs that include the hash.
-				link := request{update.result.buildSpec, update.result.Sum, req.Page}.link()
+				link := request{update.buildResult.Result.buildSpec(), &update.buildResult.TreeRecord.Sum, req.Page}.link()
 				http.Redirect(w, r, link, http.StatusTemporaryRedirect)
 				return
 			}

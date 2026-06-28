@@ -64,7 +64,7 @@ func serveModules(w http.ResponseWriter, r *http.Request) {
 		return
 	} else if len(mainDirs) == 1 {
 		bs.Dir = "/" + filepath.ToSlash(mainDirs[0])
-		link := request{bs, "", pageIndex}.link()
+		link := request{bs, nil, pageIndex}.link()
 		http.Redirect(w, r, link, http.StatusTemporaryRedirect)
 		return
 	}
@@ -76,7 +76,7 @@ func serveModules(w http.ResponseWriter, r *http.Request) {
 	mainPkgs := []mainPkg{}
 	for _, md := range mainDirs {
 		bs.Dir = "/" + filepath.ToSlash(md)
-		link := request{bs, "", pageIndex}.link()
+		link := request{bs, nil, pageIndex}.link()
 		if md == "" {
 			md = "/"
 		}

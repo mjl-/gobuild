@@ -1,0 +1,33 @@
+<!doctype html>
+<html>
+	<head>
+		<title>admin</title>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width" />
+		<style>
+/*<![CDATA[*/
+* { box-sizing: border-box; }
+body { font-family: Ubuntu, Lato, sans-serif; color: #111; line-height: 1.3; }
+body, input, button { font-size: 17px; }
+h1 { font-size: 1.5rem; }
+h2 { font-size: 1.25rem; }
+h3 { font-size: 1.125rem; }
+a { color: #007d9c; }
+pre { font-size: .9rem; }
+/*]]>*/
+		</style>
+	</head>
+	<body style="margin:1rem 1rem 3rem 1rem">
+<h1>admin</h1>
+<pre>
+<a href="pending">pending</a>
+<a href="buildfailures">buildfailures</a>
+<a href="results">results</a>
+<a href="db">db</a>
+<a href="metrics">metrics</a>
+
+<form method="POST" action="clearall"><button type="submit">Clear all failed builds</button></form>
+<form method="POST" action="clear"><input name="id" placeholder="ID..." /><button type="submit">Clear failed builds since ID</button></form>
+</pre>
+	</body>
+</html>

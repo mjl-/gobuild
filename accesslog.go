@@ -21,7 +21,7 @@ type logResponseWriter struct {
 
 func (lw *logResponseWriter) Write(buf []byte) (int, error) {
 	if !lw.Logged {
-		lw.LogStatus(200)
+		lw.LogStatus(http.StatusOK)
 	}
 	return lw.ResponseWriter.Write(buf)
 }

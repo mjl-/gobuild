@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/base64"
 	"fmt"
 	"path"
 	"strings"
@@ -44,7 +43,7 @@ func (p page) String() string {
 
 type request struct {
 	buildSpec
-	Sum  string // Empty for build instead of result requests.
+	Sum  *buildSum // Nil for build instead of result requests.
 	Page page
 }
 
@@ -55,8 +54,8 @@ func (r request) link() string {
 		variant = "-stripped"
 	}
 	s := fmt.Sprintf("/%s@%s/%s%s-%s-%s%s/", r.Mod, r.Version, r.appendDir(), r.Goos, r.Goarch, r.Goversion, variant)
-	if r.Sum != "" {
-		s += r.Sum + "/"
+	if r.Sum != nil {
+		s += r.Sum.String() + "/"
 	}
 	s += r.pagePart()
 	return s
@@ -104,17 +103,6 @@ func (r request) downloadFilename() string {
 	return fmt.Sprintf("%s-%s-%s%s%s", name, r.Version, r.Goversion, variant, ext)
 }
 
-func isSum(s string) bool {
-	if !strings.HasPrefix(s, "0") {
-		return false
-	}
-	buf, err := base64.RawURLEncoding.DecodeString(s[1:])
-	if err != nil {
-		return false
-	}
-	return len(buf) == 20
-}
-
 // We'll get paths like /github.com/mjl-/sherpa@v0.6.0/cmd/sherpaclient/linux-amd64-go1.14.1/0m32pSahHbf-fptQdDyWD87GJNXI/{log,dl,<name>,<name>.gz,record,events,retry}
 // with optional sum.
 func parseRequest(s string) (r request, hint string, ok bool) {
@@ -132,9 +120,11 @@ func parseRequest(s string) (r request, hint string, ok bool) {
 		page = t[len(t)-1]
 		t = t[:len(t)-1]
 	}
-	if len(t) > 2 && isSum(t[len(t)-1]) {
-		r.Sum = t[len(t)-1]
-		t = t[:len(t)-1]
+	if len(t) > 2 {
+		if sum, err := parseBuildSum(t[len(t)-1]); err == nil {
+			r.Sum = &sum
+			t = t[:len(t)-1]
+		}
 	}
 	if len(t) < 2 {
 		hint = "Missing goos-goarch-goversion at end of path"
@@ -174,7 +164,7 @@ func parseRequest(s string) (r request, hint string, ok bool) {
 		}
 	}
 
-	if r.Sum != "" && (r.Page == pageEvents || r.Page == pageRetry) {
+	if r.Sum != nil && (r.Page == pageEvents || r.Page == pageRetry) {
 		hint = fmt.Sprintf("No %s endpoint for results", r.Page.String())
 		return
 	}

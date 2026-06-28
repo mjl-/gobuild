@@ -154,7 +154,7 @@ func serveSpec(w http.ResponseWriter, r *http.Request) {
 		goos, goarch := autodetectTarget(r)
 		bs := buildSpec{mod, version, "/", goos, goarch, goversion.String(), false}
 
-		req := request{bs, "", pageIndex}
+		req := request{bs, nil, pageIndex}
 		http.Redirect(w, r, req.link(), http.StatusTemporaryRedirect)
 		return
 	}
@@ -190,11 +190,11 @@ func serveSpec(w http.ResponseWriter, r *http.Request) {
 	}
 
 	what := "build"
-	if req.Sum != "" {
+	if req.Sum != nil {
 		what = "result"
 	}
 	defer observePage(what+" "+req.Page.String(), time.Now())
-	if req.Sum == "" {
+	if req.Sum == nil {
 		serveBuild(w, r, req)
 	} else {
 		serveResult(w, r, req)

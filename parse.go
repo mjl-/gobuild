@@ -1,14 +1,34 @@
 package main
 
 import (
-	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
 	"path"
-	"path/filepath"
 	"strconv"
 	"strings"
 )
+
+type buildSum struct {
+	Sum [20]byte
+}
+
+func (s buildSum) String() string {
+	return "0" + base64.RawURLEncoding.EncodeToString(s.Sum[:])
+}
+
+func parseBuildSum(s string) (buildSum, error) {
+	if !strings.HasPrefix(s, "0") {
+		return buildSum{}, fmt.Errorf("sum must start with 0")
+	}
+	buf, err := base64.RawURLEncoding.DecodeString(s[1:])
+	if err != nil {
+		return buildSum{}, fmt.Errorf("parsing base64 sum: %v", err)
+	}
+	if len(buf) != 20 {
+		return buildSum{}, fmt.Errorf("sum must be 20 bytes, not %d", len(buf))
+	}
+	return buildSum{[20]byte(buf)}, nil
+}
 
 type buildSpec struct {
 	Mod       string // E.g. github.com/mjl-/gobuild. Never starts or ends with slash, and is never empty.
@@ -18,6 +38,18 @@ type buildSpec struct {
 	Goarch    string
 	Goversion string
 	Stripped  bool
+}
+
+func (bs buildSpec) result() Result {
+	return Result{
+		Mod:       bs.Mod,
+		Version:   bs.Version,
+		Dir:       bs.Dir,
+		Goos:      bs.Goos,
+		Goarch:    bs.Goarch,
+		Goversion: bs.Goversion,
+		Stripped:  bs.Stripped,
+	}
 }
 
 // filename to store the binary as. With .exe for windows.
@@ -54,18 +86,10 @@ func (bs buildSpec) String() string {
 	return fmt.Sprintf("%s@%s/%s%s-%s-%s%s/", bs.Mod, bs.Version, bs.appendDir(), bs.Goos, bs.Goarch, bs.Goversion, variant)
 }
 
-// Local directory where results are stored, both successful and failed.
-// Directories of failed builds can be removed, for a retry.
-func (bs buildSpec) storeDir() string {
-	sha := sha256.Sum256([]byte(bs.String()))
-	sum := base64.RawURLEncoding.EncodeToString(sha[:20])
-	return filepath.Join(resultDir, sum[:1], sum)
-}
-
-type buildResult struct {
+type Record struct {
 	buildSpec
 	Filesize int64
-	Sum      string
+	Sum      buildSum
 }
 
 // Parse string of the form: module@version/dir/goos-goarch-goversion[-stripped]/.
@@ -176,7 +200,7 @@ func parseGetSpec(s string) (buildSpec, error) {
 	return bs, nil
 }
 
-func parseRecord(data []byte) (*buildResult, error) {
+func parseRecord(data []byte) (*Record, error) {
 	msg := string(data)
 	if !strings.HasSuffix(msg, "\n") {
 		return nil, fmt.Errorf("does not end in newline")
@@ -200,11 +224,15 @@ func parseRecord(data []byte) (*buildResult, error) {
 			return nil, fmt.Errorf("bad variant %s", t[8])
 		}
 	}
-	br := &buildResult{buildSpec{t[0], t[1], t[2], t[3], t[4], t[5], stripped}, size, t[7]}
+	sum, err := parseBuildSum(t[7])
+	if err != nil {
+		return nil, fmt.Errorf("parsing build sum: %v", err)
+	}
+	br := &Record{buildSpec{t[0], t[1], t[2], t[3], t[4], t[5], stripped}, size, sum}
 	return br, nil
 }
 
-func (br buildResult) packRecord() ([]byte, error) {
+func (br Record) Pack() ([]byte, error) {
 	var variant string
 	if br.Stripped {
 		variant = "stripped"
@@ -217,7 +245,7 @@ func (br buildResult) packRecord() ([]byte, error) {
 		br.Goarch,
 		br.Goversion,
 		fmt.Sprintf("%d", br.Filesize),
-		br.Sum,
+		br.Sum.String(),
 		variant,
 	}
 	for i, f := range fields {
@@ -229,9 +257,6 @@ func (br buildResult) packRecord() ([]byte, error) {
 				return nil, fmt.Errorf("bad field %d in record: %q", i, f)
 			}
 		}
-	}
-	if len(br.Sum) != 28 {
-		return nil, fmt.Errorf("bad length for sum")
 	}
 	if br.Filesize == 0 {
 		return nil, fmt.Errorf("bad filesize 0")

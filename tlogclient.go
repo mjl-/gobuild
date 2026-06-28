@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"log/slog"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -72,7 +73,7 @@ func (c *clientOps) ReadRemote(ctx context.Context, path string) ([]byte, error)
 		return nil, err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("http get: %v", resp.Status)
 	}
 	return io.ReadAll(resp.Body)
