@@ -1012,6 +1012,8 @@ func failf(w http.ResponseWriter, r *http.Request, format string, args ...any) {
 		status = http.StatusServiceUnavailable
 	} else if errors.Is(err, errServer) {
 		status = http.StatusInternalServerError
+	} else if errors.Is(err, context.Canceled) {
+		status = 499
 	} else {
 		status = http.StatusBadRequest
 	}
