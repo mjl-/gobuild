@@ -534,7 +534,10 @@ func writeGz(path string, src io.Reader) (dstSize int64, rerr error) {
 	} else {
 		err = lf.Close()
 		lf = nil
-		return sz.size, fmt.Errorf("close: %w", err)
+		if err != nil {
+			return -1, fmt.Errorf("close: %w", err)
+		}
+		return sz.size, nil
 	}
 }
 
