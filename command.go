@@ -181,7 +181,7 @@ func saveLatest(ctx context.Context, srcDir string) error {
 	}()
 	err = nf.Close()
 	logCheck(ctx, err, "closing temp sumdb latest file")
-	if err := os.WriteFile(tmpname, buf, 0o600); err != nil {
+	if err := writeFileSync(tmpname, buf, 0o600); err != nil {
 		return fmt.Errorf("writing temp sumdb latest file: %w", err)
 	}
 

@@ -140,10 +140,9 @@ func (c *clientOps) WriteCache(file string, data []byte) {
 	// log.Printf("client: WriteCache %s", file)
 
 	p := filepath.Join(c.localDir, "cache", file)
-	os.MkdirAll(filepath.Dir(p), 0777)
-	if err := os.WriteFile(p, data, 0666); err != nil {
-		// todo: should be able to return errors
-		panic(fmt.Sprintf("write failed: %v", err))
+	os.MkdirAll(filepath.Dir(p), 0o777)
+	if err := writeFileSync(p, data, 0o666); err != nil {
+		slog.Error("write cache file", "err", err, "path", p)
 	}
 }
 

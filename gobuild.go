@@ -529,10 +529,12 @@ func writeGz(path string, src io.Reader) (dstSize int64, rerr error) {
 		return -1, err
 	} else if err := lfgz.Close(); err != nil {
 		return -1, err
+	} else if err := lf.Sync(); err != nil {
+		return -1, fmt.Errorf("sync: %w", err)
 	} else {
 		err = lf.Close()
 		lf = nil
-		return sz.size, err
+		return sz.size, fmt.Errorf("close: %w", err)
 	}
 }
 
