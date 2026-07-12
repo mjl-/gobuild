@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -90,7 +91,7 @@ func addSum(ctx context.Context, record Record, buildLogGz []byte, tmpBinaryPath
 
 		// Log what we are writing.
 		if sumLogFile != nil {
-			if _, err := fmt.Fprintf(sumLogFile, "adding recordnum=%d resultid=%d buildspec=%s sum=%s record=%s hashesindex=%d hashes=%v", record.ID.Number(), result.ID, result.buildSpec(), record.Sum, msg, hashCount, hashes); err != nil {
+			if _, err := fmt.Fprintf(sumLogFile, "adding recordnum=%d resultid=%d buildspec=%s sum=%s record=%s hashesindex=%d hashes=%v\n", record.ID.Number(), result.ID, result.buildSpec(), record.Sum, bytes.TrimSpace(msg), hashCount, hashes); err != nil {
 				return fmt.Errorf("writing sum log: %v", err)
 			}
 		}
