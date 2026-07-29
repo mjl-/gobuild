@@ -762,7 +762,7 @@ func serve(args []string) {
 		idStr := r.FormValue("id")
 		id, err := strconv.ParseInt(idStr, 10, 64)
 		if err != nil {
-			http.Error(w, fmt.Sprintf("400 - bad request - parsing form value id %q as int: %v", idStr, err), http.StatusBadRequest)
+			http.Error(w, fmt.Sprintf("400 - bad request - parsing form value id %q as int: %v", idStr, err), http.StatusUnprocessableEntity)
 			return
 		}
 		clearFailed(w, r, id)
@@ -1015,7 +1015,7 @@ func failf(w http.ResponseWriter, r *http.Request, format string, args ...any) {
 	} else if errors.Is(err, context.Canceled) {
 		status = 499
 	} else {
-		status = http.StatusBadRequest
+		status = http.StatusUnprocessableEntity
 	}
 	statusfail(r.Context(), status, w, errmsg)
 }

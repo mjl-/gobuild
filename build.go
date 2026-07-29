@@ -121,6 +121,16 @@ func serveBuild(w http.ResponseWriter, r *http.Request, req request) {
 		return
 	}
 
+	// The html page used to have links to "log" and "dl" endpoints. They are still
+	// loading these. We don't want to trigger builds for them.
+	// Note: we will still trigger builds for pageDownload, pageDownloadGz and
+	// pageRecord. Those never had links (at all, or before a result).
+	switch req.Page {
+	case pageLog, pageDownloadRedirect:
+		statusfail(ctx, http.StatusUnprocessableEntity, w, "no build yet, trigger it, wait for it to finish and load again")
+		return
+	}
+
 	// No build yet, we need one. Keep in mind that another build could finish between
 	// the checks above and below. This isn't a problem: preparing a build never hurts,
 	// and builds go through the coordinator, which always first checks if a build has
