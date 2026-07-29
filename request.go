@@ -164,7 +164,7 @@ func parseRequest(s string) (r request, hint string, ok bool) {
 		}
 	}
 
-	if r.Sum != nil && (r.Page == pageEvents || r.Page == pageRetry) {
+	if r.Sum != nil && r.Page == pageRetry {
 		hint = fmt.Sprintf("No %s endpoint for results", r.Page.String())
 		return
 	}

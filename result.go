@@ -85,6 +85,14 @@ func serveResult(w http.ResponseWriter, r *http.Request, req request) {
 		}
 	case pageIndex:
 		serveIndex(w, r, req.buildSpec, result, treeRecord)
+	case pageEvents:
+		// If a user had a "to build" page open, someone else triggered a build which
+		// finished, and the user tries to trigger it as well. Just report that it is done.
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		msg := buildUpdateMsg{Kind: kindSuccess, Sum: treeRecord.Sum.String()}.json()
+		w.Write(msg)
+
 	default:
 		failf(w, r, "%w: unknown page %v", errServer, req.Page)
 	}
