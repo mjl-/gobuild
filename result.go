@@ -1,11 +1,19 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
 )
+
+func logPresent(ctx context.Context, resultID int64) bool {
+	bl := BuildLog{ID: resultID}
+	err := database.Get(ctx, &bl)
+	// note: should otherwise be bstore.ErrAbsent; we're ignoring other kinds of errors
+	return err == nil
+}
 
 func serveResult(w http.ResponseWriter, r *http.Request, req request) {
 	ctx := r.Context()
@@ -14,7 +22,7 @@ func serveResult(w http.ResponseWriter, r *http.Request, req request) {
 	if err != nil {
 		failf(w, r, "%w: lookup record: %v", errServer, err)
 		return
-	} else if treeRecord == nil || !binaryPresent {
+	} else if treeRecord == nil || !binaryPresent && req.Page != pageIndex && req.Page != pageEvents && req.Page != pageRecord && req.Page != pageLog || req.Page == pageLog && !logPresent(ctx, result.ID) {
 		if handleBadClient(w, r, req.buildSpec) {
 			return
 		}
