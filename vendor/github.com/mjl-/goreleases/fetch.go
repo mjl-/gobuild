@@ -9,7 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"golang.org/x/crypto/openpgp"
+	"github.com/ProtonMail/go-crypto/openpgp"
+	"github.com/ProtonMail/go-crypto/openpgp/packet"
 )
 
 // Permissions to set on extract files and directories, overriding permissions in the archive.
@@ -74,7 +75,7 @@ func Fetch(file File, dst string, permissions *Permissions) error {
 	if _, err := f.Seek(0, 0); err != nil {
 		return fmt.Errorf("rewinding downloaded release file: %v", err)
 	}
-	if _, err := openpgp.CheckArmoredDetachedSignature(signingKey, f, bytes.NewReader(sigbuf)); err != nil {
+	if _, err := openpgp.CheckArmoredDetachedSignature(signingKey, f, bytes.NewReader(sigbuf), &packet.Config{}); err != nil {
 		return fmt.Errorf("verifying pgp signature on go release: %v", err)
 	}
 	if _, err := f.Seek(0, 0); err != nil {
