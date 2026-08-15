@@ -420,9 +420,12 @@ func checkSDK(ctx context.Context, gobin, goversion string) error {
 	}
 	defer removeCommandDir(ctx, cmdDir)
 
+	cmdCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+
 	const goproxy = false
 	const cgo = false
-	cmd := makeCommand(ctx, cmdDir, cmdDir, goversion, goproxy, cgo, nil, gobin, "version")
+	cmd := makeCommand(cmdCtx, cmdDir, cmdDir, goversion, goproxy, cgo, nil, gobin, "version")
 	if output, err := cmd.CombinedOutput(); err != nil {
 		logger(ctx).Error("running go version to test toolchain", "err", err, "output", output)
 		return err

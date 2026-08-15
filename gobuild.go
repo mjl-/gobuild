@@ -66,6 +66,9 @@ func prepareBuild(ctx context.Context, bs buildSpec) error {
 		defer release()
 	}
 
+	cmdCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+
 	// Check if package is a main package, resulting in an executable when built.
 	goproxy := true
 	cgo := true
@@ -73,7 +76,7 @@ func prepareBuild(ctx context.Context, bs buildSpec) error {
 		"GOOS=" + bs.Goos,
 		"GOARCH=" + bs.Goarch,
 	}
-	cmd := makeCommand(ctx, cmdDir, pkgDir, bs.Goversion, goproxy, cgo, moreEnv, gobin, "list", "-f", "{{.Name}}")
+	cmd := makeCommand(cmdCtx, cmdDir, pkgDir, bs.Goversion, goproxy, cgo, moreEnv, gobin, "list", "-f", "{{.Name}}")
 	stderr := &strings.Builder{}
 	cmd.Stderr = stderr
 	if nameOutput, err := cmd.Output(); err != nil {
@@ -295,6 +298,9 @@ func build(ctx context.Context, bs buildSpec, exp *BuildResult) (*Result, *TreeR
 	// Could be helpful for debugging. NOTE: before go1.13.3, working directories of
 	// builds would affect the resulting binary.
 
+	cmdCtx, cancel := context.WithTimeout(ctx, 15*time.Minute)
+	defer cancel()
+
 	goproxy := false
 	cgo := false
 	var cmd *exec.Cmd
@@ -313,9 +319,9 @@ func build(ctx context.Context, bs buildSpec, exp *BuildResult) (*Result, *TreeR
 		if gv.major == 1 && gv.minor >= 23 {
 			goproxy = true
 		}
-		cmd = makeCommand(ctx, cmdDir, cmdDir, bs.Goversion, goproxy, cgo, moreEnv, gobin, "install", "-x", "-v", "-trimpath", "-ldflags="+ldflags, "--", name)
+		cmd = makeCommand(cmdCtx, cmdDir, cmdDir, bs.Goversion, goproxy, cgo, moreEnv, gobin, "install", "-x", "-v", "-trimpath", "-ldflags="+ldflags, "--", name)
 	} else {
-		cmd = makeCommand(ctx, cmdDir, cmdDir, bs.Goversion, goproxy, cgo, moreEnv, gobin, "get", "-x", "-v", "-trimpath", "-ldflags="+ldflags, "--", name)
+		cmd = makeCommand(cmdCtx, cmdDir, cmdDir, bs.Goversion, goproxy, cgo, moreEnv, gobin, "get", "-x", "-v", "-trimpath", "-ldflags="+ldflags, "--", name)
 	}
 	output, err := cmd.CombinedOutput()
 	metricCompileDuration.Observe(time.Since(t0).Seconds())

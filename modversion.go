@@ -46,9 +46,12 @@ func resolveModuleVersion(ctx context.Context, mod, version string) (mv *modVers
 		defer release()
 	}
 
+	cmdCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+
 	const goproxy = true
 	const cgo = false
-	cmd := makeCommand(ctx, cmdDir, cmdDir, goversion.String(), goproxy, cgo, nil, gobin, "list", "-x", "-m", "-json", "--", mod+"@"+version)
+	cmd := makeCommand(cmdCtx, cmdDir, cmdDir, goversion.String(), goproxy, cgo, nil, gobin, "list", "-x", "-m", "-json", "--", mod+"@"+version)
 	stderr := &strings.Builder{}
 	cmd.Stderr = stderr
 	output, err := cmd.Output()

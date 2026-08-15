@@ -112,12 +112,15 @@ func listMainPackages(ctx context.Context, cmdDir, modDir string, goversion goVe
 		defer release()
 	}
 
+	cmdCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+
 	argv := []string{gobin, "list"}
 	if goversion.major == 1 && (goversion.minor == 21 && goversion.patch >= 1 || goversion.minor > 21) {
 		argv = append(argv, "-mod=readonly")
 	}
 	argv = append(argv, "-f", "{{.Name}} {{ .Dir }}", "./...")
-	cmd := makeCommand(ctx, cmdDir, modDir, goversion.String(), goproxy, cgo, nil, argv...)
+	cmd := makeCommand(cmdCtx, cmdDir, modDir, goversion.String(), goproxy, cgo, nil, argv...)
 	stderr := &strings.Builder{}
 	cmd.Stderr = stderr
 	output, err := cmd.Output()
